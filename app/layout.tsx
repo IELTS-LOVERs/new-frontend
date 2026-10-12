@@ -1,16 +1,34 @@
-import { Geist, Geist_Mono, Outfit, Instrument_Sans } from "next/font/google"
-
+import type { Metadata } from "next"
+import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
-import { cn } from "@/lib/utils";
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { Toaster } from "@/components/ui/sonner"
+import { AppProviders } from "@/components/providers/query-provider"
+import { cn } from "@/lib/utils"
 
-const instrumentSansHeading = Instrument_Sans({subsets:['latin'],variable:'--font-heading'});
+export const metadata: Metadata = {
+  title: "IELTS LOVERs",
+  description: "Nền tảng luyện thi IELTS Computer-delivered",
+  icons: {
+    icon: [
+      { url: "/logo.png", type: "image/png" },
+    ],
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
+}
 
-const outfit = Outfit({subsets:['latin'],variable:'--font-sans'})
+const geistSans = Geist({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+})
 
 const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
+  display: "swap",
 })
 
 export default function RootLayout({
@@ -20,12 +38,23 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="vi"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", outfit.variable, instrumentSansHeading.variable)}
+      className={cn(
+        "antialiased font-sans [--font-heading:var(--font-sans)]",
+        fontMono.variable,
+        geistSans.variable
+      )}
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <AppProviders>
+            <TooltipProvider>
+              {children}
+              <Toaster position="bottom-right" richColors />
+            </TooltipProvider>
+          </AppProviders>
+        </ThemeProvider>
       </body>
     </html>
   )

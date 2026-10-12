@@ -1,132 +1,343 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@plugin "@tailwindcss/typography";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *, .force-dark, .force-dark *):not(:where(.force-light, .force-light *)));
 
-:root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
+:root,
+.force-light {
+    color-scheme: light;
+
+    /* ===== MÀU NHẤN HIỆN CÓ: VIOLET THEME ===== */
     --primary: oklch(0.491 0.27 292.581);
+    --primary-hover: oklch(0.44 0.27 292.581);
     --primary-foreground: oklch(0.969 0.016 293.756);
-    --secondary: oklch(0.967 0.001 286.375);
-    --secondary-foreground: oklch(0.21 0.006 285.885);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --primary-light: oklch(0.491 0.27 292.581 / 0.1);
+
+    /* ===== NỀN & BỀ MẶT (GU FLAT SKILL) ===== */
+    --background: #f4f4f6;
+    --surface: #ffffff;
+    --card: #ffffff;
+    --card-foreground: #2c2c2c;
+    --popover: #ffffff;
+    --popover-foreground: #2c2c2c;
+    --surface-overlay: #ffffff;
+    --foreground: #2c2c2c;
+
+    --muted: #f4f4f6;
+    --muted-foreground: #707070;
+
+    --secondary: #e7e8ec;
+    --secondary-hover: #dbdce2;
+    --secondary-foreground: #2c2c2c;
+
+    --accent: #e7e8ec;
+    --accent-foreground: #2c2c2c;
+
+    /* ===== VIỀN & FOCUS ===== */
+    --border: #f0f0f3;
+    --border-strong: #eaeaea;
+    --input: #eaeaea;
+    --ring: oklch(0.491 0.27 292.581 / 0.3);
+    --ring-focus: oklch(0.491 0.27 292.581 / 0.12);
+    --border-focus: var(--primary);
+
+    /* ===== LỚP PHỦ & RÊ ===== */
+    --item-hover: #f4f4f6;
+    --surface-hover: #f8f8fa;
+    --background-hover: #e7e7ea;
+    --button-hover-surface: #f1f1f3;
+    --button-hover-page: #e4e4e7;
+    --button-hover: var(--button-hover-page);
+
+    /* ===== BÓNG LỚP NỔI (CHỈ CHO LỚP NỔI - M15) ===== */
+    --elevation-popover: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --elevation-modal: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+    /* ===== MÀU MANG NGHĨA (M7, M30, I4) ===== */
+    --danger: #c70036;
+    --danger-bg: rgb(255 32 86 / 0.1);
+    --danger-bg-hover: rgb(255 32 86 / 0.15);
+
+    --error: #fb2c36;
+    --error-ring: rgb(251 44 54 / 0.1);
+    --error-text: #e7000b;
+    --error-bg: #fef2f2;
+    --error-border: #ffc9c9;
+    --error-strong: #c10007;
+
+    --destructive: var(--danger);
+    --destructive-foreground: #ffffff;
+
+    --success: #007a55;
+    --success-bg: #ecfdf5;
+
+    --warning: #bb4d00;
+    --warning-bg: #fffbeb;
+
+    --neutral: #52525c;
+    --neutral-bg: #f4f4f5;
+
+    /* ===== BIỂU ĐỒ & TIẾN ĐỘ ===== */
+    --chart-fill: var(--primary);
     --chart-1: oklch(0.828 0.111 230.318);
     --chart-2: oklch(0.685 0.169 237.323);
     --chart-3: oklch(0.588 0.158 241.966);
     --chart-4: oklch(0.5 0.134 242.749);
     --chart-5: oklch(0.443 0.11 240.79);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.541 0.281 293.009);
-    --sidebar-primary-foreground: oklch(0.969 0.016 293.756);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+
+    /* ===== SIDEBAR ===== */
+    --sidebar: #ffffff;
+    --sidebar-foreground: #2c2c2c;
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: #f4f4f6;
+    --sidebar-accent-foreground: #2c2c2c;
+    --sidebar-border: #f0f0f3;
+    --sidebar-ring: var(--ring-focus);
+
+    /* ===== BO GÓC MẶC ĐỊNH (F1: 12px) ===== */
+    --radius: 0.75rem;
 }
 
-.dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.432 0.232 292.759);
-    --primary-foreground: oklch(0.969 0.016 293.756);
-    --secondary: oklch(0.274 0.006 286.033);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
+.dark,
+.force-dark {
+    color-scheme: dark;
+
+    /* ===== MÀU NHẤN NỀN TỐI: VIOLET SÁNG HƠN ===== */
+    --primary: oklch(0.68 0.24 292.759);
+    --primary-hover: oklch(0.73 0.21 292.759);
+    --primary-foreground: oklch(0.10 0 0);
+    --primary-light: oklch(0.68 0.24 292.759 / 0.15);
+
+    /* ===== NỀN & BỀ MẶT NỀN TỐI (M21, M23) ===== */
+    --background: #05060f;
+    --surface: #0f111a;
+    --card: #0f111a;
+    --card-foreground: #e9edf5;
+    --popover: #171a26;
+    --popover-foreground: #e9edf5;
+    --surface-overlay: #171a26;
+    --foreground: #e9edf5;
+
+    --muted: rgba(255, 255, 255, 0.05);
+    --muted-foreground: #8b93a7;
+
+    --secondary: rgba(255, 255, 255, 0.08);
+    --secondary-hover: rgba(255, 255, 255, 0.13);
+    --secondary-foreground: #e9edf5;
+
+    --accent: rgba(255, 255, 255, 0.08);
+    --accent-foreground: #e9edf5;
+
+    /* ===== VIỀN & FOCUS NỀN TỐI ===== */
+    --border: rgba(160, 180, 220, 0.12);
+    --border-strong: rgba(160, 180, 220, 0.16);
+    --input: rgba(160, 180, 220, 0.16);
+    --ring: oklch(0.68 0.24 292.759 / 0.3);
+    --ring-focus: oklch(0.68 0.24 292.759 / 0.15);
+    --border-focus: oklch(0.68 0.24 292.759 / 0.45);
+
+    /* ===== LỚP PHỦ & RÊ NỀN TỐI ===== */
+    --item-hover: rgba(255, 255, 255, 0.05);
+    --surface-hover: #141722;
+    --background-hover: #171a26;
+    --button-hover-surface: rgba(255, 255, 255, 0.08);
+    --button-hover-page: rgba(255, 255, 255, 0.08);
+    --button-hover: var(--button-hover-page);
+
+    /* ===== BÓNG LỚP NỔI NỀN TỐI ===== */
+    --elevation-popover: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+    --elevation-modal: 0 20px 25px -5px rgb(0 0 0 / 0.6), 0 8px 10px -6px rgb(0 0 0 / 0.6);
+
+    /* ===== MÀU MANG NGHĨA NỀN TỐI ===== */
+    --danger: #ff637e;
+    --danger-bg: rgb(255 32 86 / 0.1);
+    --danger-bg-hover: rgb(255 32 86 / 0.15);
+
+    --error: #fb2c36;
+    --error-ring: rgb(251 44 54 / 0.15);
+    --error-text: #ff6467;
+    --error-bg: rgb(251 44 54 / 0.1);
+    --error-border: rgb(251 44 54 / 0.3);
+    --error-strong: #ff6467;
+
+    --destructive: var(--danger);
+    --destructive-foreground: #05060f;
+
+    --success: #00d492;
+    --success-bg: rgb(0 188 125 / 0.15);
+
+    --warning: #ff8904;
+    --warning-bg: rgb(254 154 0 / 0.15);
+
+    --neutral: #9f9fa9;
+    --neutral-bg: rgb(113 113 123 / 0.15);
+
+    /* ===== BIỂU ĐỒ NỀN TỐI ===== */
+    --chart-fill: color-mix(in srgb, var(--primary) 70%, transparent);
     --chart-1: oklch(0.828 0.111 230.318);
     --chart-2: oklch(0.685 0.169 237.323);
     --chart-3: oklch(0.588 0.158 241.966);
     --chart-4: oklch(0.5 0.134 242.749);
     --chart-5: oklch(0.443 0.11 240.79);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.606 0.25 292.717);
-    --sidebar-primary-foreground: oklch(0.969 0.016 293.756);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+
+    /* ===== SIDEBAR NỀN TỐI ===== */
+    --sidebar: #0f111a;
+    --sidebar-foreground: #e9edf5;
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: rgba(255, 255, 255, 0.05);
+    --sidebar-accent-foreground: #e9edf5;
+    --sidebar-border: rgba(160, 180, 220, 0.12);
+    --sidebar-ring: var(--ring-focus);
 }
 
 @theme inline {
     --font-sans: var(--font-sans);
     --font-heading: var(--font-heading);
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
-    --color-ring: var(--ring);
-    --color-input: var(--input);
-    --color-border: var(--border);
-    --color-destructive: var(--destructive);
-    --color-accent-foreground: var(--accent-foreground);
-    --color-accent: var(--accent);
-    --color-muted-foreground: var(--muted-foreground);
-    --color-muted: var(--muted);
-    --color-secondary-foreground: var(--secondary-foreground);
-    --color-secondary: var(--secondary);
-    --color-primary-foreground: var(--primary-foreground);
+    --font-mono: var(--font-mono);
+
     --color-primary: var(--primary);
-    --color-popover-foreground: var(--popover-foreground);
-    --color-popover: var(--popover);
-    --color-card-foreground: var(--card-foreground);
-    --color-card: var(--card);
-    --color-foreground: var(--foreground);
+    --color-primary-hover: var(--primary-hover);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary-light: var(--primary-light);
+
     --color-background: var(--background);
+    --color-background-hover: var(--background-hover);
+    --color-surface: var(--surface);
+    --color-surface-hover: var(--surface-hover);
+    --color-surface-overlay: var(--surface-overlay);
+    --color-item-hover: var(--item-hover);
+    --color-foreground: var(--foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-border: var(--border);
+    --color-border-strong: var(--border-strong);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --color-secondary: var(--secondary);
+    --color-secondary-hover: var(--secondary-hover);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-button-hover: var(--button-hover);
+
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+
+    --color-chart-fill: var(--chart-fill);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+
+    --border-color-focus: var(--border-focus);
+    --ring-color-focus: var(--ring-focus);
+
+    --shadow-popover: var(--elevation-popover);
+    --shadow-modal: var(--elevation-modal);
+
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
-    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-xl: calc(var(--radius) * 1.33);
+    --radius-2xl: calc(var(--radius) * 1.66);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ===== NỀN RÊ NÚT VIỀN THEO BỀ MẶT ===== */
+.bg-surface *,
+.bg-surface-overlay * {
+    --button-hover: var(--button-hover-surface);
+}
+.bg-surface .bg-background *,
+[class~="hover:bg-item-hover"]:hover * {
+    --button-hover: var(--button-hover-page);
+}
+
+/* ===== THANH CUỘN TỰ ẨN ÁP TOÀN APP (I18) ===== */
+* {
+    --scrollbar-thumb: transparent;
+}
+*:hover {
+    --scrollbar-thumb: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+.is-scrolling {
+    --scrollbar-thumb: color-mix(in srgb, var(--foreground) 28%, transparent);
+}
+::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--foreground) 40%, transparent);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: transparent transparent;
+    }
+    *:hover {
+        scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent;
+    }
+    .is-scrolling {
+        scrollbar-color: color-mix(in srgb, var(--foreground) 28%, transparent) transparent;
+    }
+}
+
+.scrollbar-clean {
+    scrollbar-width: none;
+}
+.scrollbar-clean::-webkit-scrollbar {
+    display: none;
+}
+
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+    * {
+        @apply border-border outline-ring/50;
     }
-  body {
-    @apply bg-background text-foreground;
+    body {
+        @apply bg-background text-foreground;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
     }
-  button:not(:disabled), [role="button"]:not(:disabled) {
-    cursor: pointer;
+    button:not(:disabled), [role="button"]:not([aria-disabled="true"]) {
+        cursor: pointer;
     }
-  html {
-    @apply font-sans;
+    html {
+        @apply font-sans;
+    }
+}
+
+/* Chặn iOS Safari tự zoom in font dưới 16px trong input (W6) */
+@media (max-width: 768px) {
+    input, textarea, select {
+        font-size: 16px !important;
     }
 }
