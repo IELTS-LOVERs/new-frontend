@@ -38,6 +38,7 @@ interface RawAssignmentProgress {
 
 export interface ListAssignmentsParams {
   classId?: string
+  examId?: string
   page?: number
   limit?: number
 }
@@ -77,6 +78,7 @@ export async function getTeacherAssignmentsApi(
 ): Promise<ListAssignmentsResult> {
   const search = new URLSearchParams()
   if (params.classId) search.set("classId", params.classId)
+  if (params.examId) search.set("examId", params.examId)
   if (params.page) search.set("page", String(params.page))
   if (params.limit) search.set("limit", String(params.limit))
   const qs = search.toString()

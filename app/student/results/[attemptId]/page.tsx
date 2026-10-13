@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils"
 import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
-import { formatBand } from "@/lib/format"
+import { formatBand, QUESTION_GROUP_TYPE_LABEL } from "@/lib/format"
 import { useAttemptResultQuery, useMyAttemptsQuery } from "@/hooks/use-attempts"
 import { useExamDetailQuery } from "@/hooks/use-exams"
 import type {
@@ -37,6 +37,7 @@ const TABS: Array<{ id: SkillType; label: string }> = [
   { id: "listening", label: "Listening" },
   { id: "reading", label: "Reading" },
   { id: "writing", label: "Writing" },
+  { id: "speaking", label: "Speaking" },
 ]
 
 const FILTERS = [
@@ -74,18 +75,18 @@ function MockResultDetail() {
 // ─── REAL ────────────────────────────────────────────────────────────────────
 function RealResultDetail({ attemptId }: { attemptId: string }) {
   const resultQuery = useAttemptResultQuery(attemptId)
-  // AttemptResult không chứa examId → tra từ useMyAttemptsQuery (đã cache list)
+  // Ưu tiên examId từ attempt result, fallback sang list tra cứu
   const myAttemptsQuery = useMyAttemptsQuery({ limit: 100 })
   const attemptRow = React.useMemo(
     () => myAttemptsQuery.data?.items.find((a) => a.id === attemptId),
     [myAttemptsQuery.data, attemptId]
   )
-  const examId = attemptRow?.exam.id ?? ""
+  const examId = resultQuery.data?.examId || attemptRow?.exam?.id || ""
   const examQuery = useExamDetailQuery(examId, !!examId)
 
   const isLoading =
-    resultQuery.isLoading || myAttemptsQuery.isLoading || (!!examId && examQuery.isLoading)
-  const error = resultQuery.error ?? myAttemptsQuery.error ?? examQuery.error
+    resultQuery.isLoading || (!!examId && examQuery.isLoading)
+  const error = resultQuery.error ?? examQuery.error ?? myAttemptsQuery.error
 
   const refetch = () => {
     resultQuery.refetch()
@@ -165,6 +166,8 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     questionId: string
     order: number
     prompt: string
+    groupType?: string
+    groupInstructions?: string
     detail?: AttemptResultDetail
   }
 
@@ -172,26 +175,49 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
   if (exam) {
     let order = 0
     exam.sections.forEach((sec) => {
-      sec.questions.forEach((q: CandidateQuestion) => {
-        order += 1
-        const skill = (q.skill ?? sec.skill) as SkillType
-        rowsBySkill[skill].push({
-          questionId: q.id,
-          order,
-          prompt: q.prompt,
-          detail: detailByQuestionId.get(q.id),
+      const skill = sec.skill as SkillType
+      const isGroups = Array.isArray(sec.questionGroups) && sec.questionGroups.length > 0
+
+      if (isGroups) {
+        sec.questionGroups!.forEach((g) => {
+          g.questions.forEach((q) => {
+            order += 1
+            rowsBySkill[skill]?.push({
+              questionId: q.id,
+              order: q.questionNumber ?? order,
+              prompt: q.prompt,
+              groupType: g.groupType,
+              groupInstructions: g.instructions,
+              detail: detailByQuestionId.get(q.id),
+            })
+          })
         })
-      })
+      } else {
+        (sec.questions ?? []).forEach((q: CandidateQuestion) => {
+          order += 1
+          const qSkill = (q.skill ?? sec.skill) as SkillType
+          rowsBySkill[qSkill]?.push({
+            questionId: q.id,
+            order,
+            prompt: q.prompt,
+            detail: detailByQuestionId.get(q.id),
+          })
+        })
+      }
     })
   }
 
   // Fallback: nếu exam không có (chưa tải được) → dựng rows trực tiếp từ details
   if (!exam && result.details.length > 0) {
     result.details.forEach((d, idx) => {
-      rowsBySkill.listening.push({
+      const isWriting = d.groupType?.startsWith("writing_")
+      const isSpeaking = d.groupType?.startsWith("speaking_")
+      const targetSkill: SkillType = isWriting ? "writing" : isSpeaking ? "speaking" : "listening"
+      rowsBySkill[targetSkill].push({
         questionId: d.questionId,
-        order: idx + 1,
+        order: d.questionNumber ?? idx + 1,
         prompt: d.questionId,
+        groupType: d.groupType,
         detail: d,
       })
     })
@@ -515,6 +541,11 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
                       <span className="font-mono font-semibold text-xs sm:text-sm text-foreground shrink-0">
                         Câu {row.order}
                       </span>
+                      {row.groupType && (
+                        <Badge variant="outline" className="text-[10px] font-medium border-border/80">
+                          {QUESTION_GROUP_TYPE_LABEL[row.groupType as keyof typeof QUESTION_GROUP_TYPE_LABEL] ?? row.groupType}
+                        </Badge>
+                      )}
                       {isBlank ? (
                         <Badge variant="secondary" withDot className="text-[11px]">
                           Bỏ trống
@@ -533,9 +564,17 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
                     </div>
                   </div>
 
-                  <p className="text-xs sm:text-sm text-foreground leading-relaxed">
-                    {row.prompt}
-                  </p>
+                  {row.groupInstructions && (
+                    <p className="text-[11px] font-medium text-muted-foreground italic">
+                      {row.groupInstructions}
+                    </p>
+                  )}
+
+                  {row.prompt && row.prompt !== row.questionId && (
+                    <p className="text-xs sm:text-sm text-foreground leading-relaxed">
+                      {row.prompt}
+                    </p>
+                  )}
 
                   {d && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-0.5">

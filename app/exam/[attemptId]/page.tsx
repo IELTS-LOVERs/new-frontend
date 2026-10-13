@@ -376,6 +376,15 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             onAnswer={(qid, v) => setAnswer(qid, v)}
           />
         )}
+        {currentSection.skill === "speaking" && (
+          <SpeakingSection
+            section={currentSection}
+            answers={answers}
+            flagged={flagged}
+            onAnswer={(qid, v) => setAnswer(qid, v)}
+            onToggleFlag={toggleFlag}
+          />
+        )}
       </main>
 
       {/* BOTTOM PALETTE */}
@@ -683,18 +692,87 @@ function ListeningSection({ section, answers, flagged, onAnswer, onToggleFlag, u
   )
 }
 
+function HighlightedPassage({ text, highlights }: { text: string; highlights: string[] }) {
+  if (!highlights.length || !text) {
+    return <span>{text}</span>
+  }
+  const escaped = highlights
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  if (!escaped.length) return <span>{text}</span>
+  const regex = new RegExp(`(${escaped.join("|")})`, "gi")
+  const parts = text.split(regex)
+  return (
+    <>
+      {parts.map((part, i) => {
+        const isMatch = highlights.some((h) => h.toLowerCase() === part.toLowerCase())
+        return isMatch ? (
+          <mark key={i} className="rounded bg-amber-200 px-0.5 font-medium text-stone-900 dark:bg-amber-400 dark:text-stone-900">
+            {part}
+          </mark>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        )
+      })}
+    </>
+  )
+}
+
 function ReadingSection({ section, answers, flagged, onAnswer, onToggleFlag }: SectionProps) {
+  const [highlights, setHighlights] = React.useState<string[]>([])
+  const [selectedText, setSelectedText] = React.useState<string>("")
+
+  const handleMouseUp = () => {
+    if (typeof window === "undefined") return
+    const sel = window.getSelection()?.toString().trim()
+    if (sel && sel.length > 1) {
+      setSelectedText(sel)
+    } else {
+      setSelectedText("")
+    }
+  }
+
+  const addHighlight = () => {
+    if (selectedText) {
+      setHighlights((prev) => (prev.includes(selectedText) ? prev : [...prev, selectedText]))
+      setSelectedText("")
+    }
+  }
+
   return (
     <ResizablePanelGroup orientation="horizontal" className="h-full w-full">
       <ResizablePanel defaultSize={50} minSize={30} className="overflow-y-auto bg-card border-r border-border">
-        <div className="p-8 max-w-2xl mx-auto space-y-6">
-          <div className="border-b border-border pb-4">
-            <Badge variant="outline" className="text-primary font-semibold text-xs mb-2">
+        <div className="p-8 max-w-2xl mx-auto space-y-6" onMouseUp={handleMouseUp}>
+          <div className="border-b border-border pb-4 flex items-center justify-between">
+            <Badge variant="outline" className="text-primary font-semibold text-xs">
               {section.title}
             </Badge>
+            <div className="flex items-center gap-2">
+              {selectedText && (
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={addHighlight}
+                  className="h-7 text-xs bg-amber-500 hover:bg-amber-600 text-stone-950 font-semibold"
+                >
+                  Highlight vùng chọn
+                </Button>
+              )}
+              {highlights.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setHighlights([])}
+                  className="h-7 text-xs"
+                >
+                  Xóa highlight ({highlights.length})
+                </Button>
+              )}
+            </div>
           </div>
           <div className="font-serif text-sm leading-[1.8] text-foreground/90 whitespace-pre-line space-y-4 select-text">
-            {section.passageText}
+            <HighlightedPassage text={section.passageText ?? ""} highlights={highlights} />
           </div>
         </div>
       </ResizablePanel>
@@ -845,8 +923,143 @@ function WritingSection({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Question Group Renderer (for new format)
+// Question Group Renderer & Inline Template Engine
 // ═══════════════════════════════════════════════════════════════
+
+function InlineTemplateRenderer({
+  template,
+  questions,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+  optionsPool,
+  maxWords,
+}: {
+  template: string
+  questions: CandidateQuestionItem[]
+  answers: Record<string, { value: string; updatedAt: number; dirty: boolean }>
+  flagged: Record<string, true>
+  onAnswer: (questionId: string, value: string) => void
+  onToggleFlag: (questionId: string) => void
+  optionsPool?: Array<{ id: string; text: string }>
+  maxWords?: number
+}) {
+  const regex = /(\{\{\s*(?:q)?(\d+)\s*\}\}|\[\s*(?:q)?(\d+)\s*\])/gi
+  const parts = template.split(regex)
+  const matchedQNums = new Set<number>()
+
+  const findQuestion = (numStr: string) => {
+    const num = parseInt(numStr, 10)
+    const q = questions.find((item) => item.questionNumber === num) || questions[num - 1]
+    if (q) matchedQNums.add(q.questionNumber)
+    return q
+  }
+
+  const renderedTokens = []
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) continue
+
+    const match = part.match(/^\{\{\s*(?:q)?(\d+)\s*\}\}$|^\[\s*(?:q)?(\d+)\s*\]$/i)
+    if (match) {
+      const qNumStr = match[1] || match[2]
+      const q = findQuestion(qNumStr)
+      if (q) {
+        const answer = answers[q.id]?.value ?? ""
+        const isFlag = !!flagged[q.id]
+        renderedTokens.push(
+          <span key={`q-${q.id}-${i}`} className="inline-flex items-center gap-1 mx-1.5 my-1 align-baseline">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-[11px] font-bold text-primary">
+              {q.questionNumber}
+            </span>
+            {optionsPool && optionsPool.length > 0 ? (
+              <select
+                value={answer}
+                onChange={(e) => onAnswer(q.id, e.target.value)}
+                className="h-7 rounded-md border border-border bg-background px-2 text-xs font-mono font-medium focus:border-primary focus:outline-hidden"
+              >
+                <option value="">[{q.questionNumber}]</option>
+                {optionsPool.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.id} {opt.text && opt.text !== opt.id ? `- ${opt.text}` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={answer}
+                onChange={(e) => onAnswer(q.id, e.target.value)}
+                placeholder={maxWords ? `≤ ${maxWords} từ` : `[${q.questionNumber}]`}
+                className="h-7 w-28 sm:w-36 rounded-md border border-border bg-background px-2 text-xs font-medium focus:border-primary focus:outline-hidden"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => onToggleFlag(q.id)}
+              className={cn(
+                "p-0.5",
+                isFlag ? "text-amber-500" : "text-muted-foreground/30 hover:text-muted-foreground"
+              )}
+              title="Đánh dấu câu"
+            >
+              <HugeiconsIcon icon={Flag01Icon} size={12} />
+            </button>
+          </span>
+        )
+      } else {
+        renderedTokens.push(<span key={i} className="font-mono text-muted-foreground">[{qNumStr}]</span>)
+      }
+    } else {
+      renderedTokens.push(
+        <span key={i} className="whitespace-pre-wrap leading-relaxed">
+          {part}
+        </span>
+      )
+    }
+  }
+
+  const unplacedQuestions = questions.filter((q) => !matchedQNums.has(q.questionNumber))
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border/80 bg-muted/10 p-4 font-serif text-sm leading-[2.2] text-foreground select-text">
+        {renderedTokens}
+      </div>
+
+      {unplacedQuestions.length > 0 && (
+        <div className="space-y-2.5 pt-2">
+          {unplacedQuestions.map((q) => {
+            const answer = answers[q.id]?.value ?? ""
+            const isFlag = !!flagged[q.id]
+            return (
+              <div key={q.id} className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
+                  {q.questionNumber}
+                </span>
+                <span className="text-xs text-foreground flex-1">{q.prompt}</span>
+                <Input
+                  value={answer}
+                  onChange={(e) => onAnswer(q.id, e.target.value)}
+                  placeholder="Nhập câu trả lời..."
+                  className="h-8 w-44 text-xs font-medium"
+                />
+                <button
+                  type="button"
+                  onClick={() => onToggleFlag(q.id)}
+                  className={cn("p-1", isFlag ? "text-amber-500" : "text-muted-foreground/40 hover:text-muted-foreground")}
+                >
+                  <HugeiconsIcon icon={Flag01Icon} size={13} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function GroupRenderer({
   group,
@@ -863,28 +1076,202 @@ function GroupRenderer({
 }) {
   const config = group.config || {}
   const options = (config.options as Array<{ id: string; text: string }>) ?? []
+  const optionsPool = (config.optionsPool as Array<{ id: string; text: string }>) ?? []
+  const labelsPool = (config.labels as Array<{ id: string; label: string }>) ?? []
   const isTFNG = group.groupType === "true_false_not_given"
   const isYNNG = group.groupType === "yes_no_not_given"
   const isMatching = group.groupType.startsWith("matching_")
-  const isCompletion = ["sentence_completion", "note_completion", "table_completion", "summary_completion", "form_completion", "flow_chart_completion", "short_answer"].includes(group.groupType)
+  const isCompletion = [
+    "sentence_completion",
+    "note_completion",
+    "table_completion",
+    "summary_completion",
+    "form_completion",
+    "flow_chart_completion",
+    "short_answer",
+  ].includes(group.groupType)
   const maxWords = (config.maxWords as number) ?? undefined
   const wordLimitText = maxWords ? `NO MORE THAN ${maxWords} WORD${maxWords > 1 ? "S" : ""}` : undefined
+
   const matchPool: Array<{ id: string; text: string }> = (() => {
     if (group.groupType === "matching_headings") return (config.headingsPool as any[]) ?? []
-    if (group.groupType === "matching_information") return ((config.paragraphLabels as string[]) ?? []).map((l: string) => ({ id: l, text: l }))
+    if (group.groupType === "matching_information")
+      return ((config.paragraphLabels as string[]) ?? []).map((l: string) => ({ id: l, text: l }))
     if (group.groupType === "matching_features") return (config.featuresPool as any[]) ?? []
     if (group.groupType === "matching_sentence_endings") return (config.endingsPool as any[]) ?? []
     return []
   })()
+
+  // ─── Multiple Choice Multiple ──────────────────────────────────────────────
+  if (group.groupType === "multiple_choice_multiple") {
+    const maxSelections = (config.maxSelections as number) || group.questions.length || 2
+    const isMultiQuestion = group.questions.length > 1
+
+    const selectedOptionIds: string[] = isMultiQuestion
+      ? group.questions.map((q) => answers[q.id]?.value?.trim()).filter(Boolean)
+      : (answers[group.questions[0]?.id]?.value ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+
+    const handleToggleOption = (optId: string) => {
+      const isSelected = selectedOptionIds.includes(optId)
+      if (isSelected) {
+        if (isMultiQuestion) {
+          const targetQ = group.questions.find((q) => answers[q.id]?.value?.trim() === optId)
+          if (targetQ) onAnswer(targetQ.id, "")
+        } else if (group.questions[0]) {
+          const remaining = selectedOptionIds.filter((id) => id !== optId)
+          onAnswer(group.questions[0].id, remaining.join(", "))
+        }
+      } else {
+        if (selectedOptionIds.length >= maxSelections) {
+          toast.warning(`Bạn chỉ được chọn tối đa ${maxSelections} đáp án`)
+          return
+        }
+        if (isMultiQuestion) {
+          const emptyQ = group.questions.find((q) => !answers[q.id]?.value?.trim())
+          if (emptyQ) {
+            onAnswer(emptyQ.id, optId)
+          }
+        } else if (group.questions[0]) {
+          const next = [...selectedOptionIds, optId]
+          onAnswer(group.questions[0].id, next.join(", "))
+        }
+      }
+    }
+
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-5">
+        <div className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Questions {group.questions[0]?.questionNumber}–{group.questions[group.questions.length - 1]?.questionNumber}
+          </p>
+          <p className="text-sm font-medium text-foreground whitespace-pre-line">{group.instructions}</p>
+        </div>
+
+        <div className="space-y-3 pt-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Chọn đúng {maxSelections} đáp án</span>
+            <span className="font-mono font-semibold text-foreground">
+              {selectedOptionIds.length} / {maxSelections} đã chọn
+            </span>
+          </div>
+
+          {group.questions[0]?.prompt && (
+            <p className="text-sm font-semibold text-foreground">{group.questions[0].prompt}</p>
+          )}
+
+          <div className="space-y-1.5">
+            {options.map((opt) => {
+              const isSelected = selectedOptionIds.includes(opt.id)
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleToggleOption(opt.id)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg border px-3.5 py-2.5 text-left text-xs transition-colors",
+                    isSelected
+                      ? "border-primary bg-primary/5 font-semibold text-primary shadow-2xs"
+                      : "border-border hover:bg-muted text-foreground"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex size-5 shrink-0 items-center justify-center rounded border font-mono text-[10px] font-bold transition-colors",
+                      isSelected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/40 bg-card"
+                    )}
+                  >
+                    {opt.id}
+                  </div>
+                  <span className="flex-1">{opt.text || opt.id}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/60">
+            {group.questions.map((q) => {
+              const qAns = answers[q.id]?.value?.trim()
+              const isFlag = !!flagged[q.id]
+              return (
+                <div
+                  key={q.id}
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-muted/20 px-2 py-1 text-xs"
+                >
+                  <span className="font-mono font-bold text-primary">Câu {q.questionNumber}:</span>
+                  <span className="font-mono font-semibold">{qAns || "(Chưa chọn)"}</span>
+                  <button
+                    type="button"
+                    onClick={() => onToggleFlag(q.id)}
+                    className={cn("ml-1", isFlag ? "text-amber-500" : "text-muted-foreground/30 hover:text-muted-foreground")}
+                    title="Đánh dấu câu này"
+                  >
+                    <HugeiconsIcon icon={Flag01Icon} size={12} />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Inline Template Renderer for Completion Types ─────────────────────────
+  if (config.template && typeof config.template === "string" && config.template.trim().length > 0) {
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-5">
+        <div className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Questions {group.questions[0]?.questionNumber}–{group.questions[group.questions.length - 1]?.questionNumber}
+          </p>
+          <p className="text-sm font-medium text-foreground whitespace-pre-line">{group.instructions}</p>
+          {wordLimitText && <p className="text-xs font-semibold text-primary">{wordLimitText}</p>}
+        </div>
+
+        {optionsPool.length > 0 && (
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+            <span className="text-xs font-bold text-primary uppercase">Word Bank / Danh sách từ khóa:</span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {optionsPool.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 rounded-md bg-background px-2.5 py-1 text-xs border border-border">
+                  <span className="font-bold text-primary">{item.id}</span>
+                  <span className="text-foreground">{item.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <InlineTemplateRenderer
+          template={config.template}
+          questions={group.questions}
+          answers={answers}
+          flagged={flagged}
+          onAnswer={onAnswer}
+          onToggleFlag={onToggleFlag}
+          optionsPool={optionsPool}
+          maxWords={maxWords}
+        />
+      </div>
+    )
+  }
+
+  // ─── Standard Group Renderer ───────────────────────────────────────────────
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-5">
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Questions {group.questions[0]?.questionNumber}\u2013{group.questions[group.questions.length - 1]?.questionNumber}
+          Questions {group.questions[0]?.questionNumber}–{group.questions[group.questions.length - 1]?.questionNumber}
         </p>
         <p className="text-sm font-medium text-foreground whitespace-pre-line">{group.instructions}</p>
         {wordLimitText && <p className="text-xs font-semibold text-primary">{wordLimitText}</p>}
       </div>
+
       {isMatching && matchPool.length > 0 && (
         <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1">
           {matchPool.map((item) => (
@@ -895,6 +1282,35 @@ function GroupRenderer({
           ))}
         </div>
       )}
+
+      {optionsPool.length > 0 && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+          <span className="text-xs font-bold text-primary uppercase">Word Bank:</span>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {optionsPool.map((item) => (
+              <div key={item.id} className="flex items-center gap-2 rounded-md bg-background px-2.5 py-1 text-xs border border-border">
+                <span className="font-bold text-primary">{item.id}</span>
+                <span className="text-foreground">{item.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {labelsPool.length > 0 && (
+        <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+          <span className="text-xs font-semibold text-muted-foreground uppercase">Danh sách nhãn:</span>
+          <div className="flex flex-wrap gap-2">
+            {labelsPool.map((l) => (
+              <div key={l.id} className="flex items-center gap-1.5 rounded bg-card px-2.5 py-1 text-xs border border-border">
+                <span className="font-bold text-primary">{l.id}</span>
+                <span className="text-foreground">{l.label || l.id}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
         {group.questions.map((q) => {
           const answer = answers[q.id]?.value ?? ""
@@ -906,47 +1322,195 @@ function GroupRenderer({
               </span>
               <div className="flex-1 space-y-1.5">
                 {q.prompt && <p className="text-sm text-foreground">{q.prompt}</p>}
-                {(isTFNG || isYNNG) ? (
+                {isTFNG || isYNNG ? (
                   <div className="flex gap-2">
                     {options.map((opt) => (
-                      <button key={opt.id} type="button" onClick={() => onAnswer(q.id, opt.id)}
-                        className={cn("rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-                          answer === opt.id ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted"
-                        )}>{opt.text}</button>
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => onAnswer(q.id, opt.id)}
+                        className={cn(
+                          "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                          answer === opt.id
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:bg-muted"
+                        )}
+                      >
+                        {opt.text}
+                      </button>
                     ))}
                   </div>
-                ) : (group.groupType === "multiple_choice_single") ? (
+                ) : group.groupType === "multiple_choice_single" ? (
                   <div className="space-y-1">
                     {options.map((opt) => (
-                      <button key={opt.id} type="button" onClick={() => onAnswer(q.id, opt.id)}
-                        className={cn("flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
-                          answer === opt.id ? "border-primary bg-primary/5 font-medium text-primary" : "border-border hover:bg-muted"
-                        )}>
-                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold">{opt.id}</span>
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => onAnswer(q.id, opt.id)}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                          answer === opt.id
+                            ? "border-primary bg-primary/5 font-medium text-primary"
+                            : "border-border hover:bg-muted"
+                        )}
+                      >
+                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold">
+                          {opt.id}
+                        </span>
                         <span>{opt.text || opt.id}</span>
                       </button>
                     ))}
                   </div>
                 ) : isMatching ? (
-                  <select value={answer} onChange={(e) => onAnswer(q.id, e.target.value)} className="h-8 rounded-lg border border-border bg-background px-2 text-xs">
-                    <option value="">\u2014</option>
+                  <select
+                    value={answer}
+                    onChange={(e) => onAnswer(q.id, e.target.value)}
+                    className="h-8 rounded-lg border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="">—</option>
                     {matchPool.map((opt) => (
-                      <option key={opt.id} value={opt.id}>{opt.id}{opt.text !== opt.id ? " - " + opt.text : ""}</option>
+                      <option key={opt.id} value={opt.id}>
+                        {opt.id}
+                        {opt.text !== opt.id ? " - " + opt.text : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : optionsPool.length > 0 ? (
+                  <select
+                    value={answer}
+                    onChange={(e) => onAnswer(q.id, e.target.value)}
+                    className="h-8 rounded-lg border border-border bg-background px-2 text-xs font-mono font-medium"
+                  >
+                    <option value="">— Chọn từ khóa —</option>
+                    {optionsPool.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.id}: {opt.text}
+                      </option>
+                    ))}
+                  </select>
+                ) : labelsPool.length > 0 ? (
+                  <select
+                    value={answer}
+                    onChange={(e) => onAnswer(q.id, e.target.value)}
+                    className="h-8 rounded-lg border border-border bg-background px-2 text-xs font-mono font-medium"
+                  >
+                    <option value="">— Chọn nhãn —</option>
+                    {labelsPool.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.id}: {l.label || l.id}
+                      </option>
                     ))}
                   </select>
                 ) : (
-                  <Input value={answer} onChange={(e) => onAnswer(q.id, e.target.value)} className="h-8 text-xs"
-                    placeholder={isCompletion && maxWords ? "T\u1ed1i \u0111a " + maxWords + " t\u1eeb" : "Nh\u1eadp c\u00e2u tr\u1ea3 l\u1eddi..."} />
+                  <Input
+                    value={answer}
+                    onChange={(e) => onAnswer(q.id, e.target.value)}
+                    className="h-8 text-xs"
+                    placeholder={
+                      isCompletion && maxWords ? `Tối đa ${maxWords} từ` : "Nhập câu trả lời..."
+                    }
+                  />
                 )}
               </div>
-              <button type="button" onClick={() => onToggleFlag(q.id)}
-                className={cn("mt-1 shrink-0", isFlagged ? "text-amber-500" : "text-muted-foreground/40 hover:text-muted-foreground")}>
+              <button
+                type="button"
+                onClick={() => onToggleFlag(q.id)}
+                className={cn(
+                  "mt-1 shrink-0",
+                  isFlagged ? "text-amber-500" : "text-muted-foreground/40 hover:text-muted-foreground"
+                )}
+              >
                 <HugeiconsIcon icon={Flag01Icon} size={14} />
               </button>
             </div>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function SpeakingSection({
+  section,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+}: {
+  section: CandidateSection
+  answers: Record<string, { value: string; updatedAt: number; dirty: boolean }>
+  flagged: Record<string, true>
+  onAnswer: (questionId: string, value: string) => void
+  onToggleFlag: (questionId: string) => void
+}) {
+  const groups = section.questionGroups ?? []
+  return (
+    <div className="flex h-full flex-col overflow-y-auto p-8 max-w-3xl mx-auto space-y-6">
+      <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-1">
+        <h3 className="font-heading font-bold text-base text-foreground">{section.title}</h3>
+        <p className="text-xs text-muted-foreground">{section.instructions || "IELTS Speaking Interview Session"}</p>
+      </div>
+      {groups.map((group) => {
+        const config = group.config || {}
+        return (
+          <div key={group.id} className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-xs">
+            <div className="space-y-1">
+              <Badge variant="outline" className="text-primary font-semibold text-xs">
+                {QUESTION_GROUP_TYPE_LABEL[group.groupType] ?? group.groupType}
+              </Badge>
+              <p className="text-sm font-medium text-foreground whitespace-pre-line">{group.instructions}</p>
+            </div>
+            {config.cueCard && (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
+                <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
+                  Candidate Cue Card:
+                </span>
+                <p className="text-sm font-semibold text-foreground">{config.cueCard as string}</p>
+                {Array.isArray(config.bulletPoints) && (
+                  <ul className="list-disc list-inside text-xs space-y-1 text-muted-foreground pt-1">
+                    {(config.bulletPoints as string[]).map((bp, i) => (
+                      <li key={i}>{bp}</li>
+                    ))}
+                  </ul>
+                )}
+                {config.prepTimeSeconds && (
+                  <p className="text-[11px] font-mono text-muted-foreground pt-1">
+                    Thời gian chuẩn bị: {config.prepTimeSeconds as number} giây · Trình bày: {config.speakTimeSeconds as number || 120} giây
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="space-y-3">
+              {group.questions.map((q) => (
+                <div key={q.id} className="space-y-2 rounded-lg border border-border/80 bg-muted/10 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
+                        {q.questionNumber}
+                      </span>
+                      <span className="text-xs font-semibold text-foreground">{q.prompt}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onToggleFlag(q.id)}
+                      className={cn("p-1", flagged[q.id] ? "text-amber-500" : "text-muted-foreground/30 hover:text-muted-foreground")}
+                    >
+                      <HugeiconsIcon icon={Flag01Icon} size={13} />
+                    </button>
+                  </div>
+                  <Textarea
+                    value={answers[q.id]?.value ?? ""}
+                    onChange={(e) => onAnswer(q.id, e.target.value)}
+                    placeholder="Ghi chú câu trả lời hoặc tóm tắt ý chính..."
+                    rows={2}
+                    className="text-xs resize-none"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

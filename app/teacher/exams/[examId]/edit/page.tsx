@@ -36,7 +36,9 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Add01Icon,
   Alert02Icon,
+  ArrowDown01Icon,
   ArrowLeft01Icon,
+  ArrowUp01Icon,
   Book02Icon,
   CheckmarkCircle02Icon,
   Copy01Icon,
@@ -65,7 +67,13 @@ import {
   useCloneExamMutation,
 } from "@/hooks/use-exams"
 import { useQuestionsQuery, useCreateQuestionMutation } from "@/hooks/use-questions"
-import type { CreateExamSectionPayload, QuestionGroupPayload, QuestionItemPayload, TeacherQuestionGroup } from "@/lib/api/exams"
+import {
+  migrateExamApi,
+  type CreateExamSectionPayload,
+  type QuestionGroupPayload,
+  type QuestionItemPayload,
+  type TeacherQuestionGroup,
+} from "@/lib/api/exams"
 import {
   QUESTION_TYPE_LABEL,
   QUESTION_GROUP_TYPE_LABEL,
@@ -87,6 +95,7 @@ import type {
 } from "@/lib/api/types"
 import { DEMO_EXAM_BUILDER, DEMO_EXAM_MOCK_01, DEMO_EXAMS, DEMO_QUESTION_BANK } from "@/mocks/demo-data"
 import { QuestionForm } from "@/features/questions/question-form"
+import { QuestionGroupEditor } from "@/features/questions/question-group-editor"
 import { MediaPicker } from "@/components/shared/media-picker"
 import { AssignDialog } from "@/components/shared/assign-dialog"
 
@@ -165,6 +174,8 @@ function toLocalExam(detail: {
           questionNumber: q.questionNumber,
           prompt: q.prompt,
           points: q.points,
+          acceptedAnswers: (q as any).acceptedAnswers ?? [],
+          explanation: (q as any).explanation ?? undefined,
           mediaIds: q.mediaIds,
         })),
       }))
@@ -193,14 +204,14 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
 
     const questionGroups: QuestionGroupPayload[] | undefined = usesGroups
       ? s.questionGroups!.map((g) => ({
-          _id: g.id,
+          _id: g.id && !g.id.startsWith("new-") ? g.id : undefined,
           groupType: g.groupType,
-          instructions: g.instructions,
-          config: g.config,
+          instructions: g.instructions ?? "",
+          config: g.config ?? {},
           questions: g.questions.map((q) => ({
-            _id: q.id,
+            _id: q.id && !q.id.startsWith("new-") ? q.id : undefined,
             questionNumber: q.questionNumber,
-            prompt: q.prompt,
+            prompt: q.prompt ?? "",
             acceptedAnswers: (q as any).acceptedAnswers ?? [],
             points: q.points ?? 1,
             explanation: (q as any).explanation ?? undefined,
@@ -210,7 +221,7 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
       : undefined
 
     return {
-      _id: s.id,
+      _id: s.id && !s.id.startsWith("new-") ? s.id : undefined,
       skill: s.skill,
       part: s.part,
       title: s.title,
@@ -227,8 +238,8 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
     description: exam.description ?? undefined,
     durationMinutes: exam.durationMinutes,
     sections,
-    openAt: openAt ? new Date(openAt).toISOString() : undefined,
-    closeAt: closeAt ? new Date(closeAt).toISOString() : undefined,
+    openAt: openAt && !Number.isNaN(new Date(openAt).getTime()) ? new Date(openAt).toISOString() : undefined,
+    closeAt: closeAt && !Number.isNaN(new Date(closeAt).getTime()) ? new Date(closeAt).toISOString() : undefined,
   }
 }
 
@@ -404,9 +415,21 @@ export default function ExamBuilderPage() {
         groups.forEach((g) => {
           if (g.questions.length === 0) {
             list.push({
-              level: "warning",
-              message: `${section.title}: Nhóm "${QUESTION_GROUP_TYPE_LABEL[g.groupType]}" chưa có câu hỏi.`,
+              level: "error",
+              message: `${section.title}: Nhóm "${QUESTION_GROUP_TYPE_LABEL[g.groupType] || g.groupType}" không được để trống (0 câu hỏi).`,
               sectionIndex: index,
+            })
+          }
+          if (section.skill !== "writing" && section.skill !== "speaking") {
+            g.questions.forEach((q) => {
+              const answers = (q as any).acceptedAnswers ?? []
+              if (answers.length === 0) {
+                list.push({
+                  level: "error",
+                  message: `${section.title}: Câu số ${numbering.get(q.id) ?? q.questionNumber} chưa thiết lập đáp án đúng.`,
+                  sectionIndex: index,
+                })
+              }
             })
           }
         })
@@ -664,6 +687,36 @@ export default function ExamBuilderPage() {
     setActiveIndex(0)
     markDirty()
     toast.success("Đã xoá phần khỏi đề")
+  }
+
+  const moveSection = (fromIndex: number, toIndex: number) => {
+    if (!exam || toIndex < 0 || toIndex >= exam.sections.length) return
+    const nextSections = [...exam.sections]
+    const [removed] = nextSections.splice(fromIndex, 1)
+    nextSections.splice(toIndex, 0, removed)
+    setExam({ ...exam, sections: nextSections })
+    setActiveIndex(toIndex)
+    markDirty()
+    toast.success("Đã đổi thứ tự phần thi")
+  }
+
+  const [migrating, setMigrating] = React.useState(false)
+  const handleMigrateExam = async () => {
+    if (USE_MOCKS) {
+      toast.info("Đang ở chế độ demo / mock data.")
+      return
+    }
+    setMigrating(true)
+    try {
+      const res = await migrateExamApi(examId)
+      toast.success(res.message || "Chuyển đổi sang Question Groups thành công.")
+      hydratedFor.current = null
+      await examQuery.refetch()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Không thể chuyển đổi đề thi.")
+    } finally {
+      setMigrating(false)
+    }
   }
 
   const handlePublish = () => {
@@ -994,31 +1047,67 @@ export default function ExamBuilderPage() {
                       !((section.media ?? []).length > 0 || (section.mediaIds?.length ?? 0) > 0)) ||
                     (section.skill === "reading" && !section.passageText?.trim())
                   return (
-                    <button
+                    <div
                       key={`${section.skill}-${index}`}
-                      type="button"
-                      onClick={() => setActiveIndex(index)}
                       className={cn(
-                        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors",
+                        "group flex w-full items-center justify-between gap-1 rounded-lg px-2 py-1.5 transition-colors",
                         activeIndex === index
                           ? "bg-primary/10 font-semibold text-primary"
                           : "text-muted-foreground hover:bg-muted"
                       )}
                     >
-                      <span className="truncate">
-                        {section.skill === "reading"
-                          ? `Passage ${section.part}`
-                          : section.skill === "writing"
-                            ? `Task ${section.part}`
-                            : `Part ${section.part}`}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        {count > 0 && <span className="font-mono text-[10px]">({count})</span>}
-                        {(count === 0 || missing) && (
-                          <HugeiconsIcon icon={Alert02Icon} size={12} className="text-amber-600" />
-                        )}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveIndex(index)}
+                        className="flex flex-1 items-center justify-between gap-2 text-left text-xs truncate"
+                      >
+                        <span className="truncate">
+                          {section.skill === "reading"
+                            ? `Passage ${section.part}`
+                            : section.skill === "writing"
+                              ? `Task ${section.part}`
+                              : section.skill === "speaking"
+                                ? `Speaking P${section.part}`
+                                : `Part ${section.part}`}
+                        </span>
+                        <span className="flex items-center gap-1 shrink-0">
+                          {count > 0 && <span className="font-mono text-[10px]">({count})</span>}
+                          {(count === 0 || missing) && (
+                            <HugeiconsIcon icon={Alert02Icon} size={12} className="text-amber-600" />
+                          )}
+                        </span>
+                      </button>
+                      {!examReadonly && (
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={index === 0}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              moveSection(index, index - 1)
+                            }}
+                            className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                            title="Di chuyển lên"
+                          >
+                            <HugeiconsIcon icon={ArrowUp01Icon} size={11} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={index === exam.sections.length - 1}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              moveSection(index, index + 1)
+                            }}
+                            className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                            title="Di chuyển xuống"
+                          >
+                            <HugeiconsIcon icon={ArrowDown01Icon} size={11} />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   )
                 })}
               </div>
@@ -1229,163 +1318,48 @@ export default function ExamBuilderPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-3">
+                  {/* Migration banner for legacy sections */}
+                  {(active.questionGroups ?? []).length === 0 && active.questions.length > 0 && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3.5 mb-3">
+                      <div className="space-y-0.5">
+                        <p className="text-xs font-bold text-primary flex items-center gap-1.5">
+                          <HugeiconsIcon icon={SparklesIcon} size={14} /> Phần thi này đang dùng cấu trúc câu hỏi cũ
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Chuyển đổi sang Question Groups để sử dụng đầy đủ các dạng bài IELTS (Matching, Completions, TFNG...).
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="gap-1.5 text-xs font-semibold shrink-0"
+                        onClick={handleMigrateExam}
+                        disabled={migrating}
+                      >
+                        <HugeiconsIcon icon={RefreshIcon} size={13} className={migrating ? "animate-spin" : ""} />
+                        {migrating ? "Đang chuyển đổi..." : "Chuyển sang Question Groups"}
+                      </Button>
+                    </div>
+                  )}
+
                   {(active.questionGroups ?? []).length > 0 ? (
                     /* New: Question Groups rendering */
                     <div className="space-y-4">
                       {(active.questionGroups ?? []).map((group, gIdx) => (
-                        <div
+                        <QuestionGroupEditor
                           key={group.id}
-                          className="rounded-xl border border-border bg-card"
-                        >
-                          <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-[10px] font-semibold">
-                                {QUESTION_GROUP_TYPE_LABEL[group.groupType]}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {group.questions.length} câu
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    disabled={examReadonly}
-                                    className="text-muted-foreground hover:text-destructive"
-                                    onClick={() => removeQuestionGroup(group.id)}
-                                  >
-                                    <HugeiconsIcon icon={Delete02Icon} size={14} />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Xóa nhóm</TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </div>
-                          <div className="space-y-2 p-3">
-                            <div className="space-y-1.5">
-                              <Label className="text-[11px] text-muted-foreground">Hướng dẫn nhóm</Label>
-                              <Textarea
-                                value={group.instructions}
-                                disabled={examReadonly}
-                                onChange={(e) => updateQuestionGroup(group.id, { instructions: e.target.value })}
-                                rows={2}
-                                className="resize-none text-xs"
-                              />
-                            </div>
-
-                            {/* Config fields based on group type */}
-                            {(group.config as any)?.maxWords !== undefined && (
-                              <div className="flex items-center gap-2">
-                                <Label className="text-[11px] text-muted-foreground whitespace-nowrap">Giới hạn từ:</Label>
-                                <Input
-                                  type="number"
-                                  value={(group.config as any).maxWords ?? 2}
-                                  disabled={examReadonly}
-                                  onChange={(e) => updateQuestionGroup(group.id, {
-                                    config: { ...group.config, maxWords: Number(e.target.value) },
-                                  })}
-                                  className="h-7 w-20 font-mono text-xs"
-                                />
-                              </div>
-                            )}
-
-                            {(group.config as any)?.template !== undefined && (
-                              <div className="space-y-1.5">
-                                <Label className="text-[11px] text-muted-foreground">
-                                  Template (dùng {"{{q1}}"}, {"{{q2}}"} cho chỗ trống)
-                                </Label>
-                                <Textarea
-                                  value={(group.config as any).template ?? ""}
-                                  disabled={examReadonly}
-                                  onChange={(e) => updateQuestionGroup(group.id, {
-                                    config: { ...group.config, template: e.target.value },
-                                  })}
-                                  rows={3}
-                                  className="resize-y font-mono text-xs"
-                                />
-                              </div>
-                            )}
-
-                            {/* Options pool for MC, matching, etc. */}
-                            {(group.config as any)?.options && group.groupType.startsWith("multiple_choice") && (
-                              <div className="space-y-1.5">
-                                <Label className="text-[11px] text-muted-foreground">Lựa chọn</Label>
-                                {((group.config as any).options as Array<{ id: string; text: string }>).map((opt, oIdx) => (
-                                  <div key={opt.id} className="flex items-center gap-2">
-                                    <span className="w-5 text-center text-xs font-bold text-primary">{opt.id}</span>
-                                    <Input
-                                      value={opt.text}
-                                      disabled={examReadonly}
-                                      onChange={(e) => {
-                                        const newOptions = [...(group.config as any).options]
-                                        newOptions[oIdx] = { ...opt, text: e.target.value }
-                                        updateQuestionGroup(group.id, {
-                                          config: { ...group.config, options: newOptions },
-                                        })
-                                      }}
-                                      className="h-7 text-xs"
-                                      placeholder={`Nội dung lựa chọn ${opt.id}`}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Questions in group */}
-                            <div className="space-y-1.5">
-                              <Label className="text-[11px] text-muted-foreground">Câu hỏi</Label>
-                              {group.questions.map((q) => (
-                                <div
-                                  key={q.id}
-                                  className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 p-2"
-                                >
-                                  <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-[11px] font-bold text-primary">
-                                    {numbering.get(q.id) ?? q.questionNumber}
-                                  </span>
-                                  <div className="min-w-0 flex-1 space-y-1.5">
-                                    <Input
-                                      value={q.prompt}
-                                      disabled={examReadonly}
-                                      onChange={(e) => updateQuestionInGroup(group.id, q.id, { prompt: e.target.value })}
-                                      className="h-7 text-xs"
-                                      placeholder="Nội dung câu hỏi..."
-                                    />
-                                    <Input
-                                      value={(q as any).acceptedAnswers?.join(", ") ?? ""}
-                                      disabled={examReadonly}
-                                      onChange={(e) => {
-                                        const answers = e.target.value.split(",").map((a: string) => a.trim()).filter(Boolean)
-                                        updateQuestionInGroup(group.id, q.id, { acceptedAnswers: answers } as any)
-                                      }}
-                                      className="h-7 font-mono text-xs text-green-700 dark:text-green-400"
-                                      placeholder="Đáp án (cách nhau dấu phẩy)"
-                                    />
-                                  </div>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    disabled={examReadonly}
-                                    className="mt-0.5 text-muted-foreground hover:text-destructive"
-                                    onClick={() => removeQuestionFromGroup(group.id, q.id)}
-                                  >
-                                    <HugeiconsIcon icon={Delete02Icon} size={13} />
-                                  </Button>
-                                </div>
-                              ))}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={examReadonly}
-                                onClick={() => addQuestionToGroup(group.id)}
-                                className="w-full gap-1.5 text-xs"
-                              >
-                                <HugeiconsIcon icon={Add01Icon} size={12} /> Thêm câu hỏi
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
+                          group={group}
+                          gIndex={gIdx}
+                          sectionSkill={active.skill}
+                          sectionTitle={active.title}
+                          examReadonly={examReadonly}
+                          numbering={numbering}
+                          onUpdateGroup={(patch) => updateQuestionGroup(group.id, patch)}
+                          onRemoveGroup={() => removeQuestionGroup(group.id)}
+                          onAddQuestion={() => addQuestionToGroup(group.id)}
+                          onRemoveQuestion={(qId) => removeQuestionFromGroup(group.id, qId)}
+                          onUpdateQuestion={(qId, patch) => updateQuestionInGroup(group.id, qId, patch)}
+                        />
                       ))}
                       <Button
                         variant="outline"

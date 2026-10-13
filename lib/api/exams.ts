@@ -147,6 +147,16 @@ export async function closeExamApi(id: string): Promise<{ id: string; status: st
   return data
 }
 
+export async function migrateExamApi(
+  id: string
+): Promise<{ id: string; message: string; migratedSections: number }> {
+  const { data } = await apiClient<{ id: string; message: string; migratedSections: number }>(
+    `/api/exams/${id}/migrate`,
+    { method: "POST" }
+  )
+  return data
+}
+
 // === Teacher exam detail types (with answer data) ===
 
 export interface TeacherQuestionItem {
