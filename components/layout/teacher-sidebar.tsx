@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuthStore } from "@/stores/auth.store"
 import { useSidebarStore } from "@/stores/sidebar.store"
+import { useLogout } from "@/hooks/use-logout"
 import { DEMO_TEACHER } from "@/mocks/demo-data"
 
 const navGroups = [
@@ -72,8 +73,9 @@ interface TeacherSidebarContentProps {
 
 export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherSidebarContentProps) {
   const pathname = usePathname()
-  const { user, logout } = useAuthStore()
+  const { user } = useAuthStore()
   const { isCollapsed, toggleSidebar, setCollapsed } = useSidebarStore()
+  const logoutMutation = useLogout()
   const currentUser = user || DEMO_TEACHER
 
   // On mobile sheet, always render in expanded mode
@@ -381,7 +383,7 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
               <DropdownMenuItem
                 onClick={() => {
                   onNavigate?.()
-                  logout()
+                  logoutMutation.mutate()
                 }}
                 className="gap-2 cursor-pointer text-xs text-destructive focus:text-destructive focus:bg-destructive/10"
               >
@@ -460,7 +462,7 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
               <DropdownMenuItem
                 onClick={() => {
                   onNavigate?.()
-                  logout()
+                  logoutMutation.mutate()
                 }}
                 className="gap-2 cursor-pointer text-xs text-destructive focus:text-destructive focus:bg-destructive/10"
               >

@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { CandidateExam, CandidateQuestionGroup } from "@/lib/api/types"
+import type { CandidateExam } from "@/lib/api/types"
 
 export type ExamPhase =
   | "loading"

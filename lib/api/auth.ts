@@ -52,7 +52,11 @@ export async function refreshAccessTokenApi(): Promise<string | null> {
       method: "POST",
       skipAuth: true,
     })
-    return data.accessToken ?? null
+    const token = data?.accessToken ?? null
+    if (token) {
+      useAuthStore.getState().setAccessToken(token)
+    }
+    return token
   } catch {
     return null
   }

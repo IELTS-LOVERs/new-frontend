@@ -6,6 +6,7 @@ import {
   getExamsApi,
   createExamApi,
   updateExamApi,
+  updateExamMetadataApi,
   deleteExamApi,
   cloneExamApi,
   publishExamApi,
@@ -14,6 +15,7 @@ import {
   getTeacherExamDetailApi,
   type ListExamsParams,
   type CreateExamPayload,
+  type UpdateExamMetadataPayload,
 } from "@/lib/api/exams"
 import { getExamDetailApi } from "@/lib/api/attempts"
 
@@ -60,6 +62,17 @@ export function useUpdateExamMutation(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (payload: Partial<CreateExamPayload>) => updateExamApi(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.teacher() })
+    },
+  })
+}
+
+export function useUpdateExamMetadataMutation(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: UpdateExamMetadataPayload) => updateExamMetadataApi(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.teacher() })

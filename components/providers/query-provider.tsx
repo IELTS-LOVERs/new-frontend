@@ -3,13 +3,22 @@
 import * as React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { NuqsAdapter } from "nuqs/adapters/next/app"
+import { ApiError } from "@/lib/api/client"
 
 function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
         staleTime: 60 * 1000,
-        retry: 1,
+        // FIX-13: only retry transient failures (network/5xx). Never retry 4xx
+        // (400/401/403/404), which are deterministic and just waste requests.
+        retry: (failureCount, error) => {
+          if (failureCount >= 1) return false
+          if (error instanceof ApiError) {
+            return error.status >= 500 || error.status === 0
+          }
+          return true
+        },
         refetchOnWindowFocus: false,
       },
       mutations: {

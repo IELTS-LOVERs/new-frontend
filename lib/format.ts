@@ -67,14 +67,12 @@ export const SKILL_LABEL: Record<SkillType, string> = {
   listening: "Listening",
   reading: "Reading",
   writing: "Writing",
-  speaking: "Speaking",
 }
 
 export const SKILL_COLOR_VAR: Record<SkillType, string> = {
   listening: "var(--chart-1)",
   reading: "var(--chart-2)",
   writing: "var(--chart-3)",
-  speaking: "var(--chart-4)",
 }
 
 export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
@@ -122,29 +120,22 @@ export const QUESTION_GROUP_TYPE_LABEL: Record<QuestionGroupType, string> = {
   short_answer: "Short-answer questions",
   writing_task_1: "Writing Task 1",
   writing_task_2: "Writing Task 2",
-  speaking_part_1: "Speaking Part 1",
-  speaking_part_2: "Speaking Part 2",
-  speaking_part_3: "Speaking Part 3",
 }
 
 export const QUESTION_GROUP_CATEGORIES: Array<{
   label: string
-  emoji: string
   types: QuestionGroupType[]
 }> = [
   {
     label: "Lựa chọn",
-    emoji: "📝",
     types: ["multiple_choice_single", "multiple_choice_multiple"],
   },
   {
     label: "Xác định thông tin",
-    emoji: "✅",
     types: ["true_false_not_given", "yes_no_not_given"],
   },
   {
     label: "Nối ghép",
-    emoji: "🔗",
     types: [
       "matching_headings",
       "matching_information",
@@ -154,7 +145,6 @@ export const QUESTION_GROUP_CATEGORIES: Array<{
   },
   {
     label: "Điền từ",
-    emoji: "✏️",
     types: [
       "sentence_completion",
       "note_completion",
@@ -167,13 +157,15 @@ export const QUESTION_GROUP_CATEGORIES: Array<{
   },
   {
     label: "Gán nhãn",
-    emoji: "🖼️",
     types: ["map_labelling", "diagram_labelling"],
   },
   {
     label: "Trả lời ngắn",
-    emoji: "💬",
     types: ["short_answer"],
+  },
+  {
+    label: "Viết (Writing)",
+    types: ["writing_task_1", "writing_task_2"],
   },
 ]
 
@@ -214,9 +206,6 @@ export function defaultGroupInstructions(groupType: QuestionGroupType): string {
     short_answer: "Answer the questions below.\nWrite NO MORE THAN THREE WORDS AND/OR A NUMBER for each answer.",
     writing_task_1: "",
     writing_task_2: "",
-    speaking_part_1: "",
-    speaking_part_2: "",
-    speaking_part_3: "",
   }
   return MAP[groupType] ?? ""
 }

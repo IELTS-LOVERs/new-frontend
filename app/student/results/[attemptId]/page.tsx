@@ -37,7 +37,6 @@ const TABS: Array<{ id: SkillType; label: string }> = [
   { id: "listening", label: "Listening" },
   { id: "reading", label: "Reading" },
   { id: "writing", label: "Writing" },
-  { id: "speaking", label: "Speaking" },
 ]
 
 const FILTERS = [
@@ -171,7 +170,7 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     detail?: AttemptResultDetail
   }
 
-  const rowsBySkill: Record<SkillType, Row[]> = { listening: [], reading: [], writing: [], speaking: [] }
+  const rowsBySkill: Record<SkillType, Row[]> = { listening: [], reading: [], writing: [] }
   if (exam) {
     let order = 0
     exam.sections.forEach((sec) => {
@@ -211,8 +210,7 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
   if (!exam && result.details.length > 0) {
     result.details.forEach((d, idx) => {
       const isWriting = d.groupType?.startsWith("writing_")
-      const isSpeaking = d.groupType?.startsWith("speaking_")
-      const targetSkill: SkillType = isWriting ? "writing" : isSpeaking ? "speaking" : "listening"
+      const targetSkill: SkillType = isWriting ? "writing" : "listening"
       rowsBySkill[targetSkill].push({
         questionId: d.questionId,
         order: d.questionNumber ?? idx + 1,
@@ -246,8 +244,8 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     }).length
   }
 
-  const currentTab: SkillType = (["listening", "reading", "writing", "speaking"] as const).includes(
-    tab as "listening" | "reading" | "writing" | "speaking"
+  const currentTab: SkillType = (["listening", "reading", "writing"] as const).includes(
+    tab as "listening" | "reading" | "writing"
   )
     ? (tab as SkillType)
     : "listening"

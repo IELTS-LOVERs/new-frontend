@@ -59,8 +59,59 @@ describe("useAutosave", () => {
     const state = useExamSessionStore.getState()
     expect(state.answers.q1.dirty).toBe(false)
     expect(state.saveStatus).toBe("saved")
-    // Snapshot IndexedDB được ghi (throttle 300ms).
+    // FIX-06: snapshot IndexedDB được ghi ngay (không throttle 300ms).
     expect(mockSnapshot).toHaveBeenCalled()
+  })
+
+  it("ghi snapshot IndexedDB ngay khi answers đổi (FIX-06)", () => {
+    useExamSessionStore.getState().init("attempt-1", exam, 100)
+    renderHook(() => useAutosave("attempt-1"))
+    mockSnapshot.mockClear()
+
+    act(() => {
+      useExamSessionStore.getState().setAnswer("q1", "A")
+    })
+
+    // No timers advanced — the snapshot must already be persisted.
+    expect(mockSnapshot).toHaveBeenCalled()
+  })
+
+  it("gọi onFatal khi nhận EXAM_ALREADY_SUBMITTED (FIX-10)", async () => {
+    const onFatal = vi.fn()
+    mockSave.mockRejectedValue(new ApiError(400, "EXAM_ALREADY_SUBMITTED", "Đã nộp"))
+    useExamSessionStore.getState().init("attempt-1", exam, 100)
+    renderHook(() => useAutosave("attempt-1", { onFatal }))
+
+    act(() => {
+      useExamSessionStore.getState().setAnswer("q1", "A")
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(2_000)
+    })
+
+    expect(onFatal).toHaveBeenCalledTimes(1)
+    expect(useExamSessionStore.getState().phase).toBe("submitting")
+  })
+
+  it("flush với keepalive khi pagehide (FIX-06)", async () => {
+    mockSave.mockResolvedValue({ savedCount: 1, serverRemainingSeconds: 100 })
+    useExamSessionStore.getState().init("attempt-1", exam, 100)
+    renderHook(() => useAutosave("attempt-1"))
+
+    act(() => {
+      useExamSessionStore.getState().setAnswer("q1", "A")
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"))
+    })
+
+    expect(mockSave).toHaveBeenCalledWith(
+      "attempt-1",
+      { answers: [{ questionId: "q1", value: "A" }] },
+      { keepalive: true }
+    )
   })
 
   it("429 → lùi 10s rồi thử lại", async () => {

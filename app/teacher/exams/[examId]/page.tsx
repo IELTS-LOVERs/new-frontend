@@ -56,7 +56,6 @@ const SKILL_ICON: Record<SkillType, React.ComponentProps<typeof HugeiconsIcon>["
   listening: HeadphonesIcon,
   reading: Book02Icon,
   writing: PenTool01Icon,
-  speaking: MusicNote01Icon,
 }
 
 function mockSectionsFor(examId: string) {

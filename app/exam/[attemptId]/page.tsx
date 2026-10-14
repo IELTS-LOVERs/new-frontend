@@ -29,10 +29,15 @@ import {
   Timer01Icon,
   CheckmarkCircle02Icon,
   Alert02Icon,
+  ArrowDown01Icon,
   ArrowRight01Icon,
   ArrowLeft01Icon,
   Flag01Icon,
 } from "@hugeicons/core-free-icons"
+import {
+  parseMarkdownTable,
+  splitFlowSteps,
+} from "@/features/exam-engine/lib/template-layout"
 import { toast } from "sonner"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { useExamSessionStore } from "@/stores/exam-session.store"
@@ -43,10 +48,15 @@ import { useAntiCheat } from "@/features/exam-engine/hooks/use-anti-cheat"
 import { useExamAudioPlayer } from "@/features/exam-engine/hooks/use-audio-player"
 import { useSubmitAttemptMutation } from "@/hooks/use-attempts"
 import { clearAttemptSnapshot } from "@/features/exam-engine/lib/idb"
-import { formatDuration, QUESTION_GROUP_TYPE_LABEL } from "@/lib/format"
+import { formatDuration } from "@/lib/format"
 import { DEMO_EXAM_MOCK_01 } from "@/mocks/demo-data"
 import { USE_MOCKS } from "@/lib/api/config"
-import type { CandidateSection, CandidateQuestionGroup, CandidateQuestionItem, CandidateQuestion } from "@/lib/api/types"
+import type {
+  CandidateSection,
+  CandidateQuestionGroup,
+  CandidateQuestionItem,
+  CandidateQuestion,
+} from "@/lib/api/types"
 
 function countWords(text: string): number {
   const trimmed = text.trim()
@@ -55,17 +65,29 @@ function countWords(text: string): number {
 
 /** Helper: Check if a section uses the new questionGroups format */
 function sectionHasGroups(section: CandidateSection): boolean {
-  return Array.isArray(section.questionGroups) && section.questionGroups.length > 0
+  return (
+    Array.isArray(section.questionGroups) && section.questionGroups.length > 0
+  )
 }
 
 /** Helper: Extract flat question list from section (handles both formats) */
-function flattenSectionQuestions(section: CandidateSection): Array<{ id: string; prompt: string; type?: string }> {
+function flattenSectionQuestions(
+  section: CandidateSection
+): Array<{ id: string; prompt: string; type?: string }> {
   if (sectionHasGroups(section)) {
     return section.questionGroups!.flatMap((g) =>
-      g.questions.map((q) => ({ id: q.id, prompt: q.prompt, type: g.groupType }))
+      g.questions.map((q) => ({
+        id: q.id,
+        prompt: q.prompt,
+        type: g.groupType,
+      }))
     )
   }
-  return section.questions.map((q) => ({ id: q.id, prompt: q.prompt, type: q.type }))
+  return section.questions.map((q) => ({
+    id: q.id,
+    prompt: q.prompt,
+    type: q.type,
+  }))
 }
 
 export default function ExamEnginePage() {
@@ -91,7 +113,9 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const flagged = useExamSessionStore((s) => s.flagged)
   const saveStatus = useExamSessionStore((s) => s.saveStatus)
   const ui = useExamSessionStore((s) => s.ui)
-  const setActiveSectionIndex = useExamSessionStore((s) => s.setActiveSectionIndex)
+  const setActiveSectionIndex = useExamSessionStore(
+    (s) => s.setActiveSectionIndex
+  )
   const activeSectionIndex = useExamSessionStore((s) => s.activeSectionIndex)
   const setAnswer = useExamSessionStore((s) => s.setAnswer)
   const toggleFlag = useExamSessionStore((s) => s.toggleFlag)
@@ -100,19 +124,31 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const setUITheme = useExamSessionStore((s) => s.setUITheme)
 
   const [isSubmitOpen, setIsSubmitOpen] = React.useState(false)
-  const [writingTask, setWritingTask] = React.useState<"task1" | "task2">("task1")
+  const [writingTask, setWritingTask] = React.useState<"task1" | "task2">(
+    "task1"
+  )
   const submitMutation = useSubmitAttemptMutation()
-  const handleSubmitRef = React.useRef<(auto?: boolean) => Promise<void>>(async () => {})
+  const handleSubmitRef = React.useRef<(auto?: boolean) => Promise<void>>(
+    async () => {}
+  )
 
-  const { status: recoveryStatus, error: recoveryError, needsGesture, confirmResume } =
-    useExamRecovery(attemptId)
+  const {
+    status: recoveryStatus,
+    error: recoveryError,
+    needsGesture,
+    confirmResume,
+  } = useExamRecovery(attemptId)
 
   const { secondsLeft } = useExamTimer(() => {
     // Hết giờ → submit
     void handleSubmitRef.current(true)
   })
 
-  const { flush } = useAutosave(attemptId)
+  const { flush } = useAutosave(attemptId, {
+    // FIX-10: if autosave learns the attempt is already over, run the real
+    // submit flow (which redirects to /submitted) instead of hanging.
+    onFatal: () => void handleSubmitRef.current(true),
+  })
   useAntiCheat(attemptId, phase === "active" || phase === "offline")
 
   // ─── Submit ────────────────────────────────────────────────
@@ -123,12 +159,16 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
       // Flush tất cả dirty answers trước (tối đa 10s)
       await Promise.race([
         flush(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("flush-timeout")), 10_000)),
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error("flush-timeout")), 10_000)
+        ),
       ]).catch(() => {
         // Nếu flush thất bại vì mạng và không phải hết giờ → cho phép thử lại
         if (!auto) {
           setPhase("active")
-          toast.error("Chưa thể đồng bộ đáp án. Kiểm tra kết nối rồi bấm Thử lại.")
+          toast.error(
+            "Chưa thể đồng bộ đáp án. Kiểm tra kết nối rồi bấm Thử lại."
+          )
           throw new Error("flush-failed")
         }
       })
@@ -178,8 +218,14 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   if (recoveryStatus === "error") {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background p-6">
-        <HugeiconsIcon icon={Alert02Icon} size={40} className="text-destructive" />
-        <h1 className="font-heading text-lg font-semibold">Không thể mở bài thi</h1>
+        <HugeiconsIcon
+          icon={Alert02Icon}
+          size={40}
+          className="text-destructive"
+        />
+        <h1 className="font-heading text-lg font-semibold">
+          Không thể mở bài thi
+        </h1>
         <p className="text-sm text-muted-foreground">{recoveryError}</p>
         <Button asChild variant="outline">
           <Link href="/student/assignments">Về danh sách bài tập</Link>
@@ -207,7 +253,9 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   if (!exam) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <p className="text-sm text-muted-foreground">Không có dữ liệu đề thi.</p>
+        <p className="text-sm text-muted-foreground">
+          Không có dữ liệu đề thi.
+        </p>
       </div>
     )
   }
@@ -215,34 +263,44 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const currentSection = exam.sections[activeSectionIndex] ?? exam.sections[0]
   const allQuestions = exam.sections.flatMap((s, sIdx) => {
     const qs = flattenSectionQuestions(s)
-    return qs.map((q, qIdx) => ({ ...q, sectionIndex: sIdx, displayNumber: qIdx + 1 }))
+    return qs.map((q, qIdx) => ({
+      ...q,
+      sectionIndex: sIdx,
+      displayNumber: qIdx + 1,
+    }))
   })
-  const answeredCount = Object.values(answers).filter((a) => a.value?.trim()).length
+  const answeredCount = Object.values(answers).filter((a) =>
+    a.value?.trim()
+  ).length
   const totalQuestions = allQuestions.length
 
   return (
     <div
       className={cn(
         "flex h-screen flex-col overflow-hidden transition-colors duration-200",
-        ui.theme === "cream" ? "bg-[#FAF8F5] text-[#2D2A26]" : "bg-background text-foreground"
+        ui.theme === "cream"
+          ? "bg-[#FAF8F5] text-[#2D2A26]"
+          : "bg-background text-foreground"
       )}
     >
       {/* TOP BAR */}
       <header
         className={cn(
-          "flex h-14 shrink-0 items-center justify-between border-b px-6 select-none z-30",
-          ui.theme === "cream" ? "border-[#E8E4DD] bg-[#FAF8F5]" : "border-border bg-background"
+          "z-30 flex h-14 shrink-0 items-center justify-between border-b px-6 select-none",
+          ui.theme === "cream"
+            ? "border-[#E8E4DD] bg-[#FAF8F5]"
+            : "border-border bg-background"
         )}
       >
         <div className="flex items-center gap-6">
           <BrandLogo href="/student" compact />
-          <div className="h-4 w-px bg-border hidden sm:block" />
-          <span className="font-heading font-semibold text-sm text-foreground truncate max-w-[260px]">
+          <div className="hidden h-4 w-px bg-border sm:block" />
+          <span className="max-w-[260px] truncate font-heading text-sm font-semibold text-foreground">
             {exam.title}
           </span>
         </div>
 
-        <div className="hidden md:flex items-center gap-1 rounded-xl bg-muted/50 p-1">
+        <div className="hidden items-center gap-1 rounded-xl bg-muted/50 p-1 md:flex">
           {exam.sections.map((sec, idx) => (
             <button
               key={`${sec.skill}-${sec.part}`}
@@ -261,21 +319,21 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
 
         <div className="flex items-center gap-3">
           {/* Autosave status */}
-          <div className="hidden lg:flex items-center gap-1.5 text-xs text-muted-foreground">
+          <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
             {saveStatus === "saving" ? (
               <span className="animate-pulse">Đang lưu...</span>
             ) : saveStatus === "saved" ? (
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+              <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
                 <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
                 Đã lưu
               </span>
             ) : saveStatus === "offline" ? (
-              <span className="text-amber-600 font-medium flex items-center gap-1">
+              <span className="flex items-center gap-1 font-medium text-amber-600">
                 <HugeiconsIcon icon={Alert02Icon} size={14} />
                 Chưa đồng bộ
               </span>
             ) : saveStatus === "error" ? (
-              <span className="text-destructive font-medium flex items-center gap-1">
+              <span className="flex items-center gap-1 font-medium text-destructive">
                 <HugeiconsIcon icon={Alert02Icon} size={14} />
                 Lỗi lưu
               </span>
@@ -285,12 +343,16 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
           </div>
 
           {/* Timer */}
-          <div className="flex items-center gap-1.5 rounded-xl bg-muted/40 border border-border px-3 py-1 font-mono text-xs sm:text-sm font-semibold">
-            <HugeiconsIcon icon={Timer01Icon} size={15} className="text-primary" />
+          <div className="flex items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-1 font-mono text-xs font-semibold sm:text-sm">
+            <HugeiconsIcon
+              icon={Timer01Icon}
+              size={15}
+              className="text-primary"
+            />
             <span
               className={cn(
                 secondsLeft <= 60
-                  ? "text-destructive font-bold animate-pulse"
+                  ? "animate-pulse font-bold text-destructive"
                   : secondsLeft <= 300
                     ? "text-destructive"
                     : secondsLeft <= 600
@@ -303,12 +365,14 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
           </div>
 
           {/* Theme */}
-          <div className="hidden sm:flex items-center rounded-xl border border-border p-0.5 text-xs">
+          <div className="hidden items-center rounded-xl border border-border p-0.5 text-xs sm:flex">
             <button
               onClick={() => setUITheme("white")}
               className={cn(
-                "px-2 py-0.5 rounded-lg text-[11px] font-medium transition-colors",
-                ui.theme === "white" ? "bg-muted font-semibold text-foreground" : "text-muted-foreground"
+                "rounded-lg px-2 py-0.5 text-[11px] font-medium transition-colors",
+                ui.theme === "white"
+                  ? "bg-muted font-semibold text-foreground"
+                  : "text-muted-foreground"
               )}
             >
               Trắng
@@ -316,8 +380,10 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             <button
               onClick={() => setUITheme("cream")}
               className={cn(
-                "px-2 py-0.5 rounded-lg text-[11px] font-medium transition-colors",
-                ui.theme === "cream" ? "bg-[#EFECE6] font-semibold text-[#2D2A26]" : "text-muted-foreground"
+                "rounded-lg px-2 py-0.5 text-[11px] font-medium transition-colors",
+                ui.theme === "cream"
+                  ? "bg-[#EFECE6] font-semibold text-[#2D2A26]"
+                  : "text-muted-foreground"
               )}
             >
               Ngà
@@ -325,14 +391,16 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
           </div>
 
           {/* Font scale */}
-          <div className="hidden sm:flex items-center rounded-xl border border-border p-0.5 text-xs">
+          <div className="hidden items-center rounded-xl border border-border p-0.5 text-xs sm:flex">
             {([1, 1.125, 1.25] as const).map((scale, i) => (
               <button
                 key={scale}
                 onClick={() => setUIFontScale(scale)}
                 className={cn(
-                  "px-2 py-0.5 rounded-lg font-mono text-[11px]",
-                  ui.fontScale === scale ? "bg-muted font-bold text-foreground" : "text-muted-foreground"
+                  "rounded-lg px-2 py-0.5 font-mono text-[11px]",
+                  ui.fontScale === scale
+                    ? "bg-muted font-bold text-foreground"
+                    : "text-muted-foreground"
                 )}
               >
                 {["A", "A+", "A++"][i]}
@@ -340,14 +408,21 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             ))}
           </div>
 
-          <Button size="sm" onClick={() => setIsSubmitOpen(true)} className="font-medium text-xs h-8 px-3">
+          <Button
+            size="sm"
+            onClick={() => setIsSubmitOpen(true)}
+            className="h-8 px-3 text-xs font-medium"
+          >
             Nộp bài
           </Button>
         </div>
       </header>
 
       {/* BODY */}
-      <main className="flex-1 overflow-hidden" style={{ fontSize: `${ui.fontScale * 100}%` }}>
+      <main
+        className="flex-1 overflow-hidden"
+        style={{ fontSize: `${ui.fontScale * 100}%` }}
+      >
         {currentSection.skill === "listening" && (
           <ListeningSection
             section={currentSection}
@@ -376,24 +451,19 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             onAnswer={(qid, v) => setAnswer(qid, v)}
           />
         )}
-        {currentSection.skill === "speaking" && (
-          <SpeakingSection
-            section={currentSection}
-            answers={answers}
-            flagged={flagged}
-            onAnswer={(qid, v) => setAnswer(qid, v)}
-            onToggleFlag={toggleFlag}
-          />
-        )}
       </main>
 
       {/* BOTTOM PALETTE */}
-      <footer className="flex h-14 shrink-0 items-center justify-between border-t border-border bg-background px-6 select-none z-30">
+      <footer className="z-30 flex h-14 shrink-0 items-center justify-between border-t border-border bg-background px-6 select-none">
         <div className="flex items-center gap-4">
-          <span className="text-xs font-semibold text-muted-foreground hidden sm:inline">
-            Tiến độ: <strong className="text-foreground font-mono">{answeredCount}/{totalQuestions}</strong> câu
+          <span className="hidden text-xs font-semibold text-muted-foreground sm:inline">
+            Tiến độ:{" "}
+            <strong className="font-mono text-foreground">
+              {answeredCount}/{totalQuestions}
+            </strong>{" "}
+            câu
           </span>
-          <div className="h-4 w-px bg-border hidden sm:block" />
+          <div className="hidden h-4 w-px bg-border sm:block" />
           <div className="flex items-center gap-1.5 overflow-x-auto py-1">
             {allQuestions.map((q, idx) => {
               const isAnswered = !!answers[q.id]?.value?.trim()
@@ -408,7 +478,9 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
                     isAnswered
                       ? "bg-primary text-primary-foreground shadow-xs"
                       : "border border-border bg-card text-foreground hover:bg-muted",
-                    isCurrentSec ? "ring-2 ring-primary ring-offset-1" : "opacity-80"
+                    isCurrentSec
+                      ? "ring-2 ring-primary ring-offset-1"
+                      : "opacity-80"
                   )}
                 >
                   {idx + 1}
@@ -426,7 +498,9 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             variant="outline"
             size="sm"
             disabled={activeSectionIndex === 0}
-            onClick={() => setActiveSectionIndex(Math.max(0, activeSectionIndex - 1))}
+            onClick={() =>
+              setActiveSectionIndex(Math.max(0, activeSectionIndex - 1))
+            }
             className="h-8 gap-1 text-xs"
           >
             <HugeiconsIcon icon={ArrowLeft01Icon} size={14} />
@@ -436,7 +510,11 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             variant="outline"
             size="sm"
             disabled={activeSectionIndex === exam.sections.length - 1}
-            onClick={() => setActiveSectionIndex(Math.min(exam.sections.length - 1, activeSectionIndex + 1))}
+            onClick={() =>
+              setActiveSectionIndex(
+                Math.min(exam.sections.length - 1, activeSectionIndex + 1)
+              )
+            }
             className="h-8 gap-1 text-xs"
           >
             <span className="hidden sm:inline">Phần tiếp theo</span>
@@ -489,20 +567,22 @@ function QuestionCard({
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-5 space-y-3 shadow-xs">
+    <div className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-primary font-mono font-bold text-xs">
+          <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
             {idx + 1}
           </span>
-          <span className="font-semibold text-sm text-foreground">{q.prompt}</span>
+          <span className="text-sm font-semibold text-foreground">
+            {q.prompt}
+          </span>
         </div>
         <Button
           variant="ghost"
           size="icon"
           className={cn(
             "size-7",
-            flagged ? "text-amber-600 bg-amber-500/10" : "text-muted-foreground"
+            flagged ? "bg-amber-500/10 text-amber-600" : "text-muted-foreground"
           )}
           onClick={onToggleFlag}
           title="Đánh dấu câu hỏi để xem lại"
@@ -547,16 +627,18 @@ function QuestionInput({
               key={opt.id}
               onClick={() => onAnswer(opt.id)}
               className={cn(
-                "flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors text-xs font-medium",
+                "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-xs font-medium transition-colors",
                 isSelected
-                  ? "border-primary bg-primary/5 text-primary font-semibold"
-                  : "border-border hover:bg-muted/30 text-foreground"
+                  ? "border-primary bg-primary/5 font-semibold text-primary"
+                  : "border-border text-foreground hover:bg-muted/30"
               )}
             >
               <span
                 className={cn(
-                  "flex size-5 items-center justify-center rounded-full border text-[11px] font-mono font-bold",
-                  isSelected ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                  "flex size-5 items-center justify-center rounded-full border font-mono text-[11px] font-bold",
+                  isSelected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border"
                 )}
               >
                 {opt.id}
@@ -576,13 +658,20 @@ function QuestionInput({
         value={answer}
         onChange={(e) => onAnswer(e.target.value)}
         placeholder="Nhập câu trả lời của bạn..."
-        className="h-10 text-sm max-w-md font-medium"
+        className="h-10 max-w-md text-sm font-medium"
       />
     </div>
   )
 }
 
-function ListeningSection({ section, answers, flagged, onAnswer, onToggleFlag, uiTheme }: SectionProps) {
+function ListeningSection({
+  section,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+  uiTheme,
+}: SectionProps) {
   const audioMedia = section.media?.find((m) => m.type === "audio")
   const audio = useExamAudioPlayer(audioMedia?.url ?? null, { autoplay: true })
 
@@ -592,15 +681,17 @@ function ListeningSection({ section, answers, flagged, onAnswer, onToggleFlag, u
       <div
         className={cn(
           "sticky top-0 z-20 flex items-center justify-between border-b px-8 py-3",
-          uiTheme === "cream" ? "border-[#E8E4DD] bg-[#FAF8F5]/95" : "border-border bg-card/95"
+          uiTheme === "cream"
+            ? "border-[#E8E4DD] bg-[#FAF8F5]/95"
+            : "border-border bg-card/95"
         )}
       >
-        <div className="flex items-center gap-4 flex-1 max-w-2xl">
+        <div className="flex max-w-2xl flex-1 items-center gap-4">
           <div className="flex items-center gap-2">
             <span
               className={cn(
                 "flex size-2.5 rounded-full",
-                audio.error ? "bg-destructive" : "bg-emerald-500 animate-pulse"
+                audio.error ? "bg-destructive" : "animate-pulse bg-emerald-500"
               )}
             />
             <span className="text-xs font-medium text-foreground">
@@ -609,33 +700,44 @@ function ListeningSection({ section, answers, flagged, onAnswer, onToggleFlag, u
           </div>
 
           <div className="flex-1 space-y-1">
-            <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
-              <span>{audioMedia?.originalName ?? `${section.title} audio`}</span>
+            <div className="flex justify-between font-mono text-[11px] text-muted-foreground">
               <span>
-                {formatDuration(Math.floor(audio.position))} / {formatDuration(Math.floor(audio.duration))}
+                {audioMedia?.originalName ?? `${section.title} audio`}
+              </span>
+              <span>
+                {formatDuration(Math.floor(audio.position))} /{" "}
+                {formatDuration(Math.floor(audio.duration))}
               </span>
             </div>
-            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full bg-primary transition-all duration-300"
                 style={{
-                  width: audio.duration > 0 ? `${(audio.position / audio.duration) * 100}%` : "0%",
+                  width:
+                    audio.duration > 0
+                      ? `${(audio.position / audio.duration) * 100}%`
+                      : "0%",
                 }}
               />
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-muted-foreground pl-4">
+        <div className="flex items-center gap-3 pl-4 text-xs text-muted-foreground">
           {audio.error && (
-            <Button variant="outline" size="sm" onClick={audio.retry} className="h-7 text-xs">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={audio.retry}
+              className="h-7 text-xs"
+            >
               Thử lại
             </Button>
           )}
           <button
             type="button"
             onClick={audio.toggleMute}
-            className="hover:text-foreground transition-colors p-1"
+            className="p-1 transition-colors hover:text-foreground"
             title={audio.isMuted ? "Bật âm thanh" : "Tắt tiếng"}
           >
             <HugeiconsIcon
@@ -650,26 +752,37 @@ function ListeningSection({ section, answers, flagged, onAnswer, onToggleFlag, u
             max={100}
             value={audio.isMuted ? 0 : Math.round(audio.volume * 100)}
             onChange={(e) => audio.setVolume(Number(e.target.value) / 100)}
-            className="w-20 sm:w-28 h-1.5 accent-primary bg-muted rounded-lg cursor-pointer"
+            className="h-1.5 w-20 cursor-pointer rounded-lg bg-muted accent-primary sm:w-28"
             title="Điều chỉnh âm lượng"
           />
-          <span className="font-mono text-xs w-8 text-right">
+          <span className="w-8 text-right font-mono text-xs">
             {audio.isMuted ? "0%" : `${Math.round(audio.volume * 100)}%`}
           </span>
         </div>
       </div>
 
       {/* Questions */}
-      <div className="mx-auto w-full max-w-3xl p-8 space-y-8">
-        <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-1">
-          <h3 className="font-heading font-bold text-base text-foreground">{section.title}</h3>
-          <p className="text-xs text-muted-foreground">{section.instructions}</p>
+      <div className="mx-auto w-full max-w-3xl space-y-8 p-8">
+        <div className="space-y-1 rounded-xl border border-border bg-muted/20 p-4">
+          <h3 className="font-heading text-base font-bold text-foreground">
+            {section.title}
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            {section.instructions}
+          </p>
         </div>
 
         {sectionHasGroups(section) ? (
           <div className="space-y-8">
             {section.questionGroups!.map((group) => (
-              <GroupRenderer key={group.id} group={group} answers={answers} flagged={flagged} onAnswer={onAnswer} onToggleFlag={onToggleFlag} />
+              <GroupRenderer
+                key={group.id}
+                group={group}
+                answers={answers}
+                flagged={flagged}
+                onAnswer={onAnswer}
+                onToggleFlag={onToggleFlag}
+              />
             ))}
           </div>
         ) : (
@@ -682,7 +795,11 @@ function ListeningSection({ section, answers, flagged, onAnswer, onToggleFlag, u
                 flagged={!!flagged[q.id]}
                 onToggleFlag={() => onToggleFlag(q.id)}
               >
-                <QuestionInput q={q} answer={answers[q.id]?.value ?? ""} onAnswer={(v) => onAnswer(q.id, v)} />
+                <QuestionInput
+                  q={q}
+                  answer={answers[q.id]?.value ?? ""}
+                  onAnswer={(v) => onAnswer(q.id, v)}
+                />
               </QuestionCard>
             ))}
           </div>
@@ -692,7 +809,13 @@ function ListeningSection({ section, answers, flagged, onAnswer, onToggleFlag, u
   )
 }
 
-function HighlightedPassage({ text, highlights }: { text: string; highlights: string[] }) {
+function HighlightedPassage({
+  text,
+  highlights,
+}: {
+  text: string
+  highlights: string[]
+}) {
   if (!highlights.length || !text) {
     return <span>{text}</span>
   }
@@ -706,9 +829,14 @@ function HighlightedPassage({ text, highlights }: { text: string; highlights: st
   return (
     <>
       {parts.map((part, i) => {
-        const isMatch = highlights.some((h) => h.toLowerCase() === part.toLowerCase())
+        const isMatch = highlights.some(
+          (h) => h.toLowerCase() === part.toLowerCase()
+        )
         return isMatch ? (
-          <mark key={i} className="rounded bg-amber-200 px-0.5 font-medium text-stone-900 dark:bg-amber-400 dark:text-stone-900">
+          <mark
+            key={i}
+            className="rounded bg-amber-200 px-0.5 font-medium text-stone-900 dark:bg-amber-400 dark:text-stone-900"
+          >
             {part}
           </mark>
         ) : (
@@ -719,7 +847,13 @@ function HighlightedPassage({ text, highlights }: { text: string; highlights: st
   )
 }
 
-function ReadingSection({ section, answers, flagged, onAnswer, onToggleFlag }: SectionProps) {
+function ReadingSection({
+  section,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+}: SectionProps) {
   const [highlights, setHighlights] = React.useState<string[]>([])
   const [selectedText, setSelectedText] = React.useState<string>("")
 
@@ -735,17 +869,29 @@ function ReadingSection({ section, answers, flagged, onAnswer, onToggleFlag }: S
 
   const addHighlight = () => {
     if (selectedText) {
-      setHighlights((prev) => (prev.includes(selectedText) ? prev : [...prev, selectedText]))
+      setHighlights((prev) =>
+        prev.includes(selectedText) ? prev : [...prev, selectedText]
+      )
       setSelectedText("")
     }
   }
 
   return (
     <ResizablePanelGroup orientation="horizontal" className="h-full w-full">
-      <ResizablePanel defaultSize={50} minSize={30} className="overflow-y-auto bg-card border-r border-border">
-        <div className="p-8 max-w-2xl mx-auto space-y-6" onMouseUp={handleMouseUp}>
-          <div className="border-b border-border pb-4 flex items-center justify-between">
-            <Badge variant="outline" className="text-primary font-semibold text-xs">
+      <ResizablePanel
+        defaultSize={50}
+        minSize={30}
+        className="overflow-y-auto border-r border-border bg-card"
+      >
+        <div
+          className="mx-auto max-w-2xl space-y-6 p-8"
+          onMouseUp={handleMouseUp}
+        >
+          <div className="flex items-center justify-between border-b border-border pb-4">
+            <Badge
+              variant="outline"
+              className="text-xs font-semibold text-primary"
+            >
               {section.title}
             </Badge>
             <div className="flex items-center gap-2">
@@ -754,7 +900,7 @@ function ReadingSection({ section, answers, flagged, onAnswer, onToggleFlag }: S
                   size="sm"
                   variant="default"
                   onClick={addHighlight}
-                  className="h-7 text-xs bg-amber-500 hover:bg-amber-600 text-stone-950 font-semibold"
+                  className="h-7 bg-amber-500 text-xs font-semibold text-stone-950 hover:bg-amber-600"
                 >
                   Highlight vùng chọn
                 </Button>
@@ -771,39 +917,59 @@ function ReadingSection({ section, answers, flagged, onAnswer, onToggleFlag }: S
               )}
             </div>
           </div>
-          <div className="font-serif text-sm leading-[1.8] text-foreground/90 whitespace-pre-line space-y-4 select-text">
-            <HighlightedPassage text={section.passageText ?? ""} highlights={highlights} />
+          <div className="space-y-4 font-serif text-sm leading-[1.8] whitespace-pre-line text-foreground/90 select-text">
+            <HighlightedPassage
+              text={section.passageText ?? ""}
+              highlights={highlights}
+            />
           </div>
         </div>
       </ResizablePanel>
 
       <ResizableHandle withHandle />
 
-      <ResizablePanel defaultSize={50} minSize={30} className="overflow-y-auto bg-muted/10">
-        <div className="p-8 max-w-2xl mx-auto space-y-6">
-          <div className="rounded-xl border border-border bg-card p-4 space-y-1">
-            <h3 className="font-heading font-bold text-sm text-foreground">{section.title}</h3>
-            <p className="text-xs text-muted-foreground">{section.instructions}</p>
+      <ResizablePanel
+        defaultSize={50}
+        minSize={30}
+        className="overflow-y-auto bg-muted/10"
+      >
+        <div className="mx-auto max-w-2xl space-y-6 p-8">
+          <div className="space-y-1 rounded-xl border border-border bg-card p-4">
+            <h3 className="font-heading text-sm font-bold text-foreground">
+              {section.title}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {section.instructions}
+            </p>
           </div>
 
           <div className="space-y-6">
-            {sectionHasGroups(section) ? (
-              section.questionGroups!.map((group) => (
-                <GroupRenderer key={group.id} group={group} answers={answers} flagged={flagged} onAnswer={onAnswer} onToggleFlag={onToggleFlag} />
-              ))
-            ) : (
-              section.questions.map((q, idx) => (
-                <QuestionCard
-                  key={q.id}
-                  q={q}
-                  idx={idx}
-                  flagged={!!flagged[q.id]}
-                  onToggleFlag={() => onToggleFlag(q.id)}
-                >
-                  <QuestionInput q={q} answer={answers[q.id]?.value ?? ""} onAnswer={(v) => onAnswer(q.id, v)} />
-                </QuestionCard>
-              ))
-            )}
+            {sectionHasGroups(section)
+              ? section.questionGroups!.map((group) => (
+                  <GroupRenderer
+                    key={group.id}
+                    group={group}
+                    answers={answers}
+                    flagged={flagged}
+                    onAnswer={onAnswer}
+                    onToggleFlag={onToggleFlag}
+                  />
+                ))
+              : section.questions.map((q, idx) => (
+                  <QuestionCard
+                    key={q.id}
+                    q={q}
+                    idx={idx}
+                    flagged={!!flagged[q.id]}
+                    onToggleFlag={() => onToggleFlag(q.id)}
+                  >
+                    <QuestionInput
+                      q={q}
+                      answer={answers[q.id]?.value ?? ""}
+                      onAnswer={(v) => onAnswer(q.id, v)}
+                    />
+                  </QuestionCard>
+                ))}
           </div>
         </div>
       </ResizablePanel>
@@ -825,10 +991,36 @@ function WritingSection({
   onAnswer: (questionId: string, value: string) => void
 }) {
   const task1Q = sectionHasGroups(section)
-    ? (() => { const g = section.questionGroups!.find((g) => g.groupType === "writing_task_1"); return g?.questions[0] ? { id: g.questions[0].id, type: "writing_task_1" as const, prompt: g.questions[0].prompt, content: undefined as string | null | undefined, media: undefined as any[] | undefined } : undefined })()
+    ? (() => {
+        const g = section.questionGroups!.find(
+          (g) => g.groupType === "writing_task_1"
+        )
+        return g?.questions[0]
+          ? {
+              id: g.questions[0].id,
+              type: "writing_task_1" as const,
+              prompt: g.questions[0].prompt,
+              content: undefined as string | null | undefined,
+              media: undefined as any[] | undefined,
+            }
+          : undefined
+      })()
     : section.questions.find((q) => q.type === "writing_task_1")
   const task2Q = sectionHasGroups(section)
-    ? (() => { const g = section.questionGroups!.find((g) => g.groupType === "writing_task_2"); return g?.questions[0] ? { id: g.questions[0].id, type: "writing_task_2" as const, prompt: g.questions[0].prompt, content: undefined as string | null | undefined, media: undefined as any[] | undefined } : undefined })()
+    ? (() => {
+        const g = section.questionGroups!.find(
+          (g) => g.groupType === "writing_task_2"
+        )
+        return g?.questions[0]
+          ? {
+              id: g.questions[0].id,
+              type: "writing_task_2" as const,
+              prompt: g.questions[0].prompt,
+              content: undefined as string | null | undefined,
+              media: undefined as any[] | undefined,
+            }
+          : undefined
+      })()
     : section.questions.find((q) => q.type === "writing_task_2")
   const currentQ = writingTask === "task1" ? task1Q : task2Q
   const text = currentQ ? (answers[currentQ.id]?.value ?? "") : ""
@@ -839,13 +1031,13 @@ function WritingSection({
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex h-full divide-x divide-border">
         {/* Left: prompt */}
-        <div className="w-1/2 overflow-y-auto p-8 space-y-6 bg-card">
+        <div className="w-1/2 space-y-6 overflow-y-auto bg-card p-8">
           <div className="flex gap-2 border-b border-border pb-3">
             {task1Q && (
               <button
                 onClick={() => onSwitchTask("task1")}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-xs font-bold transition-colors",
+                  "rounded-lg px-4 py-2 text-xs font-bold transition-colors",
                   writingTask === "task1"
                     ? "bg-primary text-primary-foreground shadow-xs"
                     : "border border-border bg-muted/20 text-muted-foreground hover:text-foreground"
@@ -858,7 +1050,7 @@ function WritingSection({
               <button
                 onClick={() => onSwitchTask("task2")}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-xs font-bold transition-colors",
+                  "rounded-lg px-4 py-2 text-xs font-bold transition-colors",
                   writingTask === "task2"
                     ? "bg-primary text-primary-foreground shadow-xs"
                     : "border border-border bg-muted/20 text-muted-foreground hover:text-foreground"
@@ -872,10 +1064,12 @@ function WritingSection({
           {currentQ && (
             <div className="space-y-4">
               <div className="rounded-xl border border-border bg-muted/20 p-4">
-                <h3 className="font-heading font-bold text-sm text-foreground mb-1">
-                  {writingTask === "task1" ? "Task 1 Instructions" : "Task 2 Instructions"}
+                <h3 className="mb-1 font-heading text-sm font-bold text-foreground">
+                  {writingTask === "task1"
+                    ? "Task 1 Instructions"
+                    : "Task 2 Instructions"}
                 </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line font-medium">
+                <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
                   {currentQ.prompt}
                   {currentQ.content ? `\n\n${currentQ.content}` : ""}
                 </p>
@@ -883,7 +1077,12 @@ function WritingSection({
               {currentQ.media?.map((m) =>
                 m.type === "image" ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img key={m.id} src={m.url} alt={m.originalName ?? "Task image"} className="rounded-xl border border-border" />
+                  <img
+                    key={m.id}
+                    src={m.url}
+                    alt={m.originalName ?? "Task image"}
+                    className="rounded-xl border border-border"
+                  />
                 ) : null
               )}
             </div>
@@ -891,15 +1090,19 @@ function WritingSection({
         </div>
 
         {/* Right: editor */}
-        <div className="w-1/2 flex flex-col bg-background">
-          <div className="flex items-center justify-between border-b border-border px-6 py-3 bg-muted/20">
+        <div className="flex w-1/2 flex-col bg-background">
+          <div className="flex items-center justify-between border-b border-border bg-muted/20 px-6 py-3">
             <div className="flex items-center gap-3">
-              <span className="font-mono font-bold text-sm text-foreground">{wordCount} words</span>
-              <Badge variant="outline" className="text-[11px] font-mono">
+              <span className="font-mono text-sm font-bold text-foreground">
+                {wordCount} words
+              </span>
+              <Badge variant="outline" className="font-mono text-[11px]">
                 Tối thiểu {minWords} từ
               </Badge>
               {wordCount > 0 && wordCount < minWords && (
-                <span className="text-[11px] text-amber-600 font-medium">còn thiếu {minWords - wordCount} từ</span>
+                <span className="text-[11px] font-medium text-amber-600">
+                  còn thiếu {minWords - wordCount} từ
+                </span>
               )}
             </div>
           </div>
@@ -910,10 +1113,12 @@ function WritingSection({
                 onChange={(e) => onAnswer(currentQ.id, e.target.value)}
                 placeholder={`Bắt đầu gõ bài viết ${writingTask === "task1" ? "Task 1" : "Task 2"} của bạn tại đây...`}
                 spellCheck={false}
-                className="h-full w-full resize-none border-0 focus-visible:ring-0 font-serif text-sm leading-[1.8] select-text"
+                className="h-full w-full resize-none border-0 font-serif text-sm leading-[1.8] select-text focus-visible:ring-0"
               />
             ) : (
-              <p className="text-sm text-muted-foreground">Không có câu hỏi {writingTask}.</p>
+              <p className="text-sm text-muted-foreground">
+                Không có câu hỏi {writingTask}.
+              </p>
             )}
           </div>
         </div>
@@ -925,6 +1130,204 @@ function WritingSection({
 // ═══════════════════════════════════════════════════════════════
 // Question Group Renderer & Inline Template Engine
 // ═══════════════════════════════════════════════════════════════
+
+type BlankAnswers = Record<
+  string,
+  { value: string; updatedAt: number; dirty: boolean }
+>
+
+interface BlankRenderContext {
+  questions: CandidateQuestionItem[]
+  answers: BlankAnswers
+  flagged: Record<string, true>
+  onAnswer: (questionId: string, value: string) => void
+  onToggleFlag: (questionId: string) => void
+  optionsPool?: Array<{ id: string; text: string }>
+  maxWords?: number
+  matched: Set<number>
+}
+
+/**
+ * Splits text on `[X]` / `{{qX}}` blanks. Unlike the old inline engine the
+ * regex uses NO inner capture groups, so `String.split` returns only whole
+ * tokens (no stray digits leaking into the output).
+ */
+const INLINE_TOKEN_SPLIT = /(\{\{\s*(?:q)?\d+\s*\}\}|\[\s*(?:q)?\d+\s*\])/gi
+const INLINE_TOKEN_TEST = /^\{\{\s*(?:q)?\d+\s*\}\}$|^\[\s*(?:q)?\d+\s*\]$/i
+
+function InlineBlank({
+  q,
+  ctx,
+  compact,
+}: {
+  q: CandidateQuestionItem
+  ctx: BlankRenderContext
+  compact?: boolean
+}) {
+  const answer = ctx.answers[q.id]?.value ?? ""
+  const isFlag = !!ctx.flagged[q.id]
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 align-baseline",
+        compact ? "mx-0.5" : "mx-1.5 my-1"
+      )}
+    >
+      {!compact && (
+        <span className="flex size-5 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-[11px] font-bold text-primary">
+          {q.questionNumber}
+        </span>
+      )}
+      {ctx.optionsPool && ctx.optionsPool.length > 0 ? (
+        <select
+          value={answer}
+          onChange={(e) => ctx.onAnswer(q.id, e.target.value)}
+          className={cn(
+            "h-7 rounded-md border border-border bg-background font-mono text-xs font-medium focus:border-primary focus:outline-hidden",
+            compact ? "px-1.5" : "px-2"
+          )}
+        >
+          <option value="">[{q.questionNumber}]</option>
+          {ctx.optionsPool.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.id} {opt.text && opt.text !== opt.id ? `- ${opt.text}` : ""}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={answer}
+          onChange={(e) => ctx.onAnswer(q.id, e.target.value)}
+          placeholder={
+            ctx.maxWords ? `≤ ${ctx.maxWords} từ` : `[${q.questionNumber}]`
+          }
+          className={cn(
+            "h-7 rounded-md border border-border bg-background text-xs font-medium focus:border-primary focus:outline-hidden",
+            compact ? "w-24 px-1.5" : "w-28 px-2 sm:w-36"
+          )}
+        />
+      )}
+      <button
+        type="button"
+        onClick={() => ctx.onToggleFlag(q.id)}
+        className={cn(
+          "p-0.5",
+          isFlag
+            ? "text-amber-500"
+            : "text-muted-foreground/30 hover:text-muted-foreground"
+        )}
+        title="Đánh dấu câu"
+      >
+        <HugeiconsIcon icon={Flag01Icon} size={12} />
+      </button>
+    </span>
+  )
+}
+
+function renderInlineBlanks(
+  text: string,
+  ctx: BlankRenderContext,
+  keyPrefix: string,
+  compact = false
+): React.ReactNode[] {
+  const parts = text.split(INLINE_TOKEN_SPLIT)
+  const nodes: React.ReactNode[] = []
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) continue
+    if (INLINE_TOKEN_TEST.test(part)) {
+      const numStr = part.match(/\d+/)?.[0] ?? ""
+      const num = parseInt(numStr, 10)
+      const q =
+        ctx.questions.find((item) => item.questionNumber === num) ||
+        ctx.questions[num - 1]
+      if (q) {
+        ctx.matched.add(q.questionNumber)
+        nodes.push(
+          <InlineBlank
+            key={`${keyPrefix}-q-${q.id}-${i}`}
+            q={q}
+            ctx={ctx}
+            compact={compact}
+          />
+        )
+      } else {
+        nodes.push(
+          <span
+            key={`${keyPrefix}-miss-${i}`}
+            className="font-mono text-muted-foreground"
+          >
+            [{numStr}]
+          </span>
+        )
+      }
+    } else {
+      nodes.push(
+        <span
+          key={`${keyPrefix}-txt-${i}`}
+          className="leading-relaxed whitespace-pre-wrap"
+        >
+          {part}
+        </span>
+      )
+    }
+  }
+  return nodes
+}
+
+function UnplacedQuestionsList({
+  questions,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+}: {
+  questions: CandidateQuestionItem[]
+  answers: BlankAnswers
+  flagged: Record<string, true>
+  onAnswer: (questionId: string, value: string) => void
+  onToggleFlag: (questionId: string) => void
+}) {
+  if (questions.length === 0) return null
+  return (
+    <div className="space-y-2.5 pt-2">
+      {questions.map((q) => {
+        const answer = answers[q.id]?.value ?? ""
+        const isFlag = !!flagged[q.id]
+        return (
+          <div
+            key={q.id}
+            className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5"
+          >
+            <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
+              {q.questionNumber}
+            </span>
+            <span className="flex-1 text-xs text-foreground">{q.prompt}</span>
+            <Input
+              value={answer}
+              onChange={(e) => onAnswer(q.id, e.target.value)}
+              placeholder="Nhập câu trả lời..."
+              className="h-8 w-44 text-xs font-medium"
+            />
+            <button
+              type="button"
+              onClick={() => onToggleFlag(q.id)}
+              className={cn(
+                "p-1",
+                isFlag
+                  ? "text-amber-500"
+                  : "text-muted-foreground/40 hover:text-muted-foreground"
+              )}
+            >
+              <HugeiconsIcon icon={Flag01Icon} size={13} />
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function InlineTemplateRenderer({
   template,
@@ -945,82 +1348,21 @@ function InlineTemplateRenderer({
   optionsPool?: Array<{ id: string; text: string }>
   maxWords?: number
 }) {
-  const regex = /(\{\{\s*(?:q)?(\d+)\s*\}\}|\[\s*(?:q)?(\d+)\s*\])/gi
-  const parts = template.split(regex)
-  const matchedQNums = new Set<number>()
-
-  const findQuestion = (numStr: string) => {
-    const num = parseInt(numStr, 10)
-    const q = questions.find((item) => item.questionNumber === num) || questions[num - 1]
-    if (q) matchedQNums.add(q.questionNumber)
-    return q
+  const matched = new Set<number>()
+  const ctx: BlankRenderContext = {
+    questions,
+    answers,
+    flagged,
+    onAnswer,
+    onToggleFlag,
+    optionsPool,
+    maxWords,
+    matched,
   }
-
-  const renderedTokens = []
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i]
-    if (!part) continue
-
-    const match = part.match(/^\{\{\s*(?:q)?(\d+)\s*\}\}$|^\[\s*(?:q)?(\d+)\s*\]$/i)
-    if (match) {
-      const qNumStr = match[1] || match[2]
-      const q = findQuestion(qNumStr)
-      if (q) {
-        const answer = answers[q.id]?.value ?? ""
-        const isFlag = !!flagged[q.id]
-        renderedTokens.push(
-          <span key={`q-${q.id}-${i}`} className="inline-flex items-center gap-1 mx-1.5 my-1 align-baseline">
-            <span className="flex size-5 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-[11px] font-bold text-primary">
-              {q.questionNumber}
-            </span>
-            {optionsPool && optionsPool.length > 0 ? (
-              <select
-                value={answer}
-                onChange={(e) => onAnswer(q.id, e.target.value)}
-                className="h-7 rounded-md border border-border bg-background px-2 text-xs font-mono font-medium focus:border-primary focus:outline-hidden"
-              >
-                <option value="">[{q.questionNumber}]</option>
-                {optionsPool.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.id} {opt.text && opt.text !== opt.id ? `- ${opt.text}` : ""}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                value={answer}
-                onChange={(e) => onAnswer(q.id, e.target.value)}
-                placeholder={maxWords ? `≤ ${maxWords} từ` : `[${q.questionNumber}]`}
-                className="h-7 w-28 sm:w-36 rounded-md border border-border bg-background px-2 text-xs font-medium focus:border-primary focus:outline-hidden"
-              />
-            )}
-            <button
-              type="button"
-              onClick={() => onToggleFlag(q.id)}
-              className={cn(
-                "p-0.5",
-                isFlag ? "text-amber-500" : "text-muted-foreground/30 hover:text-muted-foreground"
-              )}
-              title="Đánh dấu câu"
-            >
-              <HugeiconsIcon icon={Flag01Icon} size={12} />
-            </button>
-          </span>
-        )
-      } else {
-        renderedTokens.push(<span key={i} className="font-mono text-muted-foreground">[{qNumStr}]</span>)
-      }
-    } else {
-      renderedTokens.push(
-        <span key={i} className="whitespace-pre-wrap leading-relaxed">
-          {part}
-        </span>
-      )
-    }
-  }
-
-  const unplacedQuestions = questions.filter((q) => !matchedQNums.has(q.questionNumber))
+  const renderedTokens = renderInlineBlanks(template, ctx, "inline")
+  const unplacedQuestions = questions.filter(
+    (q) => !matched.has(q.questionNumber)
+  )
 
   return (
     <div className="space-y-4">
@@ -1028,35 +1370,398 @@ function InlineTemplateRenderer({
         {renderedTokens}
       </div>
 
-      {unplacedQuestions.length > 0 && (
-        <div className="space-y-2.5 pt-2">
-          {unplacedQuestions.map((q) => {
-            const answer = answers[q.id]?.value ?? ""
-            const isFlag = !!flagged[q.id]
-            return (
-              <div key={q.id} className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
+      <UnplacedQuestionsList
+        questions={unplacedQuestions}
+        answers={answers}
+        flagged={flagged}
+        onAnswer={onAnswer}
+        onToggleFlag={onToggleFlag}
+      />
+    </div>
+  )
+}
+
+// ─── Table Completion — real HTML table ──────────────────────────────────────
+function TableCompletionRenderer({
+  group,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+  maxWords,
+}: {
+  group: CandidateQuestionGroup
+  answers: BlankAnswers
+  flagged: Record<string, true>
+  onAnswer: (questionId: string, value: string) => void
+  onToggleFlag: (questionId: string) => void
+  maxWords?: number
+}) {
+  const template = (group.config?.template as string) ?? ""
+  const parsed = React.useMemo(() => parseMarkdownTable(template), [template])
+  if (!parsed) return null
+
+  const matched = new Set<number>()
+  const ctx: BlankRenderContext = {
+    questions: group.questions,
+    answers,
+    flagged,
+    onAnswer,
+    onToggleFlag,
+    maxWords,
+    matched,
+  }
+
+  const headerCells = parsed.header.map((cell, i) => (
+    <th
+      key={i}
+      className="border border-border bg-muted/40 px-3 py-2.5 text-left text-xs font-bold text-foreground"
+    >
+      {renderInlineBlanks(cell, ctx, `th-${i}`, true)}
+    </th>
+  ))
+
+  const bodyRows = parsed.rows.map((row, r) => (
+    <tr key={r} className="align-top transition-colors hover:bg-muted/20">
+      {row.map((cell, c) => (
+        <td key={c} className="border border-border p-2.5 align-top sm:p-3">
+          {renderInlineBlanks(cell, ctx, `td-${r}-${c}`, true)}
+        </td>
+      ))}
+    </tr>
+  ))
+
+  const unplacedQuestions = group.questions.filter(
+    (q) => !matched.has(q.questionNumber)
+  )
+
+  return (
+    <div className="space-y-3">
+      {parsed.preamble && (
+        <p className="text-sm leading-relaxed whitespace-pre-line text-foreground">
+          {parsed.preamble}
+        </p>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full min-w-[480px] border-collapse text-sm">
+          <thead>
+            <tr>{headerCells}</tr>
+          </thead>
+          <tbody>{bodyRows}</tbody>
+        </table>
+      </div>
+
+      {parsed.trailing && (
+        <p className="text-sm leading-relaxed whitespace-pre-line text-foreground">
+          {parsed.trailing}
+        </p>
+      )}
+
+      <UnplacedQuestionsList
+        questions={unplacedQuestions}
+        answers={answers}
+        flagged={flagged}
+        onAnswer={onAnswer}
+        onToggleFlag={onToggleFlag}
+      />
+    </div>
+  )
+}
+
+// ─── Flow Chart Completion — step cards joined by arrows ──────────────────────
+function FlowChartRenderer({
+  group,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+  maxWords,
+}: {
+  group: CandidateQuestionGroup
+  answers: BlankAnswers
+  flagged: Record<string, true>
+  onAnswer: (questionId: string, value: string) => void
+  onToggleFlag: (questionId: string) => void
+  maxWords?: number
+}) {
+  const template = (group.config?.template as string) ?? ""
+  const steps = React.useMemo(() => splitFlowSteps(template), [template])
+
+  const matched = new Set<number>()
+  const ctx: BlankRenderContext = {
+    questions: group.questions,
+    answers,
+    flagged,
+    onAnswer,
+    onToggleFlag,
+    maxWords,
+    matched,
+  }
+
+  const stepNodes = steps.map((step, i) => (
+    <React.Fragment key={i}>
+      {i > 0 && (
+        <div className="flex justify-center py-0.5 text-muted-foreground/70">
+          <HugeiconsIcon icon={ArrowDown01Icon} size={22} />
+        </div>
+      )}
+      <div className="rounded-xl border border-border bg-card p-3.5 shadow-xs">
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-[11px] font-bold text-primary">
+            {i + 1}
+          </span>
+          <div className="flex-1 text-sm leading-relaxed text-foreground">
+            {renderInlineBlanks(step, ctx, `step-${i}`)}
+          </div>
+        </div>
+      </div>
+    </React.Fragment>
+  ))
+
+  const unplacedQuestions = group.questions.filter(
+    (q) => !matched.has(q.questionNumber)
+  )
+
+  return (
+    <div className="space-y-0.5">
+      {stepNodes}
+      <UnplacedQuestionsList
+        questions={unplacedQuestions}
+        answers={answers}
+        flagged={flagged}
+        onAnswer={onAnswer}
+        onToggleFlag={onToggleFlag}
+      />
+    </div>
+  )
+}
+
+// ─── Matching Features — matrix (≤5) or pill list (>5) ────────────────────────
+function MatchingFeaturesRenderer({
+  group,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+}: {
+  group: CandidateQuestionGroup
+  answers: BlankAnswers
+  flagged: Record<string, true>
+  onAnswer: (questionId: string, value: string) => void
+  onToggleFlag: (questionId: string) => void
+}) {
+  const config = group.config || {}
+  const features =
+    (config.featuresPool as Array<{ id: string; text: string }>) ?? []
+  const allowReuse = (config.allowReuse as boolean | undefined) ?? true
+  const first = group.questions[0]?.questionNumber
+  const last = group.questions[group.questions.length - 1]?.questionNumber
+
+  const header = (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        Questions {first}–{last}
+      </p>
+      <p className="text-sm font-medium whitespace-pre-line text-foreground">
+        {group.instructions}
+      </p>
+      {allowReuse && (
+        <p className="text-xs font-semibold text-primary">
+          NB: You may use any letter more than once.
+        </p>
+      )}
+    </div>
+  )
+
+  // Small pool → radio matrix (like matching_information)
+  if (features.length <= 5) {
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5">
+        {header}
+        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-xs">
+          <table className="w-full table-fixed border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr className="bg-muted/40">
+                <th className="sticky left-0 z-20 bg-muted/90 backdrop-blur-xs border-b border-r border-border px-3.5 py-2.5 text-left text-xs font-semibold text-muted-foreground shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                  Phát biểu / Nhận định
+                </th>
+                {features.map((f) => (
+                  <th
+                    key={f.id}
+                    title={f.text}
+                    className="w-10 min-w-10 max-w-10 sm:w-12 sm:min-w-12 sm:max-w-12 border-b border-l border-border/60 px-0.5 py-2 text-center align-bottom"
+                  >
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="font-mono text-xs font-bold text-foreground">
+                        {f.id}
+                      </span>
+                      {f.text && (
+                        <span
+                          className="max-w-16 truncate text-[9px] font-normal text-muted-foreground"
+                          title={f.text}
+                        >
+                          {f.text}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {group.questions.map((q) => {
+                const answer = answers[q.id]?.value ?? ""
+                const isFlagged = !!flagged[q.id]
+                return (
+                  <tr
+                    key={q.id}
+                    className="transition-colors hover:bg-muted/20"
+                  >
+                    <td className="sticky left-0 z-10 bg-card border-r border-border px-3.5 py-2.5 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
+                          {q.questionNumber}
+                        </span>
+                        <span className="flex-1 text-xs sm:text-sm leading-snug text-foreground select-text break-words">
+                          {q.prompt}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onToggleFlag(q.id)}
+                          className={cn(
+                            "mt-0.5 shrink-0 transition-colors",
+                            isFlagged
+                              ? "text-amber-500"
+                              : "text-muted-foreground/30 hover:text-muted-foreground"
+                          )}
+                          title="Đánh dấu câu này"
+                        >
+                          <HugeiconsIcon icon={Flag01Icon} size={14} />
+                        </button>
+                      </div>
+                    </td>
+                    {features.map((f) => {
+                      const isSelected = answer === f.id
+                      return (
+                        <td
+                          key={f.id}
+                          onClick={() => onAnswer(q.id, f.id)}
+                          className="w-10 min-w-10 max-w-10 sm:w-12 sm:min-w-12 sm:max-w-12 border-l border-border/60 px-0.5 py-2 text-center align-middle cursor-pointer hover:bg-muted/30 transition-colors"
+                        >
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onAnswer(q.id, f.id)
+                            }}
+                            className={cn(
+                              "mx-auto flex size-5 sm:size-5.5 items-center justify-center rounded-full border transition-all cursor-pointer",
+                              isSelected
+                                ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                                : "border-border-strong bg-background hover:border-primary/60"
+                            )}
+                            aria-label={`Câu ${q.questionNumber}: Chọn ${f.id}`}
+                          >
+                            {isSelected && (
+                              <span className="size-2 rounded-full bg-primary-foreground" />
+                            )}
+                          </button>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  // Large pool → fixed list + pill buttons with name preview
+  return (
+    <div className="space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5">
+      {header}
+
+      <div className="rounded-lg border border-border bg-muted/20 p-3">
+        <p className="mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
+          List of Features
+        </p>
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+          {features.map((f) => (
+            <div key={f.id} className="flex gap-2 text-xs">
+              <span className="w-5 shrink-0 font-mono font-bold text-primary">
+                {f.id}
+              </span>
+              <span className="text-foreground">{f.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {group.questions.map((q) => {
+          const answer = answers[q.id]?.value ?? ""
+          const isFlagged = !!flagged[q.id]
+          const selected = features.find((f) => f.id === answer)
+          return (
+            <div
+              key={q.id}
+              className="space-y-2 rounded-lg border border-border p-3"
+            >
+              <div className="flex items-start gap-2.5">
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 font-mono text-xs font-bold text-primary">
                   {q.questionNumber}
                 </span>
-                <span className="text-xs text-foreground flex-1">{q.prompt}</span>
-                <Input
-                  value={answer}
-                  onChange={(e) => onAnswer(q.id, e.target.value)}
-                  placeholder="Nhập câu trả lời..."
-                  className="h-8 w-44 text-xs font-medium"
-                />
+                <span className="flex-1 text-sm leading-snug text-foreground">
+                  {q.prompt}
+                </span>
                 <button
                   type="button"
                   onClick={() => onToggleFlag(q.id)}
-                  className={cn("p-1", isFlag ? "text-amber-500" : "text-muted-foreground/40 hover:text-muted-foreground")}
+                  className={cn(
+                    "mt-0.5 shrink-0",
+                    isFlagged
+                      ? "text-amber-500"
+                      : "text-muted-foreground/40 hover:text-muted-foreground"
+                  )}
                 >
-                  <HugeiconsIcon icon={Flag01Icon} size={13} />
+                  <HugeiconsIcon icon={Flag01Icon} size={14} />
                 </button>
               </div>
-            )
-          })}
-        </div>
-      )}
+              <div className="flex flex-wrap items-center gap-1.5 pl-9">
+                {features.map((f) => {
+                  const isSelected = answer === f.id
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      title={f.text}
+                      onClick={() => onAnswer(q.id, f.id)}
+                      className={cn(
+                        "min-w-8 rounded-full border px-2.5 py-1 font-mono text-xs font-bold transition-colors",
+                        isSelected
+                          ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                          : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      {f.id}
+                    </button>
+                  )
+                })}
+                {selected && (
+                  <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    {selected.text}
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -1076,8 +1781,10 @@ function GroupRenderer({
 }) {
   const config = group.config || {}
   const options = (config.options as Array<{ id: string; text: string }>) ?? []
-  const optionsPool = (config.optionsPool as Array<{ id: string; text: string }>) ?? []
-  const labelsPool = (config.labels as Array<{ id: string; label: string }>) ?? []
+  const optionsPool =
+    (config.optionsPool as Array<{ id: string; text: string }>) ?? []
+  const labelsPool =
+    (config.labels as Array<{ id: string; label: string }>) ?? []
   const isTFNG = group.groupType === "true_false_not_given"
   const isYNNG = group.groupType === "yes_no_not_given"
   const isMatching = group.groupType.startsWith("matching_")
@@ -1091,20 +1798,29 @@ function GroupRenderer({
     "short_answer",
   ].includes(group.groupType)
   const maxWords = (config.maxWords as number) ?? undefined
-  const wordLimitText = maxWords ? `NO MORE THAN ${maxWords} WORD${maxWords > 1 ? "S" : ""}` : undefined
+  const wordLimitText = maxWords
+    ? `NO MORE THAN ${maxWords} WORD${maxWords > 1 ? "S" : ""}`
+    : undefined
 
   const matchPool: Array<{ id: string; text: string }> = (() => {
-    if (group.groupType === "matching_headings") return (config.headingsPool as any[]) ?? []
+    if (group.groupType === "matching_headings")
+      return (config.headingsPool as any[]) ?? []
     if (group.groupType === "matching_information")
-      return ((config.paragraphLabels as string[]) ?? []).map((l: string) => ({ id: l, text: l }))
-    if (group.groupType === "matching_features") return (config.featuresPool as any[]) ?? []
-    if (group.groupType === "matching_sentence_endings") return (config.endingsPool as any[]) ?? []
+      return ((config.paragraphLabels as string[]) ?? []).map((l: string) => ({
+        id: l,
+        text: l,
+      }))
+    if (group.groupType === "matching_features")
+      return (config.featuresPool as any[]) ?? []
+    if (group.groupType === "matching_sentence_endings")
+      return (config.endingsPool as any[]) ?? []
     return []
   })()
 
   // ─── Multiple Choice Multiple ──────────────────────────────────────────────
   if (group.groupType === "multiple_choice_multiple") {
-    const maxSelections = (config.maxSelections as number) || group.questions.length || 2
+    const maxSelections =
+      (config.maxSelections as number) || group.questions.length || 2
     const isMultiQuestion = group.questions.length > 1
 
     const selectedOptionIds: string[] = isMultiQuestion
@@ -1118,7 +1834,9 @@ function GroupRenderer({
       const isSelected = selectedOptionIds.includes(optId)
       if (isSelected) {
         if (isMultiQuestion) {
-          const targetQ = group.questions.find((q) => answers[q.id]?.value?.trim() === optId)
+          const targetQ = group.questions.find(
+            (q) => answers[q.id]?.value?.trim() === optId
+          )
           if (targetQ) onAnswer(targetQ.id, "")
         } else if (group.questions[0]) {
           const remaining = selectedOptionIds.filter((id) => id !== optId)
@@ -1130,7 +1848,9 @@ function GroupRenderer({
           return
         }
         if (isMultiQuestion) {
-          const emptyQ = group.questions.find((q) => !answers[q.id]?.value?.trim())
+          const emptyQ = group.questions.find(
+            (q) => !answers[q.id]?.value?.trim()
+          )
           if (emptyQ) {
             onAnswer(emptyQ.id, optId)
           }
@@ -1144,10 +1864,13 @@ function GroupRenderer({
     return (
       <div className="space-y-4 rounded-xl border border-border bg-card p-5">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Questions {group.questions[0]?.questionNumber}–{group.questions[group.questions.length - 1]?.questionNumber}
+          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Questions {group.questions[0]?.questionNumber}–
+            {group.questions[group.questions.length - 1]?.questionNumber}
           </p>
-          <p className="text-sm font-medium text-foreground whitespace-pre-line">{group.instructions}</p>
+          <p className="text-sm font-medium whitespace-pre-line text-foreground">
+            {group.instructions}
+          </p>
         </div>
 
         <div className="space-y-3 pt-1">
@@ -1159,7 +1882,9 @@ function GroupRenderer({
           </div>
 
           {group.questions[0]?.prompt && (
-            <p className="text-sm font-semibold text-foreground">{group.questions[0].prompt}</p>
+            <p className="text-sm font-semibold text-foreground">
+              {group.questions[0].prompt}
+            </p>
           )}
 
           <div className="space-y-1.5">
@@ -1174,7 +1899,7 @@ function GroupRenderer({
                     "flex w-full items-center gap-3 rounded-lg border px-3.5 py-2.5 text-left text-xs transition-colors",
                     isSelected
                       ? "border-primary bg-primary/5 font-semibold text-primary shadow-2xs"
-                      : "border-border hover:bg-muted text-foreground"
+                      : "border-border text-foreground hover:bg-muted"
                   )}
                 >
                   <div
@@ -1193,7 +1918,7 @@ function GroupRenderer({
             })}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/60">
+          <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
             {group.questions.map((q) => {
               const qAns = answers[q.id]?.value?.trim()
               const isFlag = !!flagged[q.id]
@@ -1202,12 +1927,21 @@ function GroupRenderer({
                   key={q.id}
                   className="flex items-center gap-1.5 rounded-md border border-border bg-muted/20 px-2 py-1 text-xs"
                 >
-                  <span className="font-mono font-bold text-primary">Câu {q.questionNumber}:</span>
-                  <span className="font-mono font-semibold">{qAns || "(Chưa chọn)"}</span>
+                  <span className="font-mono font-bold text-primary">
+                    Câu {q.questionNumber}:
+                  </span>
+                  <span className="font-mono font-semibold">
+                    {qAns || "(Chưa chọn)"}
+                  </span>
                   <button
                     type="button"
                     onClick={() => onToggleFlag(q.id)}
-                    className={cn("ml-1", isFlag ? "text-amber-500" : "text-muted-foreground/30 hover:text-muted-foreground")}
+                    className={cn(
+                      "ml-1",
+                      isFlag
+                        ? "text-amber-500"
+                        : "text-muted-foreground/30 hover:text-muted-foreground"
+                    )}
                     title="Đánh dấu câu này"
                   >
                     <HugeiconsIcon icon={Flag01Icon} size={12} />
@@ -1221,24 +1955,244 @@ function GroupRenderer({
     )
   }
 
+  // ─── Matching Information — IELTS on Computer radio matrix ─────────────────
+  if (group.groupType === "matching_information") {
+    const paragraphLabels: string[] =
+      Array.isArray(config.paragraphLabels) && config.paragraphLabels.length > 0
+        ? (config.paragraphLabels as string[])
+        : ["A", "B", "C", "D", "E", "F", "G"]
+    const allowReuse = (config.allowReuse as boolean | undefined) ?? true
+    const lastLabel = paragraphLabels[paragraphLabels.length - 1]
+
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5">
+        <div className="space-y-1">
+          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Questions {group.questions[0]?.questionNumber}–
+            {group.questions[group.questions.length - 1]?.questionNumber}
+          </p>
+          <p className="text-sm font-medium whitespace-pre-line text-foreground">
+            {group.instructions}
+          </p>
+          {allowReuse && (
+            <p className="text-xs font-semibold text-primary">
+              NB: You may use any letter more than once.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Chọn chữ cái của đoạn văn (A–{lastLabel}) có chứa thông tin tương
+            ứng với mỗi nhận định.
+          </p>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-xs">
+          <table className="w-full table-fixed border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr className="bg-muted/40">
+                <th className="sticky left-0 z-20 bg-muted/90 backdrop-blur-xs border-b border-r border-border px-3.5 py-2.5 text-left text-xs font-semibold text-muted-foreground shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                  Phát biểu / Nhận định
+                </th>
+                {paragraphLabels.map((label) => (
+                  <th
+                    key={label}
+                    className="w-8 min-w-8 max-w-8 sm:w-10 sm:min-w-10 sm:max-w-10 border-b border-l border-border/60 px-0.5 py-2.5 text-center font-mono text-xs font-bold text-foreground"
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {group.questions.map((q) => {
+                const answer = answers[q.id]?.value ?? ""
+                const isFlagged = !!flagged[q.id]
+                return (
+                  <tr
+                    key={q.id}
+                    className="transition-colors hover:bg-muted/20"
+                  >
+                    <td className="sticky left-0 z-10 bg-card border-r border-border px-3.5 py-2.5 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
+                          {q.questionNumber}
+                        </span>
+                        <span className="flex-1 text-xs sm:text-sm leading-snug text-foreground select-text break-words">
+                          {q.prompt}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onToggleFlag(q.id)}
+                          className={cn(
+                            "mt-0.5 shrink-0 transition-colors",
+                            isFlagged
+                              ? "text-amber-500"
+                              : "text-muted-foreground/30 hover:text-muted-foreground"
+                          )}
+                          title="Đánh dấu câu này"
+                        >
+                          <HugeiconsIcon icon={Flag01Icon} size={14} />
+                        </button>
+                      </div>
+                    </td>
+                    {paragraphLabels.map((label) => {
+                      const isSelected = answer === label
+                      return (
+                        <td
+                          key={label}
+                          onClick={() => onAnswer(q.id, label)}
+                          className="w-8 min-w-8 max-w-8 sm:w-10 sm:min-w-10 sm:max-w-10 border-l border-border/60 px-0.5 py-2 text-center align-middle cursor-pointer hover:bg-muted/30 transition-colors"
+                        >
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onAnswer(q.id, label)
+                            }}
+                            className={cn(
+                              "mx-auto flex size-5 sm:size-5.5 items-center justify-center rounded-full border transition-all cursor-pointer",
+                              isSelected
+                                ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                                : "border-border-strong bg-background hover:border-primary/60"
+                            )}
+                            aria-label={`Câu ${q.questionNumber}: Chọn đoạn ${label}`}
+                          >
+                            {isSelected && (
+                              <span className="size-2 rounded-full bg-primary-foreground" />
+                            )}
+                          </button>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Matching Features — matrix (≤5) or pill list (>5) ─────────────────────
+  if (
+    group.groupType === "matching_features" &&
+    Array.isArray(config.featuresPool) &&
+    (config.featuresPool as unknown[]).length > 0
+  ) {
+    return (
+      <MatchingFeaturesRenderer
+        group={group}
+        answers={answers}
+        flagged={flagged}
+        onAnswer={onAnswer}
+        onToggleFlag={onToggleFlag}
+      />
+    )
+  }
+
+  // ─── Table Completion — real HTML table from a Markdown template ────────────
+  if (
+    group.groupType === "table_completion" &&
+    typeof config.template === "string" &&
+    parseMarkdownTable(config.template)
+  ) {
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5">
+        <div className="space-y-1">
+          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Questions {group.questions[0]?.questionNumber}–
+            {group.questions[group.questions.length - 1]?.questionNumber}
+          </p>
+          <p className="text-sm font-medium whitespace-pre-line text-foreground">
+            {group.instructions}
+          </p>
+          {wordLimitText && (
+            <p className="text-xs font-semibold text-primary">
+              {wordLimitText}
+            </p>
+          )}
+        </div>
+        <TableCompletionRenderer
+          group={group}
+          answers={answers}
+          flagged={flagged}
+          onAnswer={onAnswer}
+          onToggleFlag={onToggleFlag}
+          maxWords={maxWords}
+        />
+      </div>
+    )
+  }
+
+  // ─── Flow Chart Completion — step cards joined by arrows ────────────────────
+  if (
+    group.groupType === "flow_chart_completion" &&
+    typeof config.template === "string" &&
+    config.template.trim().length > 0
+  ) {
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-muted/10 p-4 sm:p-5">
+        <div className="space-y-1">
+          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Questions {group.questions[0]?.questionNumber}–
+            {group.questions[group.questions.length - 1]?.questionNumber}
+          </p>
+          <p className="text-sm font-medium whitespace-pre-line text-foreground">
+            {group.instructions}
+          </p>
+          {wordLimitText && (
+            <p className="text-xs font-semibold text-primary">
+              {wordLimitText}
+            </p>
+          )}
+        </div>
+        <FlowChartRenderer
+          group={group}
+          answers={answers}
+          flagged={flagged}
+          onAnswer={onAnswer}
+          onToggleFlag={onToggleFlag}
+          maxWords={maxWords}
+        />
+      </div>
+    )
+  }
+
   // ─── Inline Template Renderer for Completion Types ─────────────────────────
-  if (config.template && typeof config.template === "string" && config.template.trim().length > 0) {
+  if (
+    config.template &&
+    typeof config.template === "string" &&
+    config.template.trim().length > 0
+  ) {
     return (
       <div className="space-y-4 rounded-xl border border-border bg-card p-5">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Questions {group.questions[0]?.questionNumber}–{group.questions[group.questions.length - 1]?.questionNumber}
+          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Questions {group.questions[0]?.questionNumber}–
+            {group.questions[group.questions.length - 1]?.questionNumber}
           </p>
-          <p className="text-sm font-medium text-foreground whitespace-pre-line">{group.instructions}</p>
-          {wordLimitText && <p className="text-xs font-semibold text-primary">{wordLimitText}</p>}
+          <p className="text-sm font-medium whitespace-pre-line text-foreground">
+            {group.instructions}
+          </p>
+          {wordLimitText && (
+            <p className="text-xs font-semibold text-primary">
+              {wordLimitText}
+            </p>
+          )}
         </div>
 
         {optionsPool.length > 0 && (
-          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
-            <span className="text-xs font-bold text-primary uppercase">Word Bank / Danh sách từ khóa:</span>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+          <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+            <span className="text-xs font-bold text-primary uppercase">
+              Word Bank / Danh sách từ khóa:
+            </span>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
               {optionsPool.map((item) => (
-                <div key={item.id} className="flex items-center gap-2 rounded-md bg-background px-2.5 py-1 text-xs border border-border">
+                <div
+                  key={item.id}
+                  className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1 text-xs"
+                >
                   <span className="font-bold text-primary">{item.id}</span>
                   <span className="text-foreground">{item.text}</span>
                 </div>
@@ -1265,18 +2219,23 @@ function GroupRenderer({
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-5">
       <div className="space-y-1">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Questions {group.questions[0]?.questionNumber}–{group.questions[group.questions.length - 1]?.questionNumber}
+        <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+          Questions {group.questions[0]?.questionNumber}–
+          {group.questions[group.questions.length - 1]?.questionNumber}
         </p>
-        <p className="text-sm font-medium text-foreground whitespace-pre-line">{group.instructions}</p>
-        {wordLimitText && <p className="text-xs font-semibold text-primary">{wordLimitText}</p>}
+        <p className="text-sm font-medium whitespace-pre-line text-foreground">
+          {group.instructions}
+        </p>
+        {wordLimitText && (
+          <p className="text-xs font-semibold text-primary">{wordLimitText}</p>
+        )}
       </div>
 
       {isMatching && matchPool.length > 0 && (
-        <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1">
+        <div className="space-y-1 rounded-lg border border-border bg-muted/20 p-3">
           {matchPool.map((item) => (
             <div key={item.id} className="flex gap-2 text-xs">
-              <span className="font-bold text-primary w-5">{item.id}</span>
+              <span className="w-5 font-bold text-primary">{item.id}</span>
               <span className="text-foreground">{item.text}</span>
             </div>
           ))}
@@ -1284,11 +2243,16 @@ function GroupRenderer({
       )}
 
       {optionsPool.length > 0 && (
-        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
-          <span className="text-xs font-bold text-primary uppercase">Word Bank:</span>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+        <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <span className="text-xs font-bold text-primary uppercase">
+            Word Bank:
+          </span>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
             {optionsPool.map((item) => (
-              <div key={item.id} className="flex items-center gap-2 rounded-md bg-background px-2.5 py-1 text-xs border border-border">
+              <div
+                key={item.id}
+                className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1 text-xs"
+              >
                 <span className="font-bold text-primary">{item.id}</span>
                 <span className="text-foreground">{item.text}</span>
               </div>
@@ -1298,11 +2262,16 @@ function GroupRenderer({
       )}
 
       {labelsPool.length > 0 && (
-        <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase">Danh sách nhãn:</span>
+        <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+          <span className="text-xs font-semibold text-muted-foreground uppercase">
+            Danh sách nhãn:
+          </span>
           <div className="flex flex-wrap gap-2">
             {labelsPool.map((l) => (
-              <div key={l.id} className="flex items-center gap-1.5 rounded bg-card px-2.5 py-1 text-xs border border-border">
+              <div
+                key={l.id}
+                className="flex items-center gap-1.5 rounded border border-border bg-card px-2.5 py-1 text-xs"
+              >
                 <span className="font-bold text-primary">{l.id}</span>
                 <span className="text-foreground">{l.label || l.id}</span>
               </div>
@@ -1316,12 +2285,14 @@ function GroupRenderer({
           const answer = answers[q.id]?.value ?? ""
           const isFlagged = !!flagged[q.id]
           return (
-            <div key={q.id} className="flex gap-3 items-start">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-xs font-bold text-primary mt-0.5">
+            <div key={q.id} className="flex items-start gap-3">
+              <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-xs font-bold text-primary">
                 {q.questionNumber}
               </span>
               <div className="flex-1 space-y-1.5">
-                {q.prompt && <p className="text-sm text-foreground">{q.prompt}</p>}
+                {q.prompt && (
+                  <p className="text-sm text-foreground">{q.prompt}</p>
+                )}
                 {isTFNG || isYNNG ? (
                   <div className="flex gap-2">
                     {options.map((opt) => (
@@ -1379,7 +2350,7 @@ function GroupRenderer({
                   <select
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-8 rounded-lg border border-border bg-background px-2 text-xs font-mono font-medium"
+                    className="h-8 rounded-lg border border-border bg-background px-2 font-mono text-xs font-medium"
                   >
                     <option value="">— Chọn từ khóa —</option>
                     {optionsPool.map((opt) => (
@@ -1392,7 +2363,7 @@ function GroupRenderer({
                   <select
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-8 rounded-lg border border-border bg-background px-2 text-xs font-mono font-medium"
+                    className="h-8 rounded-lg border border-border bg-background px-2 font-mono text-xs font-medium"
                   >
                     <option value="">— Chọn nhãn —</option>
                     {labelsPool.map((l) => (
@@ -1407,7 +2378,9 @@ function GroupRenderer({
                     onChange={(e) => onAnswer(q.id, e.target.value)}
                     className="h-8 text-xs"
                     placeholder={
-                      isCompletion && maxWords ? `Tối đa ${maxWords} từ` : "Nhập câu trả lời..."
+                      isCompletion && maxWords
+                        ? `Tối đa ${maxWords} từ`
+                        : "Nhập câu trả lời..."
                     }
                   />
                 )}
@@ -1417,7 +2390,9 @@ function GroupRenderer({
                 onClick={() => onToggleFlag(q.id)}
                 className={cn(
                   "mt-1 shrink-0",
-                  isFlagged ? "text-amber-500" : "text-muted-foreground/40 hover:text-muted-foreground"
+                  isFlagged
+                    ? "text-amber-500"
+                    : "text-muted-foreground/40 hover:text-muted-foreground"
                 )}
               >
                 <HugeiconsIcon icon={Flag01Icon} size={14} />
@@ -1426,91 +2401,6 @@ function GroupRenderer({
           )
         })}
       </div>
-    </div>
-  )
-}
-
-function SpeakingSection({
-  section,
-  answers,
-  flagged,
-  onAnswer,
-  onToggleFlag,
-}: {
-  section: CandidateSection
-  answers: Record<string, { value: string; updatedAt: number; dirty: boolean }>
-  flagged: Record<string, true>
-  onAnswer: (questionId: string, value: string) => void
-  onToggleFlag: (questionId: string) => void
-}) {
-  const groups = section.questionGroups ?? []
-  return (
-    <div className="flex h-full flex-col overflow-y-auto p-8 max-w-3xl mx-auto space-y-6">
-      <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-1">
-        <h3 className="font-heading font-bold text-base text-foreground">{section.title}</h3>
-        <p className="text-xs text-muted-foreground">{section.instructions || "IELTS Speaking Interview Session"}</p>
-      </div>
-      {groups.map((group) => {
-        const config = group.config || {}
-        return (
-          <div key={group.id} className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-xs">
-            <div className="space-y-1">
-              <Badge variant="outline" className="text-primary font-semibold text-xs">
-                {QUESTION_GROUP_TYPE_LABEL[group.groupType] ?? group.groupType}
-              </Badge>
-              <p className="text-sm font-medium text-foreground whitespace-pre-line">{group.instructions}</p>
-            </div>
-            {config.cueCard && (
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
-                <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                  Candidate Cue Card:
-                </span>
-                <p className="text-sm font-semibold text-foreground">{config.cueCard as string}</p>
-                {Array.isArray(config.bulletPoints) && (
-                  <ul className="list-disc list-inside text-xs space-y-1 text-muted-foreground pt-1">
-                    {(config.bulletPoints as string[]).map((bp, i) => (
-                      <li key={i}>{bp}</li>
-                    ))}
-                  </ul>
-                )}
-                {config.prepTimeSeconds && (
-                  <p className="text-[11px] font-mono text-muted-foreground pt-1">
-                    Thời gian chuẩn bị: {config.prepTimeSeconds as number} giây · Trình bày: {config.speakTimeSeconds as number || 120} giây
-                  </p>
-                )}
-              </div>
-            )}
-            <div className="space-y-3">
-              {group.questions.map((q) => (
-                <div key={q.id} className="space-y-2 rounded-lg border border-border/80 bg-muted/10 p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
-                        {q.questionNumber}
-                      </span>
-                      <span className="text-xs font-semibold text-foreground">{q.prompt}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onToggleFlag(q.id)}
-                      className={cn("p-1", flagged[q.id] ? "text-amber-500" : "text-muted-foreground/30 hover:text-muted-foreground")}
-                    >
-                      <HugeiconsIcon icon={Flag01Icon} size={13} />
-                    </button>
-                  </div>
-                  <Textarea
-                    value={answers[q.id]?.value ?? ""}
-                    onChange={(e) => onAnswer(q.id, e.target.value)}
-                    placeholder="Ghi chú câu trả lời hoặc tóm tắt ý chính..."
-                    rows={2}
-                    className="text-xs resize-none"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })}
     </div>
   )
 }
@@ -1549,47 +2439,71 @@ function SubmitReviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading text-lg font-bold">Xác nhận nộp bài thi</DialogTitle>
+          <DialogTitle className="font-heading text-lg font-bold">
+            Xác nhận nộp bài thi
+          </DialogTitle>
           <DialogDescription className="text-xs">
-            Vui lòng rà soát lại tiến độ làm bài trước khi gửi kết quả cuối cùng.
+            Vui lòng rà soát lại tiến độ làm bài trước khi gửi kết quả cuối
+            cùng.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 py-2 text-xs">
-          <div className="rounded-xl border border-border p-3 space-y-1.5 bg-muted/20">
-            {sections.map(({ sec, total, answered, flaggedCount, isWriting, qs }) => (
-              <div key={`${sec.skill}-${sec.part}`} className="flex justify-between font-medium">
-                <span className="capitalize">
-                  {sec.skill} {sec.part ? `· Part ${sec.part}` : ""} ({total} câu)
-                </span>
-                {isWriting ? (
-                  <span className="font-mono text-muted-foreground">
-                    {qs
-                      .map((q) => countWords(answers[q.id]?.value ?? ""))
-                      .map((w, i) => `Task ${i + 1}: ${w} từ`)
-                      .join(" · ")}
+          <div className="space-y-1.5 rounded-xl border border-border bg-muted/20 p-3">
+            {sections.map(
+              ({ sec, total, answered, flaggedCount, isWriting, qs }) => (
+                <div
+                  key={`${sec.skill}-${sec.part}`}
+                  className="flex justify-between font-medium"
+                >
+                  <span className="capitalize">
+                    {sec.skill} {sec.part ? `· Part ${sec.part}` : ""} ({total}{" "}
+                    câu)
                   </span>
-                ) : (
-                  <span className="font-mono text-emerald-600">
-                    {answered} / {total} đã làm
-                    {flaggedCount > 0 && <span className="text-amber-600"> · {flaggedCount} đánh dấu</span>}
-                  </span>
-                )}
-              </div>
-            ))}
+                  {isWriting ? (
+                    <span className="font-mono text-muted-foreground">
+                      {qs
+                        .map((q) => countWords(answers[q.id]?.value ?? ""))
+                        .map((w, i) => `Task ${i + 1}: ${w} từ`)
+                        .join(" · ")}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-emerald-600">
+                      {answered} / {total} đã làm
+                      {flaggedCount > 0 && (
+                        <span className="text-amber-600">
+                          {" "}
+                          · {flaggedCount} đánh dấu
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              )
+            )}
           </div>
 
-          <p className="text-muted-foreground text-xs leading-relaxed">
-            Sau khi xác nhận nộp bài, hệ thống sẽ tự động chấm điểm Listening & Reading. Bạn sẽ không thể
-            tiếp tục chỉnh sửa bài làm.
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Sau khi xác nhận nộp bài, hệ thống sẽ tự động chấm điểm Listening &
+            Reading. Bạn sẽ không thể tiếp tục chỉnh sửa bài làm.
           </p>
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
             Quay lại làm tiếp
           </Button>
-          <Button size="sm" onClick={onConfirm} disabled={submitting} className="font-bold">
+          <Button
+            size="sm"
+            onClick={onConfirm}
+            disabled={submitting}
+            className="font-bold"
+          >
             {submitting ? "Đang nộp…" : "Nộp bài ngay"}
           </Button>
         </DialogFooter>
@@ -1611,14 +2525,20 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
     "q-l2": "42 Bridge",
     "q-r1": "TRUE",
   })
-  const [flagged, setFlagged] = React.useState<Record<string, boolean>>({ "q-l3": true })
-  const [writingTask, setWritingTask] = React.useState<"task1" | "task2">("task1")
+  const [flagged, setFlagged] = React.useState<Record<string, boolean>>({
+    "q-l3": true,
+  })
+  const [writingTask, setWritingTask] = React.useState<"task1" | "task2">(
+    "task1"
+  )
   const [writing1, setWriting1] = React.useState<string>(
     "The chart illustrates the proportion of renewable energy consumption in four European countries between 2010 and 2024..."
   )
   const [writing2, setWriting2] = React.useState<string>("")
   const [secondsLeft, setSecondsLeft] = React.useState<number>(48 * 60 + 32)
-  const [saveStatus, setSaveStatus] = React.useState<"saved" | "saving">("saved")
+  const [saveStatus, setSaveStatus] = React.useState<"saved" | "saving">(
+    "saved"
+  )
   const [isSubmitOpen, setIsSubmitOpen] = React.useState<boolean>(false)
   const [fontScale, setFontScale] = React.useState<number>(1)
   const [colorTheme, setColorTheme] = React.useState<"white" | "cream">("white")
@@ -1634,12 +2554,14 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
     const handleVisibility = () => {
       if (document.hidden) {
         toast.warning("Nhắc nhở làm bài", {
-          description: "Vui lòng tập trung làm bài ở chế độ toàn màn hình và không chuyển đổi tab.",
+          description:
+            "Vui lòng tập trung làm bài ở chế độ toàn màn hình và không chuyển đổi tab.",
         })
       }
     }
     document.addEventListener("visibilitychange", handleVisibility)
-    return () => document.removeEventListener("visibilitychange", handleVisibility)
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility)
   }, [])
 
   const formatTimer = (totalSeconds: number) => {
@@ -1664,32 +2586,42 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
   }
 
   const allQuestions = exam.sections.flatMap((s, sIdx) =>
-    s.questions.map((q, qIdx) => ({ ...q, sectionIndex: sIdx, displayNumber: qIdx + 1 }))
+    s.questions.map((q, qIdx) => ({
+      ...q,
+      sectionIndex: sIdx,
+      displayNumber: qIdx + 1,
+    }))
   )
-  const answeredCount = Object.keys(answers).filter((k) => answers[k]?.trim()).length
+  const answeredCount = Object.keys(answers).filter((k) =>
+    answers[k]?.trim()
+  ).length
   const totalQuestions = allQuestions.length
 
   return (
     <div
       className={cn(
         "flex h-screen flex-col overflow-hidden transition-colors duration-200",
-        colorTheme === "cream" ? "bg-[#FAF8F5] text-[#2D2A26]" : "bg-background text-foreground"
+        colorTheme === "cream"
+          ? "bg-[#FAF8F5] text-[#2D2A26]"
+          : "bg-background text-foreground"
       )}
     >
       <header
         className={cn(
-          "flex h-14 shrink-0 items-center justify-between border-b px-6 select-none z-30",
-          colorTheme === "cream" ? "border-[#E8E4DD] bg-[#FAF8F5]" : "border-border bg-background"
+          "z-30 flex h-14 shrink-0 items-center justify-between border-b px-6 select-none",
+          colorTheme === "cream"
+            ? "border-[#E8E4DD] bg-[#FAF8F5]"
+            : "border-border bg-background"
         )}
       >
         <div className="flex items-center gap-6">
           <BrandLogo href="/student" compact />
-          <div className="h-4 w-px bg-border hidden sm:block" />
-          <span className="font-heading font-semibold text-sm text-foreground truncate max-w-[260px]">
+          <div className="hidden h-4 w-px bg-border sm:block" />
+          <span className="max-w-[260px] truncate font-heading text-sm font-semibold text-foreground">
             {exam.title}
           </span>
         </div>
-        <div className="hidden md:flex items-center gap-1 rounded-xl bg-muted/50 p-1">
+        <div className="hidden items-center gap-1 rounded-xl bg-muted/50 p-1 md:flex">
           {exam.sections.map((sec, idx) => (
             <button
               key={sec.skill}
@@ -1706,28 +2638,40 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
           ))}
         </div>
         <div className="flex items-center gap-3">
-          <div className="hidden lg:flex items-center gap-1.5 text-xs text-muted-foreground">
+          <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
             {saveStatus === "saving" ? (
               <span className="animate-pulse">Đang lưu...</span>
             ) : (
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+              <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
                 <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
                 Đã lưu
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 rounded-xl bg-muted/40 border border-border px-3 py-1 font-mono text-xs sm:text-sm font-semibold">
-            <HugeiconsIcon icon={Timer01Icon} size={15} className="text-primary" />
-            <span className={secondsLeft < 300 ? "text-destructive font-bold animate-pulse" : "text-foreground"}>
+          <div className="flex items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-1 font-mono text-xs font-semibold sm:text-sm">
+            <HugeiconsIcon
+              icon={Timer01Icon}
+              size={15}
+              className="text-primary"
+            />
+            <span
+              className={
+                secondsLeft < 300
+                  ? "animate-pulse font-bold text-destructive"
+                  : "text-foreground"
+              }
+            >
               {formatTimer(secondsLeft)}
             </span>
           </div>
-          <div className="hidden sm:flex items-center rounded-xl border border-border p-0.5 text-xs">
+          <div className="hidden items-center rounded-xl border border-border p-0.5 text-xs sm:flex">
             <button
               onClick={() => setColorTheme("white")}
               className={cn(
-                "px-2 py-0.5 rounded-lg text-[11px] font-medium transition-colors",
-                colorTheme === "white" ? "bg-muted font-semibold text-foreground" : "text-muted-foreground"
+                "rounded-lg px-2 py-0.5 text-[11px] font-medium transition-colors",
+                colorTheme === "white"
+                  ? "bg-muted font-semibold text-foreground"
+                  : "text-muted-foreground"
               )}
             >
               Trắng
@@ -1735,80 +2679,114 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
             <button
               onClick={() => setColorTheme("cream")}
               className={cn(
-                "px-2 py-0.5 rounded-lg text-[11px] font-medium transition-colors",
-                colorTheme === "cream" ? "bg-[#EFECE6] font-semibold text-[#2D2A26]" : "text-muted-foreground"
+                "rounded-lg px-2 py-0.5 text-[11px] font-medium transition-colors",
+                colorTheme === "cream"
+                  ? "bg-[#EFECE6] font-semibold text-[#2D2A26]"
+                  : "text-muted-foreground"
               )}
             >
               Ngà
             </button>
           </div>
-          <div className="hidden sm:flex items-center rounded-xl border border-border p-0.5 text-xs">
+          <div className="hidden items-center rounded-xl border border-border p-0.5 text-xs sm:flex">
             {[1, 1.15, 1.25].map((scale, i) => (
               <button
                 key={scale}
                 onClick={() => setFontScale(scale)}
                 className={cn(
-                  "px-2 py-0.5 rounded-lg font-mono text-[11px]",
-                  fontScale === scale ? "bg-muted font-bold text-foreground" : "text-muted-foreground"
+                  "rounded-lg px-2 py-0.5 font-mono text-[11px]",
+                  fontScale === scale
+                    ? "bg-muted font-bold text-foreground"
+                    : "text-muted-foreground"
                 )}
               >
                 {["A", "A+", "A++"][i]}
               </button>
             ))}
           </div>
-          <Button size="sm" onClick={() => setIsSubmitOpen(true)} className="font-medium text-xs h-8 px-3">
+          <Button
+            size="sm"
+            onClick={() => setIsSubmitOpen(true)}
+            className="h-8 px-3 text-xs font-medium"
+          >
             Nộp bài
           </Button>
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden" style={{ fontSize: `${fontScale * 100}%` }}>
+      <main
+        className="flex-1 overflow-hidden"
+        style={{ fontSize: `${fontScale * 100}%` }}
+      >
         {currentSection.skill === "listening" && (
           <div className="flex h-full flex-col overflow-y-auto">
             <div
               className={cn(
                 "sticky top-0 z-20 flex items-center justify-between border-b px-8 py-3",
-                colorTheme === "cream" ? "border-[#E8E4DD] bg-[#FAF8F5]/95" : "border-border bg-card/95"
+                colorTheme === "cream"
+                  ? "border-[#E8E4DD] bg-[#FAF8F5]/95"
+                  : "border-border bg-card/95"
               )}
             >
-              <div className="flex items-center gap-4 flex-1 max-w-2xl">
+              <div className="flex max-w-2xl flex-1 items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <span className="flex size-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-xs font-medium text-foreground">Audio đang phát (Tự động)</span>
+                  <span className="flex size-2.5 animate-pulse rounded-full bg-emerald-500" />
+                  <span className="text-xs font-medium text-foreground">
+                    Audio đang phát (Tự động)
+                  </span>
                 </div>
                 <div className="flex-1 space-y-1">
-                  <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
+                  <div className="flex justify-between font-mono text-[11px] text-muted-foreground">
                     <span>Part 1 Listening Track (Chuẩn thi máy)</span>
                     <span>02:15 / 06:40</span>
                   </div>
-                  <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                    <div className="h-full bg-primary" style={{ width: "34%" }} />
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full bg-primary"
+                      style={{ width: "34%" }}
+                    />
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="mx-auto w-full max-w-3xl p-8 space-y-8">
-              <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-1">
-                <h3 className="font-heading font-bold text-base text-foreground">{currentSection.title}</h3>
-                <p className="text-xs text-muted-foreground">{currentSection.instructions}</p>
+            <div className="mx-auto w-full max-w-3xl space-y-8 p-8">
+              <div className="space-y-1 rounded-xl border border-border bg-muted/20 p-4">
+                <h3 className="font-heading text-base font-bold text-foreground">
+                  {currentSection.title}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {currentSection.instructions}
+                </p>
               </div>
 
               <div className="space-y-6">
                 {currentSection.questions.map((q, idx) => (
-                  <div key={q.id} className="rounded-xl border border-border bg-card p-5 space-y-3 shadow-xs">
+                  <div
+                    key={q.id}
+                    className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-primary font-mono font-bold text-xs">
+                        <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
                           {idx + 1}
                         </span>
-                        <span className="font-semibold text-sm text-foreground">{q.prompt}</span>
+                        <span className="text-sm font-semibold text-foreground">
+                          {q.prompt}
+                        </span>
                       </div>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className={cn("size-7", flagged[q.id] ? "text-amber-600 bg-amber-500/10" : "text-muted-foreground")}
-                        onClick={() => setFlagged((p) => ({ ...p, [q.id]: !p[q.id] }))}
+                        className={cn(
+                          "size-7",
+                          flagged[q.id]
+                            ? "bg-amber-500/10 text-amber-600"
+                            : "text-muted-foreground"
+                        )}
+                        onClick={() =>
+                          setFlagged((p) => ({ ...p, [q.id]: !p[q.id] }))
+                        }
                       >
                         <HugeiconsIcon icon={Flag01Icon} size={14} />
                       </Button>
@@ -1817,29 +2795,35 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                       <div className="pt-1">
                         <Input
                           value={answers[q.id] || ""}
-                          onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                          onChange={(e) =>
+                            handleAnswerChange(q.id, e.target.value)
+                          }
                           placeholder="Nhập câu trả lời của bạn..."
-                          className="h-10 text-sm max-w-md font-medium"
+                          className="h-10 max-w-md text-sm font-medium"
                         />
                       </div>
                     )}
                     {q.type === "multiple_choice" && q.data?.options && (
                       <div className="space-y-2 pt-1">
-                        {(q.data.options as Array<{ id: string; text: string }>).map((opt) => (
+                        {(
+                          q.data.options as Array<{ id: string; text: string }>
+                        ).map((opt) => (
                           <label
                             key={opt.id}
                             onClick={() => handleAnswerChange(q.id, opt.id)}
                             className={cn(
-                              "flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors text-xs font-medium",
+                              "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-xs font-medium transition-colors",
                               answers[q.id] === opt.id
-                                ? "border-primary bg-primary/5 text-primary font-semibold"
-                                : "border-border hover:bg-muted/30 text-foreground"
+                                ? "border-primary bg-primary/5 font-semibold text-primary"
+                                : "border-border text-foreground hover:bg-muted/30"
                             )}
                           >
                             <span
                               className={cn(
-                                "flex size-5 items-center justify-center rounded-full border text-[11px] font-mono font-bold",
-                                answers[q.id] === opt.id ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                                "flex size-5 items-center justify-center rounded-full border font-mono text-[11px] font-bold",
+                                answers[q.id] === opt.id
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border"
                               )}
                             >
                               {opt.id}
@@ -1857,44 +2841,74 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
         )}
 
         {currentSection.skill === "reading" && (
-          <ResizablePanelGroup orientation="horizontal" className="h-full w-full">
-            <ResizablePanel defaultSize={50} minSize={30} className="overflow-y-auto bg-card border-r border-border">
-              <div className="p-8 max-w-2xl mx-auto space-y-6">
+          <ResizablePanelGroup
+            orientation="horizontal"
+            className="h-full w-full"
+          >
+            <ResizablePanel
+              defaultSize={50}
+              minSize={30}
+              className="overflow-y-auto border-r border-border bg-card"
+            >
+              <div className="mx-auto max-w-2xl space-y-6 p-8">
                 <div className="border-b border-border pb-4">
-                  <Badge variant="outline" className="text-primary font-semibold text-xs mb-2">
+                  <Badge
+                    variant="outline"
+                    className="mb-2 text-xs font-semibold text-primary"
+                  >
                     {currentSection.title}
                   </Badge>
-                  <h2 className="font-heading text-xl font-extrabold text-foreground leading-tight">
+                  <h2 className="font-heading text-xl leading-tight font-extrabold text-foreground">
                     The Evolutionary Marvel of Cetacean Acoustic Biology
                   </h2>
                 </div>
-                <div className="font-serif text-sm leading-[1.8] text-foreground/90 whitespace-pre-line space-y-4 select-text">
+                <div className="space-y-4 font-serif text-sm leading-[1.8] whitespace-pre-line text-foreground/90 select-text">
                   {currentSection.passageText}
                 </div>
               </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={50} minSize={30} className="overflow-y-auto bg-muted/10">
-              <div className="p-8 max-w-2xl mx-auto space-y-6">
-                <div className="rounded-xl border border-border bg-card p-4 space-y-1">
-                  <h3 className="font-heading font-bold text-sm text-foreground">Questions 1–3</h3>
-                  <p className="text-xs text-muted-foreground">{currentSection.instructions}</p>
+            <ResizablePanel
+              defaultSize={50}
+              minSize={30}
+              className="overflow-y-auto bg-muted/10"
+            >
+              <div className="mx-auto max-w-2xl space-y-6 p-8">
+                <div className="space-y-1 rounded-xl border border-border bg-card p-4">
+                  <h3 className="font-heading text-sm font-bold text-foreground">
+                    Questions 1–3
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {currentSection.instructions}
+                  </p>
                 </div>
                 <div className="space-y-6">
                   {currentSection.questions.map((q, idx) => (
-                    <div key={q.id} className="rounded-xl border border-border bg-card p-5 space-y-3 shadow-xs">
+                    <div
+                      key={q.id}
+                      className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs"
+                    >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-primary font-mono font-bold text-xs">
+                          <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
                             {idx + 1}
                           </span>
-                          <span className="font-semibold text-sm text-foreground">{q.prompt}</span>
+                          <span className="text-sm font-semibold text-foreground">
+                            {q.prompt}
+                          </span>
                         </div>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={cn("size-7", flagged[q.id] ? "text-amber-600 bg-amber-500/10" : "text-muted-foreground")}
-                          onClick={() => setFlagged((p) => ({ ...p, [q.id]: !p[q.id] }))}
+                          className={cn(
+                            "size-7",
+                            flagged[q.id]
+                              ? "bg-amber-500/10 text-amber-600"
+                              : "text-muted-foreground"
+                          )}
+                          onClick={() =>
+                            setFlagged((p) => ({ ...p, [q.id]: !p[q.id] }))
+                          }
                         >
                           <HugeiconsIcon icon={Flag01Icon} size={14} />
                         </Button>
@@ -1907,7 +2921,7 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                               type="button"
                               onClick={() => handleAnswerChange(q.id, val)}
                               className={cn(
-                                "h-9 px-4 rounded-lg text-xs font-bold transition-colors",
+                                "h-9 rounded-lg px-4 text-xs font-bold transition-colors",
                                 answers[q.id] === val
                                   ? "bg-primary text-primary-foreground shadow-xs"
                                   : "border border-border bg-card text-foreground hover:bg-muted"
@@ -1920,21 +2934,28 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                       )}
                       {q.type === "matching_headings" && q.data?.headings && (
                         <div className="space-y-2 pt-1">
-                          {(q.data.headings as Array<{ id: string; text: string }>).map((h) => (
+                          {(
+                            q.data.headings as Array<{
+                              id: string
+                              text: string
+                            }>
+                          ).map((h) => (
                             <label
                               key={h.id}
                               onClick={() => handleAnswerChange(q.id, h.id)}
                               className={cn(
-                                "flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors text-xs font-medium",
+                                "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-xs font-medium transition-colors",
                                 answers[q.id] === h.id
-                                  ? "border-primary bg-primary/5 text-primary font-semibold"
-                                  : "border-border hover:bg-muted/30 text-foreground"
+                                  ? "border-primary bg-primary/5 font-semibold text-primary"
+                                  : "border-border text-foreground hover:bg-muted/30"
                               )}
                             >
                               <span
                                 className={cn(
-                                  "flex size-5 items-center justify-center rounded-full border text-[11px] font-mono font-bold",
-                                  answers[q.id] === h.id ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                                  "flex size-5 items-center justify-center rounded-full border font-mono text-[11px] font-bold",
+                                  answers[q.id] === h.id
+                                    ? "border-primary bg-primary text-primary-foreground"
+                                    : "border-border"
                                 )}
                               >
                                 {h.id}
@@ -1955,12 +2976,12 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
         {currentSection.skill === "writing" && (
           <div className="flex h-full flex-col overflow-hidden">
             <div className="flex h-full divide-x divide-border">
-              <div className="w-1/2 overflow-y-auto p-8 space-y-6 bg-card">
+              <div className="w-1/2 space-y-6 overflow-y-auto bg-card p-8">
                 <div className="flex gap-2 border-b border-border pb-3">
                   <button
                     onClick={() => setWritingTask("task1")}
                     className={cn(
-                      "px-4 py-2 rounded-lg text-xs font-bold transition-colors",
+                      "rounded-lg px-4 py-2 text-xs font-bold transition-colors",
                       writingTask === "task1"
                         ? "bg-primary text-primary-foreground shadow-xs"
                         : "border border-border bg-muted/20 text-muted-foreground hover:text-foreground"
@@ -1971,7 +2992,7 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                   <button
                     onClick={() => setWritingTask("task2")}
                     className={cn(
-                      "px-4 py-2 rounded-lg text-xs font-bold transition-colors",
+                      "rounded-lg px-4 py-2 text-xs font-bold transition-colors",
                       writingTask === "task2"
                         ? "bg-primary text-primary-foreground shadow-xs"
                         : "border border-border bg-muted/20 text-muted-foreground hover:text-foreground"
@@ -1983,43 +3004,63 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                 {writingTask === "task1" ? (
                   <div className="space-y-4">
                     <div className="rounded-xl border border-border bg-muted/20 p-4">
-                      <h3 className="font-heading font-bold text-sm text-foreground mb-1">Task 1 Instructions</h3>
-                      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line font-medium">
-                        The chart below illustrates the proportion of renewable energy consumption in four European countries from 2010 to 2024.
-                        {"\n\n"}Summarise the information by selecting and reporting the main features. Write at least 150 words.
+                      <h3 className="mb-1 font-heading text-sm font-bold text-foreground">
+                        Task 1 Instructions
+                      </h3>
+                      <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
+                        The chart below illustrates the proportion of renewable
+                        energy consumption in four European countries from 2010
+                        to 2024.
+                        {"\n\n"}Summarise the information by selecting and
+                        reporting the main features. Write at least 150 words.
                       </p>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-4">
                     <div className="rounded-xl border border-border bg-muted/20 p-4">
-                      <h3 className="font-heading font-bold text-sm text-foreground mb-1">Task 2 Instructions</h3>
-                      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line font-medium">
-                        Some people believe that artificial intelligence will soon replace human teachers in education.
-                        {"\n\n"}Discuss both views and give your own opinion. Write at least 250 words.
+                      <h3 className="mb-1 font-heading text-sm font-bold text-foreground">
+                        Task 2 Instructions
+                      </h3>
+                      <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
+                        Some people believe that artificial intelligence will
+                        soon replace human teachers in education.
+                        {"\n\n"}Discuss both views and give your own opinion.
+                        Write at least 250 words.
                       </p>
                     </div>
                   </div>
                 )}
               </div>
-              <div className="w-1/2 flex flex-col bg-background">
-                <div className="flex items-center justify-between border-b border-border px-6 py-3 bg-muted/20">
+              <div className="flex w-1/2 flex-col bg-background">
+                <div className="flex items-center justify-between border-b border-border bg-muted/20 px-6 py-3">
                   <div className="flex items-center gap-3">
-                    <span className="font-mono font-bold text-sm text-foreground">
-                      {writingTask === "task1" ? countWords(writing1) : countWords(writing2)} words
+                    <span className="font-mono text-sm font-bold text-foreground">
+                      {writingTask === "task1"
+                        ? countWords(writing1)
+                        : countWords(writing2)}{" "}
+                      words
                     </span>
-                    <Badge variant="outline" className="text-[11px] font-mono">
-                      {writingTask === "task1" ? "Tối thiểu 150 từ" : "Tối thiểu 250 từ"}
+                    <Badge variant="outline" className="font-mono text-[11px]">
+                      {writingTask === "task1"
+                        ? "Tối thiểu 150 từ"
+                        : "Tối thiểu 250 từ"}
                     </Badge>
                   </div>
-                  <span className="text-xs text-emerald-600 font-medium">✓ Đã tự động lưu</span>
+                  <span className="text-xs font-medium text-emerald-600">
+                    ✓ Đã tự động lưu
+                  </span>
                 </div>
                 <div className="flex-1 p-6">
                   <Textarea
                     value={writingTask === "task1" ? writing1 : writing2}
-                    onChange={(e) => (writingTask === "task1" ? setWriting1(e.target.value) : setWriting2(e.target.value))}
+                    onChange={(e) =>
+                      writingTask === "task1"
+                        ? setWriting1(e.target.value)
+                        : setWriting2(e.target.value)
+                    }
                     placeholder="Bắt đầu gõ bài viết của bạn tại đây..."
-                    className="h-full w-full resize-none border-0 focus-visible:ring-0 font-serif text-sm leading-[1.8] select-text"
+                    className="h-full w-full resize-none border-0 font-serif text-sm leading-[1.8] select-text focus-visible:ring-0"
                   />
                 </div>
               </div>
@@ -2028,12 +3069,16 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
         )}
       </main>
 
-      <footer className="flex h-14 shrink-0 items-center justify-between border-t border-border bg-background px-6 select-none z-30">
+      <footer className="z-30 flex h-14 shrink-0 items-center justify-between border-t border-border bg-background px-6 select-none">
         <div className="flex items-center gap-4">
-          <span className="text-xs font-semibold text-muted-foreground hidden sm:inline">
-            Tiến độ: <strong className="text-foreground font-mono">{answeredCount}/{totalQuestions}</strong> câu
+          <span className="hidden text-xs font-semibold text-muted-foreground sm:inline">
+            Tiến độ:{" "}
+            <strong className="font-mono text-foreground">
+              {answeredCount}/{totalQuestions}
+            </strong>{" "}
+            câu
           </span>
-          <div className="h-4 w-px bg-border hidden sm:block" />
+          <div className="hidden h-4 w-px bg-border sm:block" />
           <div className="flex items-center gap-1.5 overflow-x-auto py-1">
             {allQuestions.map((q, idx) => (
               <button
@@ -2044,7 +3089,9 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                   answers[q.id]?.trim()
                     ? "bg-primary text-primary-foreground shadow-xs"
                     : "border border-border bg-card text-foreground hover:bg-muted",
-                  q.sectionIndex === activeSectionIndex ? "ring-2 ring-primary ring-offset-1" : "opacity-80"
+                  q.sectionIndex === activeSectionIndex
+                    ? "ring-2 ring-primary ring-offset-1"
+                    : "opacity-80"
                 )}
               >
                 {idx + 1}
@@ -2070,7 +3117,11 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
             variant="outline"
             size="sm"
             disabled={activeSectionIndex === exam.sections.length - 1}
-            onClick={() => setActiveSectionIndex((p) => Math.min(exam.sections.length - 1, p + 1))}
+            onClick={() =>
+              setActiveSectionIndex((p) =>
+                Math.min(exam.sections.length - 1, p + 1)
+              )
+            }
             className="h-8 gap-1 text-xs"
           >
             <span className="hidden sm:inline">Phần tiếp theo</span>
@@ -2082,13 +3133,16 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
       <Dialog open={isSubmitOpen} onOpenChange={setIsSubmitOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-heading text-lg font-bold">Xác nhận nộp bài thi</DialogTitle>
+            <DialogTitle className="font-heading text-lg font-bold">
+              Xác nhận nộp bài thi
+            </DialogTitle>
             <DialogDescription className="text-xs">
-              Vui lòng rà soát lại tiến độ làm bài trước khi gửi kết quả cuối cùng.
+              Vui lòng rà soát lại tiến độ làm bài trước khi gửi kết quả cuối
+              cùng.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2 text-xs">
-            <div className="rounded-xl border border-border p-3 space-y-1.5 bg-muted/20">
+            <div className="space-y-1.5 rounded-xl border border-border bg-muted/20 p-3">
               <div className="flex justify-between font-medium">
                 <span>Listening (4 câu)</span>
                 <span className="font-mono text-emerald-600">4 / 4 đã làm</span>
@@ -2099,19 +3153,28 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
               </div>
               <div className="flex justify-between font-medium">
                 <span>Writing Task 1</span>
-                <span className="font-mono">{countWords(writing1)} từ (≥ 150)</span>
+                <span className="font-mono">
+                  {countWords(writing1)} từ (≥ 150)
+                </span>
               </div>
               <div className="flex justify-between font-medium">
                 <span>Writing Task 2</span>
-                <span className="font-mono text-amber-600">{countWords(writing2)} từ (Dưới 250)</span>
+                <span className="font-mono text-amber-600">
+                  {countWords(writing2)} từ (Dưới 250)
+                </span>
               </div>
             </div>
-            <p className="text-muted-foreground text-xs leading-relaxed">
-              Sau khi xác nhận nộp bài, hệ thống sẽ tự động chấm điểm Listening & Reading.
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Sau khi xác nhận nộp bài, hệ thống sẽ tự động chấm điểm Listening
+              & Reading.
             </p>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setIsSubmitOpen(false)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsSubmitOpen(false)}
+            >
               Quay lại làm tiếp
             </Button>
             <Button size="sm" onClick={handleSubmit} className="font-bold">

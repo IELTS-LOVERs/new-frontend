@@ -37,7 +37,7 @@ export interface ClassDetail extends ClassSummary {
   }>
 }
 
-export type SkillType = "listening" | "reading" | "writing" | "speaking"
+export type SkillType = "listening" | "reading" | "writing"
 
 export type QuestionType =
   | "multiple_choice"
@@ -83,9 +83,6 @@ export type QuestionGroupType =
   | "short_answer"
   | "writing_task_1"
   | "writing_task_2"
-  | "speaking_part_1"
-  | "speaking_part_2"
-  | "speaking_part_3"
 
 export interface Question {
   id: string

@@ -14,19 +14,82 @@ interface AuthState {
   logout: () => void
 }
 
+/**
+ * Decode the `exp` claim from a JWT without verifying it (client-side only, no
+ * secret available). Used to size the access cookie to the real token TTL.
+ */
+function decodeJwtExp(token: string): number | null {
+  try {
+    const parts = token.split(".")
+    if (parts.length !== 3) return null
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/")
+    const json = JSON.parse(atob(base64)) as { exp?: number }
+    return typeof json.exp === "number" ? json.exp : null
+  } catch {
+    return null
+  }
+}
+
+/** Fallback access-cookie lifetime when the JWT cannot be decoded (2h). */
+const FALLBACK_ACCESS_MAX_AGE = 2 * 60 * 60
+/**
+ * FIX-04: the non-sensitive role cookie keeps the 7-day "remember me" window so
+ * middleware `hasSession` still lets AuthGate perform a silent refresh after the
+ * short-lived access cookie expires.
+ */
+const ROLE_COOKIE_MAX_AGE = 7 * 24 * 60 * 60
+
+/**
+ * Builds the client-side auth cookies. Exported so the TTL/Secure logic can be
+ * unit tested without a real DOM/location.
+ */
+export function buildAuthCookieStrings(
+  token: string,
+  role: string | undefined,
+  options: { secure: boolean; nowSeconds: number }
+): string[] {
+  const secure = options.secure ? "; Secure" : ""
+
+  // FIX-04: access cookie lifetime mirrors the real access token TTL.
+  const exp = decodeJwtExp(token)
+  const accessMaxAge = exp
+    ? Math.max(0, exp - options.nowSeconds)
+    : FALLBACK_ACCESS_MAX_AGE
+
+  const cookies = [
+    `ielts_access_token=${encodeURIComponent(token)}; path=/; max-age=${accessMaxAge}; SameSite=Lax${secure}`,
+  ]
+
+  if (role) {
+    cookies.push(
+      `ielts_user_role=${encodeURIComponent(role)}; path=/; max-age=${ROLE_COOKIE_MAX_AGE}; SameSite=Lax${secure}`
+    )
+  }
+
+  return cookies
+}
+
 function setAuthCookies(token: string, role?: string) {
   if (typeof document === "undefined") return
-  const maxAge = 7 * 24 * 60 * 60 // 7 days
-  document.cookie = `ielts_access_token=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; SameSite=Lax`
-  if (role) {
-    document.cookie = `ielts_user_role=${encodeURIComponent(role)}; path=/; max-age=${maxAge}; SameSite=Lax`
+  const secure =
+    typeof location !== "undefined" && location.protocol === "https:"
+
+  for (const cookie of buildAuthCookieStrings(token, role, {
+    secure,
+    nowSeconds: Math.floor(Date.now() / 1000),
+  })) {
+    document.cookie = cookie
   }
 }
 
 function clearAuthCookies() {
   if (typeof document === "undefined") return
-  document.cookie = "ielts_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax"
-  document.cookie = "ielts_user_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax"
+  const secure =
+    typeof location !== "undefined" && location.protocol === "https:"
+      ? "; Secure"
+      : ""
+  document.cookie = `ielts_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${secure}`
+  document.cookie = `ielts_user_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${secure}`
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -47,7 +110,8 @@ export const useAuthStore = create<AuthState>()(
       setAccessToken: (token) => {
         if (typeof window !== "undefined") {
           sessionStorage.setItem("ielts_access_token", token)
-          setAuthCookies(token)
+          const currentRole = useAuthStore.getState().user?.role
+          setAuthCookies(token, currentRole)
         }
         set({ accessToken: token, isAuthenticated: true })
       },

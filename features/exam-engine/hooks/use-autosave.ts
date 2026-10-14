@@ -6,16 +6,28 @@ import { saveAttemptAnswersApi } from "@/lib/api/attempts"
 import { saveAttemptSnapshot } from "../lib/idb"
 import { ApiError } from "@/lib/api/client"
 
+export interface UseAutosaveOptions {
+  /**
+   * FIX-10: called once when the server reports the attempt is already over
+   * (EXAM_EXPIRED / EXAM_ALREADY_SUBMITTED). The exam page uses this to trigger
+   * the real submit/redirect flow instead of getting stuck on "Đang nộp…".
+   */
+  onFatal?: () => void
+}
+
 /**
  * Autosave pipeline:
- * - onChange → ghi store + IndexedDB (throttle)
+ * - onChange → ghi store + IndexedDB (ngay, không throttle)
  * - debounce 2s → flush batch dirty answers lên server
  * - Tối đa 10s kể từ thay đổi đầu tiên
  * - Retry backoff 2s/4s/8s/... tối đa 30s khi lỗi mạng/5xx
  * - 429: chờ 10s
- * - EXAM_EXPIRED / EXAM_ALREADY_SUBMITTED: dừng autosave, chuyển phase
+ * - EXAM_EXPIRED / EXAM_ALREADY_SUBMITTED: dừng autosave, chuyển phase + onFatal()
  */
-export function useAutosave(attemptId: string | null) {
+export function useAutosave(
+  attemptId: string | null,
+  options: UseAutosaveOptions = {}
+) {
   const answers = useExamSessionStore((s) => s.answers)
   const phase = useExamSessionStore((s) => s.phase)
   const setSaveStatus = useExamSessionStore((s) => s.setSaveStatus)
@@ -28,9 +40,13 @@ export function useAutosave(attemptId: string | null) {
   const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const firstChangeAtRef = React.useRef<number | null>(null)
   const retryDelayRef = React.useRef(2000)
-  const flushRef = React.useRef<() => Promise<void>>(async () => {})
+  const flushRef = React.useRef<(options?: { keepalive?: boolean }) => Promise<void>>(
+    async () => {}
+  )
+  const onFatalRef = React.useRef<(() => void) | undefined>(options.onFatal)
+  onFatalRef.current = options.onFatal
 
-  async function flush() {
+  async function flush(flushOptions?: { keepalive?: boolean }) {
     if (!attemptId || inFlightRef.current) {
       flushAgainRef.current = true
       return
@@ -52,7 +68,9 @@ export function useAutosave(attemptId: string | null) {
     const sentIds = dirtyEntries.map(([id]) => id)
 
     try {
-      const res = await saveAttemptAnswersApi(attemptId, payload)
+      const res = flushOptions?.keepalive
+        ? await saveAttemptAnswersApi(attemptId, payload, { keepalive: true })
+        : await saveAttemptAnswersApi(attemptId, payload)
       markAnswersSynced(sentIds, sentAt)
       resyncTimer(res.serverRemainingSeconds)
       setSaveStatus("saved")
@@ -63,6 +81,8 @@ export function useAutosave(attemptId: string | null) {
         if (err.code === "EXAM_EXPIRED" || err.code === "EXAM_ALREADY_SUBMITTED") {
           setPhase("submitting")
           inFlightRef.current = false
+          // FIX-10: hand control back to the page so it can finalize/redirect.
+          onFatalRef.current?.()
           return
         }
         if (err.status === 429) {
@@ -75,12 +95,20 @@ export function useAutosave(attemptId: string | null) {
       } else {
         setSaveStatus("offline")
       }
-      // retry với backoff
-      const delay = retryDelayRef.current
-      retryDelayRef.current = Math.min(delay * 2, 30_000)
-      setTimeout(() => {
-        void flushRef.current()
-      }, delay)
+      // Chỉ retry với lỗi tạm thời (mạng rớt status 0, server 5xx, rate limit 429)
+      const isTransient =
+        !(err instanceof ApiError) ||
+        err.status === 0 ||
+        err.status === 429 ||
+        err.status >= 500
+
+      if (isTransient) {
+        const delay = retryDelayRef.current
+        retryDelayRef.current = Math.min(delay * 2, 30_000)
+        setTimeout(() => {
+          void flushRef.current()
+        }, delay)
+      }
     } finally {
       inFlightRef.current = false
       if (flushAgainRef.current) {
@@ -117,18 +145,16 @@ export function useAutosave(attemptId: string | null) {
     }
   }, [answers, phase])
 
-  // Lưu snapshot vào IndexedDB khi answers thay đổi (throttle 300ms)
+  // FIX-06: ghi snapshot vào IndexedDB NGAY khi answers đổi (không throttle), để
+  // F5/đóng tab trong vòng vài ms vẫn còn dữ liệu local.
   React.useEffect(() => {
     if (!attemptId) return
-    const t = setTimeout(() => {
-      const state = useExamSessionStore.getState()
-      void saveAttemptSnapshot(attemptId, {
-        answers: state.answers,
-        flagged: state.flagged,
-        savedAt: Date.now(),
-      })
-    }, 300)
-    return () => clearTimeout(t)
+    const state = useExamSessionStore.getState()
+    void saveAttemptSnapshot(attemptId, {
+      answers: state.answers,
+      flagged: state.flagged,
+      savedAt: Date.now(),
+    })
   }, [answers, attemptId])
 
   // flush khi tab ẩn / đóng
@@ -137,7 +163,9 @@ export function useAutosave(attemptId: string | null) {
     const onVisibility = () => {
       if (document.visibilityState === "hidden") void flushRef.current()
     }
-    const onPageHide = () => void flushRef.current()
+    // FIX-06: keepalive keeps the authenticated request alive through unload
+    // (unlike sendBeacon it can still send the Authorization header).
+    const onPageHide = () => void flushRef.current({ keepalive: true })
     document.addEventListener("visibilitychange", onVisibility)
     window.addEventListener("pagehide", onPageHide)
     return () => {

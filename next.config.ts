@@ -2,7 +2,7 @@ import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    const apiOrigin = process.env.API_ORIGIN || "http://localhost:3001"
+    const apiOrigin = process.env.API_ORIGIN || "http://localhost:4000"
     return [
       {
         source: "/api/:path*",

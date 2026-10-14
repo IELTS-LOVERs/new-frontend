@@ -13,12 +13,33 @@ interface AuthGateProps {
   allowedRoles: UserRole[]
 }
 
+function decodeJwtExp(token?: string | null): number | null {
+  if (!token) return null
+  try {
+    const parts = token.split(".")
+    if (parts.length !== 3) return null
+    const base64Url = parts[1]
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/")
+    const binaryStr = atob(base64)
+    const bytes = new Uint8Array(binaryStr.length)
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i)
+    }
+    const decodedText = new TextDecoder().decode(bytes)
+    const json = JSON.parse(decodedText)
+    return typeof json.exp === "number" ? json.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * AuthGate client-side:
  * 1. Hydrate token từ sessionStorage
- * 2. Nếu chưa có user: gọi refresh (cookie) → GET /users/me
- * 3. Nếu không có session: redirect /login?next=<path>
- * 4. Nếu sai role: redirect về trang gốc của role
+ * 2. Nếu chưa có user hoặc token đã hết hạn: gọi refresh (cookie) → GET /users/me
+ * 3. Tự động chạy background timer để gia hạn token trước khi hết hạn
+ * 4. Nếu không có session: redirect /login?next=<path>
+ * 5. Nếu sai role: redirect về trang gốc của role
  */
 export function AuthGate({ children, allowedRoles }: AuthGateProps) {
   const router = useRouter()
@@ -26,6 +47,28 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
   const { user, accessToken, isAuthenticated, isHydrated, setAuth, setHydrated, setUser, logout } =
     useAuthStore()
   const [status, setStatus] = React.useState<"checking" | "ready" | "redirecting">("checking")
+
+  // ─── Proactive silent auto-refresh timer ───
+  React.useEffect(() => {
+    if (!isAuthenticated || !accessToken) return
+
+    const expMs = decodeJwtExp(accessToken)
+    const now = Date.now()
+    // Gia hạn ngầm trước khi token hết hạn 2 phút (tối thiểu 10s, tối đa 10 phút)
+    const msUntilRefresh = expMs
+      ? Math.max(Math.min(expMs - now - 2 * 60 * 1000, 10 * 60 * 1000), 10 * 1000)
+      : 10 * 60 * 1000
+
+    const timer = setTimeout(async () => {
+      try {
+        await refreshAccessTokenApi()
+      } catch {
+        // Bỏ qua lỗi ngầm, client.ts sẽ thử lại khi cần
+      }
+    }, msUntilRefresh)
+
+    return () => clearTimeout(timer)
+  }, [isAuthenticated, accessToken])
 
   React.useEffect(() => {
     if (typeof window === "undefined") return
@@ -38,8 +81,11 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
     let cancelled = false
 
     async function bootstrap() {
-      // Đã có user + token → kiểm tra role
-      if (isAuthenticated && user && accessToken) {
+      const expMs = decodeJwtExp(accessToken)
+      const isTokenExpired = expMs !== null && expMs <= Date.now()
+
+      // Đã có user + token VÀ token chưa hết hạn → kiểm tra role
+      if (isAuthenticated && user && accessToken && !isTokenExpired) {
         if (!allowedRoles.includes(user.role)) {
           redirectToRoleHome(user.role)
           return
@@ -48,7 +94,7 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
         return
       }
 
-      // Thử refresh token bằng cookie
+      // Thử refresh token bằng cookie nếu chưa có token hoặc token đã hết hạn
       const token = await refreshAccessTokenApi()
       if (!token) {
         logout()

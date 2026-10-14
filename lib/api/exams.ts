@@ -4,9 +4,8 @@ import type {
   CandidateExam,
   SkillType,
   QuestionGroupType,
-  QuestionGroup,
-  QuestionItem,
   QuestionGroupConfig,
+  MediaItem,
 } from "./types"
 import type { PaginatedMeta } from "./assignments"
 
@@ -186,6 +185,7 @@ export interface TeacherExamSection {
   passageText?: string | null
   transcript?: string | null
   mediaIds?: string[]
+  media?: MediaItem[]
   questionGroups?: TeacherQuestionGroup[]
   /** @deprecated Legacy */
   questionIds?: string[]

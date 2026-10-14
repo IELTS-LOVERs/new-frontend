@@ -50,6 +50,12 @@ async function refreshAccessToken(): Promise<string | null> {
 interface RequestOptions extends RequestInit {
   timeoutMs?: number
   skipAuth?: boolean
+  /**
+   * FIX-06: when true, pass `keepalive` to fetch so the request survives page
+   * unload (used by the autosave flush on `pagehide`). Unlike `sendBeacon` this
+   * still carries the Authorization header. Payloads must stay under ~64KB.
+   */
+  keepalive?: boolean
 }
 
 export async function apiClient<T = any>(

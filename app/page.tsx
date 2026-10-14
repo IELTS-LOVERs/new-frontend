@@ -24,7 +24,9 @@ export default function LandingPage() {
 
   React.useEffect(() => {
     if (user) {
-      if (user.role === "teacher" || user.role === "admin") {
+      if (user.role === "admin") {
+        router.replace("/admin/users")
+      } else if (user.role === "teacher") {
         router.replace("/teacher")
       } else {
         router.replace("/student")
@@ -54,8 +56,8 @@ export default function LandingPage() {
           <div className="flex items-center gap-2">
             {user ? (
               <Button size="sm" className="h-8 text-xs font-medium" asChild>
-                <Link href={user.role === "teacher" || user.role === "admin" ? "/teacher" : "/student"}>
-                  Vào Dashboard ({user.role === "teacher" ? "Giáo viên" : "Học sinh"})
+                <Link href={user.role === "admin" ? "/admin/users" : user.role === "teacher" ? "/teacher" : "/student"}>
+                  Vào Dashboard ({user.role === "admin" ? "Quản trị viên" : user.role === "teacher" ? "Giáo viên" : "Học sinh"})
                 </Link>
               </Button>
             ) : (

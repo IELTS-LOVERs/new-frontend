@@ -76,11 +76,13 @@ export interface SaveAnswersResponse {
 
 export async function saveAttemptAnswersApi(
   attemptId: string,
-  payload: SaveAnswersPayload
+  payload: SaveAnswersPayload,
+  options: { keepalive?: boolean } = {}
 ): Promise<SaveAnswersResponse> {
   const { data } = await apiClient<SaveAnswersResponse>(`/api/attempts/${attemptId}/answers`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+    keepalive: options.keepalive,
   })
   return data
 }

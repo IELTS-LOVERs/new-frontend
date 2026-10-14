@@ -13,8 +13,9 @@ interface DecodedJwt {
 function decodeJwt(token: string): DecodedJwt | null {
   try {
     if (!token || typeof token !== "string") return null
-    // Support mock / demo token in development/test
+    // Support mock / demo token in development/test only (FIX-14: never in prod)
     if (token.startsWith("mock-")) {
+      if (process.env.NODE_ENV === "production") return null
       return { id: "mock-user", exp: Math.floor(Date.now() / 1000) + 86400 }
     }
     const parts = token.split(".")
@@ -47,6 +48,16 @@ function isTokenValid(token?: string): boolean {
 }
 
 /**
+ * Check whether a session might exist (token exists and is structurally valid, even if expired).
+ * This allows client-side AuthGate to perform silent refresh with the 7-day refresh token.
+ */
+function hasSession(token?: string, roleCookie?: string): boolean {
+  if (!token) return Boolean(roleCookie)
+  const decoded = decodeJwt(token)
+  return Boolean(decoded)
+}
+
+/**
  * Extract user role from token payload or role cookie fallback.
  */
 function getUserRole(token?: string, roleCookie?: string): "student" | "teacher" | "admin" {
@@ -68,7 +79,8 @@ export function middleware(request: NextRequest) {
   const tokenCookie = request.cookies.get("ielts_access_token")?.value
   const roleCookie = request.cookies.get("ielts_user_role")?.value
   const isAuthenticated = isTokenValid(tokenCookie)
-  const role = isAuthenticated ? getUserRole(tokenCookie, roleCookie) : null
+  const hasExistingSession = hasSession(tokenCookie, roleCookie)
+  const role = hasExistingSession ? getUserRole(tokenCookie, roleCookie) : null
 
   const isAuthRoute = pathname === "/login" || pathname === "/register"
   const isStudentRoute = pathname.startsWith("/student")
@@ -81,7 +93,7 @@ export function middleware(request: NextRequest) {
   if (isAuthRoute) {
     if (isAuthenticated && role) {
       const nextParam = request.nextUrl.searchParams.get("next")
-      const fallback = role === "teacher" ? "/teacher" : role === "admin" ? "/admin" : "/student"
+      const fallback = role === "teacher" ? "/teacher" : role === "admin" ? "/admin/users" : "/student"
       const targetUrl = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("/login") ? nextParam : fallback
       return NextResponse.redirect(new URL(targetUrl, request.url))
     }
@@ -89,14 +101,18 @@ export function middleware(request: NextRequest) {
   }
 
   // ─── 2. Unauthenticated access to protected routes
-  if (isProtectedRoute && !isAuthenticated) {
+  // Only redirect if there is completely NO session. If the token is expired, allow
+  // the page to load so AuthGate can perform silent refresh via /api/auth/refresh.
+  if (isProtectedRoute && !hasExistingSession) {
     const returnUrl = encodeURIComponent(`${pathname}${search}`)
     const loginUrl = new URL(`/login?next=${returnUrl}`, request.url)
     const response = NextResponse.redirect(loginUrl)
 
-    // Clear stale or expired cookies
+    // Clear stale or invalid cookies
     if (tokenCookie) {
       response.cookies.delete("ielts_access_token")
+    }
+    if (roleCookie) {
       response.cookies.delete("ielts_user_role")
     }
     return response

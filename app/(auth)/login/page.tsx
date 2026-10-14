@@ -52,7 +52,12 @@ function LoginForm() {
         description: `Chào mừng ${result.user.fullName}`,
       })
       const safeNext = next && next.startsWith("/") ? next : null
-      const fallback = result.user.role === "student" ? "/student" : "/teacher"
+      const fallback =
+        result.user.role === "student"
+          ? "/student"
+          : result.user.role === "admin"
+            ? "/admin/users"
+            : "/teacher"
       router.push(safeNext ?? fallback)
     } catch (err) {
       if (err instanceof ApiError) {

@@ -45,7 +45,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { SKILL_LABEL, formatBand } from "@/lib/format"
-import type { ClassAnalytics, ClassRosterStudent, ExamAnalytics, SkillType } from "@/lib/api/types"
+import type { ClassAnalytics, ClassRosterStudent, ExamAnalytics } from "@/lib/api/types"
 import {
   DEMO_CLASSES,
   DEMO_CLASS_ANALYTICS,

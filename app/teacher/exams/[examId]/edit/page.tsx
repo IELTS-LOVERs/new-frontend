@@ -55,13 +55,14 @@ import {
   Tick02Icon,
   Upload04Icon,
 } from "@hugeicons/core-free-icons"
-import { cn } from "@/lib/utils"
+import { cn, createClientId } from "@/lib/utils"
 import { toast } from "sonner"
 import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import {
   useTeacherExamDetailQuery,
   useUpdateExamMutation,
+  useUpdateExamMetadataMutation,
   usePublishExamMutation,
   useUnpublishExamMutation,
   useCloneExamMutation,
@@ -72,12 +73,10 @@ import {
   type CreateExamSectionPayload,
   type QuestionGroupPayload,
   type QuestionItemPayload,
-  type TeacherQuestionGroup,
 } from "@/lib/api/exams"
 import {
   QUESTION_TYPE_LABEL,
   QUESTION_GROUP_TYPE_LABEL,
-  QUESTION_GROUP_CATEGORIES,
   SKILL_LABEL,
   defaultGroupInstructions,
   defaultGroupConfig,
@@ -96,6 +95,7 @@ import type {
 import { DEMO_EXAM_BUILDER, DEMO_EXAM_MOCK_01, DEMO_EXAMS, DEMO_QUESTION_BANK } from "@/mocks/demo-data"
 import { QuestionForm } from "@/features/questions/question-form"
 import { QuestionGroupEditor } from "@/features/questions/question-group-editor"
+import { QuestionTypePickerDialog } from "@/features/questions/question-type-picker-dialog"
 import { MediaPicker } from "@/components/shared/media-picker"
 import { AssignDialog } from "@/components/shared/assign-dialog"
 
@@ -103,10 +103,30 @@ const SKILL_ICON: Record<SkillType, React.ComponentProps<typeof HugeiconsIcon>["
   listening: HeadphonesIcon,
   reading: Book02Icon,
   writing: PenTool01Icon,
-  speaking: PenTool01Icon,
 }
 
-const SKILL_ORDER: SkillType[] = ["listening", "reading", "writing", "speaking"]
+const SKILL_ORDER: SkillType[] = ["listening", "reading", "writing"]
+
+/** IELTS structural limits per skill (matches the backend `part` 1..4 Zod cap). */
+const MAX_PARTS: Record<SkillType, number> = {
+  listening: 4,
+  reading: 3,
+  writing: 2,
+}
+
+/**
+ * Client-side pre-flight for autosave: skip the network call while the exam is
+ * clearly invalid (e.g. the teacher is mid-typing a short title or cleared the
+ * duration field), avoiding a flood of 400 VALIDATION_ERROR responses.
+ * Mirrors `CreateExamSchema` in the backend.
+ */
+function firstDraftValidationIssue(exam: CandidateExam): string | null {
+  if (exam.title.trim().length < 3) return "Tiêu đề cần tối thiểu 3 ký tự."
+  if (exam.durationMinutes < 10 || exam.durationMinutes > 180) {
+    return "Thời lượng phải trong khoảng 10–180 phút."
+  }
+  return null
+}
 
 function mockExamFor(examId: string): CandidateExam {
   if (examId === "exam-writing-02") return DEMO_EXAM_BUILDER
@@ -138,6 +158,7 @@ function toLocalExam(detail: {
     passageText?: string | null
     transcript?: string | null
     mediaIds?: string[]
+    media?: MediaItem[]
     questionIds?: string[]
     questionGroups?: Array<{
       id: string
@@ -162,7 +183,10 @@ function toLocalExam(detail: {
     title: detail.title,
     description: detail.description ?? null,
     durationMinutes: detail.durationMinutes,
-    sections: detail.sections.map((s) => {
+    sections: detail.sections
+      // Defensive: ignore any legacy sections whose skill is no longer supported.
+      .filter((s) => s.skill === "listening" || s.skill === "reading" || s.skill === "writing")
+      .map((s) => {
       const questions = (s.questions ?? []) as unknown as CandidateQuestion[]
       const questionGroups: CandidateQuestionGroup[] = (s.questionGroups ?? []).map((g) => ({
         id: g.id,
@@ -188,13 +212,22 @@ function toLocalExam(detail: {
         passageText: s.passageText ?? "",
         transcript: s.transcript ?? "",
         mediaIds: s.mediaIds ?? [],
-        media: (s as { media?: MediaItem[] }).media ?? [],
+        media: s.media ?? [],
         questionIds: s.questionIds ?? questions.map((q) => q.id),
         questionGroups,
         questions,
       } as CandidateSection
     }),
   }
+}
+
+const isValidObjectId = (id?: string | null) => Boolean(id && /^[0-9a-fA-F]{24}$/.test(id))
+
+/** Convert a datetime-local value into an ISO string, or undefined when invalid/empty. */
+function toIsoOrUndefined(value: string): string | undefined {
+  if (!value) return undefined
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
 }
 
 // Convert local CandidateExam -> PUT payload
@@ -204,12 +237,12 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
 
     const questionGroups: QuestionGroupPayload[] | undefined = usesGroups
       ? s.questionGroups!.map((g) => ({
-          _id: g.id && !g.id.startsWith("new-") ? g.id : undefined,
+          _id: isValidObjectId(g.id) ? g.id : undefined,
           groupType: g.groupType,
           instructions: g.instructions ?? "",
           config: g.config ?? {},
           questions: g.questions.map((q) => ({
-            _id: q.id && !q.id.startsWith("new-") ? q.id : undefined,
+            _id: isValidObjectId(q.id) ? q.id : undefined,
             questionNumber: q.questionNumber,
             prompt: q.prompt ?? "",
             acceptedAnswers: (q as any).acceptedAnswers ?? [],
@@ -221,14 +254,18 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
       : undefined
 
     return {
-      _id: s.id && !s.id.startsWith("new-") ? s.id : undefined,
+      _id: isValidObjectId(s.id) ? s.id : undefined,
       skill: s.skill,
       part: s.part,
       title: s.title,
       instructions: s.instructions ?? "",
       passageText: s.skill === "reading" ? (s.passageText ?? "") : undefined,
       transcript: s.skill === "listening" ? (s.transcript ?? "") : undefined,
-      mediaIds: (s.media ?? []).map((m) => m.id),
+      // Prefer media picked in this session; otherwise fall back to the persisted
+      // mediaIds. The teacher detail endpoint does not hydrate `media` objects,
+      // so without this fallback every autosave would wipe section audio/images.
+      mediaIds:
+        (s.media ?? []).length > 0 ? (s.media ?? []).map((m) => m.id) : (s.mediaIds ?? []),
       questionGroups,
       questionIds: usesGroups ? [] : s.questions.map((q) => q.id),
     }
@@ -238,8 +275,8 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
     description: exam.description ?? undefined,
     durationMinutes: exam.durationMinutes,
     sections,
-    openAt: openAt && !Number.isNaN(new Date(openAt).getTime()) ? new Date(openAt).toISOString() : undefined,
-    closeAt: closeAt && !Number.isNaN(new Date(closeAt).getTime()) ? new Date(closeAt).toISOString() : undefined,
+    openAt: toIsoOrUndefined(openAt),
+    closeAt: toIsoOrUndefined(closeAt),
   }
 }
 
@@ -257,6 +294,7 @@ export default function ExamBuilderPage() {
 
   const examQuery = useTeacherExamDetailQuery(examId, !USE_MOCKS)
   const updateMutation = useUpdateExamMutation(examId)
+  const updateMetadataMutation = useUpdateExamMetadataMutation(examId)
   const publishMutation = usePublishExamMutation(examId)
   const unpublishMutation = useUnpublishExamMutation(examId)
   const cloneMutation = useCloneExamMutation()
@@ -291,7 +329,10 @@ export default function ExamBuilderPage() {
   const [groupTypePickerOpen, setGroupTypePickerOpen] = React.useState(false)
 
   const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingPayload = React.useRef<ReturnType<typeof toUpdatePayload> | null>(null)
+  // Always points at the most recent builder snapshot. `doSave` reads from here
+  // instead of closing over `exam`, which otherwise makes the debounced autosave
+  // persist data that is one edit behind (the last keystroke is dropped).
+  const latestRef = React.useRef({ exam, openAt, closeAt, status })
 
   // Hydrate local state khi query về (chỉ lần đầu / khi id đổi)
   const hydratedFor = React.useRef<string | null>(null)
@@ -315,30 +356,64 @@ export default function ExamBuilderPage() {
     }
   }, [examQuery.data, examId, mockExam, mockStatus, mockSource])
 
+  // Keep the debounced autosave in sync with the latest state after every render.
+  React.useEffect(() => {
+    latestRef.current = { exam, openAt, closeAt, status }
+  }, [exam, openAt, closeAt, status])
+
+  const reportSaveError = React.useCallback((err: unknown, fallback: string) => {
+    const detail = err instanceof ApiError ? err.details : undefined
+    const detailMessage =
+      Array.isArray(detail) && detail.length > 0 && typeof detail[0]?.message === "string"
+        ? detail[0].message
+        : null
+    toast.error(err instanceof ApiError ? err.message : fallback, {
+      description: detailMessage ?? undefined,
+    })
+  }, [])
+
   // ----- Autosave (debounce 1.5s) -----
   const doSave = React.useCallback(async () => {
-    if (!exam) return
+    const snapshot = latestRef.current
+    if (!snapshot.exam) return
     if (USE_MOCKS) {
       setSaveStatus("saved")
       setLastSavedAt(new Date())
       return
     }
-    // Chỉ autosave khi draft
-    if (status !== "draft") {
-      setSaveStatus("saved")
+    if (snapshot.status !== "draft") {
+      // Đề đã xuất bản/đóng: chỉ metadata (tên, mô tả, thời gian) được sửa.
+      try {
+        await updateMetadataMutation.mutateAsync({
+          title: snapshot.exam.title,
+          description: snapshot.exam.description ?? undefined,
+          openAt: toIsoOrUndefined(snapshot.openAt),
+          closeAt: toIsoOrUndefined(snapshot.closeAt),
+        })
+        setSaveStatus("saved")
+        setLastSavedAt(new Date())
+      } catch (err) {
+        setSaveStatus("error")
+        reportSaveError(err, "Lưu thông tin đề thất bại.")
+      }
       return
     }
-    const payload = pendingPayload.current ?? toUpdatePayload(exam, openAt, closeAt)
+    // Tránh gọi API với dữ liệu chắc chắn 400 (đang gõ tiêu đề / xoá thời lượng).
+    const draftIssue = firstDraftValidationIssue(snapshot.exam)
+    if (draftIssue) {
+      setSaveStatus("error")
+      return
+    }
+    const payload = toUpdatePayload(snapshot.exam, snapshot.openAt, snapshot.closeAt)
     try {
       await updateMutation.mutateAsync(payload)
-      pendingPayload.current = null
       setSaveStatus("saved")
       setLastSavedAt(new Date())
     } catch (err) {
       setSaveStatus("error")
-      toast.error(err instanceof ApiError ? err.message : "Lưu đề thất bại.")
+      reportSaveError(err, "Lưu đề thất bại.")
     }
-  }, [exam, openAt, closeAt, status, updateMutation])
+  }, [updateMutation, updateMetadataMutation, reportSaveError])
 
   const markDirty = React.useCallback(() => {
     setSaveStatus("saving")
@@ -370,7 +445,7 @@ export default function ExamBuilderPage() {
 
   const numbering = React.useMemo(() => {
     const map = new Map<string, number>()
-    const counters: Record<string, number> = { listening: 0, reading: 0, writing: 0, speaking: 0 }
+    const counters: Record<string, number> = { listening: 0, reading: 0, writing: 0 }
     exam?.sections.forEach((sec) => {
       const groups = sec.questionGroups ?? []
       if (groups.length > 0) {
@@ -420,7 +495,7 @@ export default function ExamBuilderPage() {
               sectionIndex: index,
             })
           }
-          if (section.skill !== "writing" && section.skill !== "speaking") {
+          if (section.skill !== "writing") {
             g.questions.forEach((q) => {
               const answers = (q as any).acceptedAnswers ?? []
               if (answers.length === 0) {
@@ -481,7 +556,7 @@ export default function ExamBuilderPage() {
       list.push({ level: "error", message: "Mở lúc phải trước Đóng lúc." })
     }
     return list
-  }, [exam, openAt, closeAt])
+  }, [exam, openAt, closeAt, numbering])
 
   const errors = issues.filter((i) => i.level === "error")
   const warnings = issues.filter((i) => i.level === "warning")
@@ -559,6 +634,10 @@ export default function ExamBuilderPage() {
   const addSection = (skill: SkillType) => {
     if (!exam) return
     const sameSkill = exam.sections.filter((s) => s.skill === skill)
+    if (sameSkill.length >= MAX_PARTS[skill]) {
+      toast.error(`${SKILL_LABEL[skill]} chỉ có tối đa ${MAX_PARTS[skill]} phần.`)
+      return
+    }
     const nextPart = sameSkill.length + 1
     const newSection: CandidateSection = {
       skill,
@@ -568,9 +647,7 @@ export default function ExamBuilderPage() {
           ? `Listening Part ${nextPart}`
           : skill === "reading"
             ? `Reading Passage ${nextPart}`
-            : skill === "speaking"
-              ? `Speaking Part ${nextPart}`
-              : `Writing Task ${nextPart}`,
+            : `Writing Task ${nextPart}`,
       instructions: "",
       passageText: "",
       transcript: "",
@@ -588,12 +665,8 @@ export default function ExamBuilderPage() {
   const addQuestionGroup = (groupType: QuestionGroupType) => {
     if (!active || !exam) return
     const groups = active.questionGroups ?? []
-    const lastQ = groups.length > 0
-      ? groups[groups.length - 1].questions[groups[groups.length - 1].questions.length - 1]
-      : null
-    const startNumber = lastQ ? lastQ.questionNumber + 1 : 1
     const newGroup: CandidateQuestionGroup = {
-      id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: createClientId("new"),
       groupType,
       instructions: defaultGroupInstructions(groupType),
       config: defaultGroupConfig(groupType) as any,
@@ -629,7 +702,7 @@ export default function ExamBuilderPage() {
     }
 
     const newQ: QuestionItem = {
-      id: `new-q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: createClientId("new-q"),
       questionNumber: maxQNum + 1,
       prompt: "",
       points: 1,
@@ -917,7 +990,7 @@ export default function ExamBuilderPage() {
             <Input
               value={exam.title}
               onChange={(e) => updateExam({ title: e.target.value })}
-              disabled={examReadonly && !USE_MOCKS ? false : false}
+              disabled={!USE_MOCKS && status === "closed"}
               className="h-8 max-w-sm border-transparent bg-transparent px-1 font-heading text-lg font-bold shadow-none hover:border-border focus-visible:border-border"
             />
             <div className="flex items-center gap-2 pl-1">
@@ -1066,9 +1139,7 @@ export default function ExamBuilderPage() {
                             ? `Passage ${section.part}`
                             : section.skill === "writing"
                               ? `Task ${section.part}`
-                              : section.skill === "speaking"
-                                ? `Speaking P${section.part}`
-                                : `Part ${section.part}`}
+                              : `Part ${section.part}`}
                         </span>
                         <span className="flex items-center gap-1 shrink-0">
                           {count > 0 && <span className="font-mono text-[10px]">({count})</span>}
@@ -1118,19 +1189,23 @@ export default function ExamBuilderPage() {
               <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Thêm phần
               </p>
-              {SKILL_ORDER.map((skill) => (
-                <Button
-                  key={skill}
-                  variant="ghost"
-                  size="sm"
-                  disabled={examReadonly}
-                  onClick={() => addSection(skill)}
-                  className="w-full justify-start gap-2 text-xs"
-                >
-                  <HugeiconsIcon icon={Add01Icon} size={13} />
-                  {SKILL_LABEL[skill]}
-                </Button>
-              ))}
+              {SKILL_ORDER.map((skill) => {
+                const atMax = (exam.sections.filter((s) => s.skill === skill).length ?? 0) >= MAX_PARTS[skill]
+                return (
+                  <Button
+                    key={skill}
+                    variant="ghost"
+                    size="sm"
+                    disabled={examReadonly || atMax}
+                    title={atMax ? `${SKILL_LABEL[skill]} đã đủ ${MAX_PARTS[skill]} phần` : undefined}
+                    onClick={() => addSection(skill)}
+                    className="w-full justify-start gap-2 text-xs"
+                  >
+                    <HugeiconsIcon icon={Add01Icon} size={13} />
+                    {SKILL_LABEL[skill]}
+                  </Button>
+                )
+              })}
             </div>
           </CardContent>
         </Card>
@@ -1345,13 +1420,10 @@ export default function ExamBuilderPage() {
                   {(active.questionGroups ?? []).length > 0 ? (
                     /* New: Question Groups rendering */
                     <div className="space-y-4">
-                      {(active.questionGroups ?? []).map((group, gIdx) => (
+                      {(active.questionGroups ?? []).map((group) => (
                         <QuestionGroupEditor
                           key={group.id}
                           group={group}
-                          gIndex={gIdx}
-                          sectionSkill={active.skill}
-                          sectionTitle={active.title}
                           examReadonly={examReadonly}
                           numbering={numbering}
                           onUpdateGroup={(patch) => updateQuestionGroup(group.id, patch)}
@@ -1497,7 +1569,7 @@ export default function ExamBuilderPage() {
                 <Label className="text-xs">Mô tả</Label>
                 <Textarea
                   value={exam.description ?? ""}
-                  disabled={examReadonly}
+                  disabled={!USE_MOCKS && status === "closed"}
                   onChange={(e) => updateExam({ description: e.target.value })}
                   rows={3}
                   className="resize-none text-sm"
@@ -1738,41 +1810,12 @@ export default function ExamBuilderPage() {
       <AssignDialog open={assignOpen} onOpenChange={setAssignOpen} initialExamId={examId} />
 
       {/* Question Group Type Picker */}
-      <Dialog open={groupTypePickerOpen} onOpenChange={setGroupTypePickerOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-heading text-lg font-bold">Chọn dạng câu hỏi</DialogTitle>
-            <DialogDescription className="text-xs">
-              Mỗi nhóm câu hỏi có chung hướng dẫn, giới hạn từ và dạng bài.
-            </DialogDescription>
-          </DialogHeader>
-          <ScrollArea className="max-h-[60vh]">
-            <div className="space-y-4 pr-2">
-              {QUESTION_GROUP_CATEGORIES.map((cat) => (
-                <div key={cat.label} className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground">
-                    {cat.emoji} {cat.label}
-                  </p>
-                  <div className="space-y-1">
-                    {cat.types.map((type) => (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => addQuestionGroup(type)}
-                        className="flex w-full items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
-                      >
-                        <span className="font-medium text-foreground">
-                          {QUESTION_GROUP_TYPE_LABEL[type]}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
+      <QuestionTypePickerDialog
+        open={groupTypePickerOpen}
+        onOpenChange={setGroupTypePickerOpen}
+        activeSection={active}
+        onSelectType={addQuestionGroup}
+      />
     </div>
   )
 }

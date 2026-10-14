@@ -79,7 +79,7 @@ import {
 } from "@/hooks/use-classes"
 import { useTeacherAssignmentsQuery } from "@/hooks/use-assignments"
 import { useClassAnalyticsQuery, useStudentProgressQuery } from "@/hooks/use-analytics"
-import type { ClassRosterStudent, SkillType } from "@/lib/api/types"
+import type { ClassRosterStudent } from "@/lib/api/types"
 import {
   DEMO_ASSIGNMENTS,
   DEMO_CLASSES,
