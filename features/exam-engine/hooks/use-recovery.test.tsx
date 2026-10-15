@@ -46,6 +46,17 @@ describe("useExamRecovery", () => {
         q3: { value: "stale", updatedAt: 1, dirty: false },
       },
       flagged: { q2: true },
+      highlights: [
+        {
+          id: "hl-recovered",
+          sectionIndex: 0,
+          targetId: "passage",
+          start: 5,
+          end: 15,
+          text: "recovered",
+          createdAt: 100,
+        },
+      ],
       savedAt: 1,
     })
 
@@ -74,6 +85,9 @@ describe("useExamRecovery", () => {
     // q2: chỉ có ở local dirty → được khôi phục.
     expect(state.answers.q2.value).toBe("local-2")
     expect(state.flagged.q2).toBe(true)
+    // highlights từ local được khôi phục nguyên vẹn.
+    expect(state.highlights).toHaveLength(1)
+    expect(state.highlights[0].text).toBe("recovered")
 
     // jsdom không có fullscreen → cần user gesture để vào lại phòng thi.
     expect(result.current.needsGesture).toBe(true)

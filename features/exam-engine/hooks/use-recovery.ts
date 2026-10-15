@@ -62,6 +62,9 @@ export function useExamRecovery(attemptId: string | null) {
           for (const qid of Object.keys(local.flagged ?? {})) {
             useExamSessionStore.getState().toggleFlag(qid)
           }
+          if (local.highlights && Array.isArray(local.highlights)) {
+            useExamSessionStore.getState().setHighlights(local.highlights)
+          }
         }
 
         // Reload / Interruption event

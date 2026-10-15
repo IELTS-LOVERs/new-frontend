@@ -20,6 +20,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -36,18 +46,15 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Add01Icon,
   Alert02Icon,
-  ArrowDown01Icon,
   ArrowLeft01Icon,
-  ArrowUp01Icon,
   Book02Icon,
   CheckmarkCircle02Icon,
   Copy01Icon,
   Delete02Icon,
-  DragDropIcon,
+  DragDropVerticalIcon,
   EyeIcon,
   HeadphonesIcon,
   MusicNote01Icon,
-  PencilEdit02Icon,
   PenTool01Icon,
   RefreshIcon,
   Search01Icon,
@@ -108,6 +115,113 @@ const MAX_PARTS: Record<SkillType, number> = {
   listening: 4,
   reading: 3,
   writing: 2,
+}
+
+/** Canonical titles generated for a freshly added section. Used to distinguish
+ *  auto-generated titles from ones the teacher renamed by hand so that
+ *  renumbering only rewrites the former. */
+const DEFAULT_SECTION_TITLE: Record<SkillType, RegExp> = {
+  listening: /^Listening\s+Part\s+\d+$/i,
+  reading: /^Reading\s+Passage\s+\d+$/i,
+  writing: /^Writing\s+Task\s+\d+$/i,
+}
+
+function defaultSectionTitle(skill: SkillType, part: number): string {
+  if (skill === "listening") return `Listening Part ${part}`
+  if (skill === "reading") return `Reading Passage ${part}`
+  return `Writing Task ${part}`
+}
+
+function isDefaultSectionTitle(skill: SkillType, title: string): boolean {
+  return DEFAULT_SECTION_TITLE[skill].test(title.trim())
+}
+
+/** Deep clone a JSON-serialisable value (question group config etc.). */
+function deepCloneValue<T>(value: T): T {
+  if (value === null || typeof value !== "object") return value
+  if (typeof structuredClone === "function") {
+    try {
+      return structuredClone(value)
+    } catch {
+      /* fall back to JSON round-trip below */
+    }
+  }
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
+/** Total number of questions inside a section. */
+function countSectionQuestions(section: CandidateSection): number {
+  return (section.questionGroups ?? []).reduce((acc, g) => acc + g.questions.length, 0)
+}
+
+/**
+ * Ensure parts are numbered `1..n` within each skill (in array order). Sections
+ * whose title is still the auto-generated default are renamed to match the new
+ * part number; custom titles are preserved.
+ */
+function renormalizeSections(sections: CandidateSection[]): CandidateSection[] {
+  const counters: Record<SkillType, number> = { listening: 0, reading: 0, writing: 0 }
+  return sections.map((section) => {
+    counters[section.skill] += 1
+    const part = counters[section.skill]
+    const title = isDefaultSectionTitle(section.skill, section.title)
+      ? defaultSectionTitle(section.skill, part)
+      : section.title
+    if (section.part === part && section.title === title) return section
+    return { ...section, part, title }
+  })
+}
+
+/**
+ * Renumber every question continuously per skill, starting at 1 and flowing
+ * across groups and parts (Listening Part 1: Q1–Q10 → Part 2: Q11–Q20…).
+ */
+function renumberAllQuestions(sections: CandidateSection[]): CandidateSection[] {
+  const counters: Record<SkillType, number> = { listening: 0, reading: 0, writing: 0 }
+  return sections.map((section) => {
+    let changed = false
+    const questionGroups = (section.questionGroups ?? []).map((group) => {
+      let groupChanged = false
+      const questions = group.questions.map((question) => {
+        counters[section.skill] += 1
+        const questionNumber = counters[section.skill]
+        if (question.questionNumber === questionNumber) return question
+        groupChanged = true
+        return { ...question, questionNumber }
+      })
+      if (!groupChanged) return group
+      changed = true
+      return { ...group, questions }
+    })
+    return changed ? { ...section, questionGroups } : section
+  })
+}
+
+/** Structural normalisation applied whenever parts are added / removed / moved. */
+function renumberEverything(sections: CandidateSection[]): CandidateSection[] {
+  return renumberAllQuestions(renormalizeSections(sections))
+}
+
+/**
+ * Deep copy a section, minting fresh client ids for the section, its question
+ * groups and its questions so the backend treats them as brand-new entities.
+ */
+function cloneSection(section: CandidateSection): CandidateSection {
+  return {
+    ...section,
+    id: undefined,
+    mediaIds: section.mediaIds ? [...section.mediaIds] : undefined,
+    media: (section.media ?? []).map((m) => ({ ...m })),
+    questionGroups: (section.questionGroups ?? []).map((group) => ({
+      ...group,
+      id: createClientId("dup-group"),
+      config: deepCloneValue(group.config),
+      questions: group.questions.map((question) => ({
+        ...question,
+        id: createClientId("dup-q"),
+      })),
+    })),
+  }
 }
 
 /**
@@ -311,6 +425,11 @@ export default function ExamBuilderPage() {
   const [assignOpen, setAssignOpen] = React.useState(false)
   const [passagePreview, setPassagePreview] = React.useState(false)
   const [dragIndex, setDragIndex] = React.useState<number | null>(null)
+  const [dropTarget, setDropTarget] = React.useState<{
+    index: number
+    position: "top" | "bottom"
+  } | null>(null)
+  const [deleteTargetIndex, setDeleteTargetIndex] = React.useState<number | null>(null)
   const [groupTypePickerOpen, setGroupTypePickerOpen] = React.useState(false)
 
   const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -428,6 +547,13 @@ export default function ExamBuilderPage() {
           }
         : prev
     )
+    markDirty()
+  }
+
+  /** Replace the whole section list, optionally focusing a section, and queue autosave. */
+  const applySections = (sections: CandidateSection[], nextActiveIndex?: number) => {
+    setExam((prev) => (prev ? { ...prev, sections } : prev))
+    if (nextActiveIndex !== undefined) setActiveIndex(nextActiveIndex)
     markDirty()
   }
 
@@ -614,22 +740,15 @@ export default function ExamBuilderPage() {
     const newSection: CandidateSection = {
       skill,
       part: nextPart,
-      title:
-        skill === "listening"
-          ? `Listening Part ${nextPart}`
-          : skill === "reading"
-            ? `Reading Passage ${nextPart}`
-            : `Writing Task ${nextPart}`,
+      title: defaultSectionTitle(skill, nextPart),
       instructions: "",
       passageText: "",
       transcript: "",
       media: [],
       questionGroups: [],
     }
-    const nextSections = [...exam.sections, newSection]
-    setExam((prev) => (prev ? { ...prev, sections: nextSections } : prev))
-    setActiveIndex(nextSections.length - 1)
-    markDirty()
+    const nextSections = renumberEverything([...exam.sections, newSection])
+    applySections(nextSections, nextSections.length - 1)
   }
 
   /** Add a new question group to the active section */
@@ -726,22 +845,150 @@ export default function ExamBuilderPage() {
     updateSection(activeIndex, { questionGroups: groups })
   }
 
-  const removeSection = (index: number) => {
-    setExam((prev) => (prev ? { ...prev, sections: prev.sections.filter((_, i) => i !== index) } : prev))
-    setActiveIndex(0)
+  /** Remove a section immediately (already confirmed / empty section). */
+  const performRemoveSection = (index: number) => {
+    if (!exam) return
+    const section = exam.sections[index]
+    if (!section) return
+    const nextSections = renumberEverything(exam.sections.filter((_, i) => i !== index))
+    setExam({ ...exam, sections: nextSections })
+    setActiveIndex((prev) =>
+      nextSections.length === 0 ? 0 : Math.min(prev > index ? prev - 1 : prev, nextSections.length - 1)
+    )
+    setDeleteTargetIndex(null)
     markDirty()
-    toast.success("Đã xoá phần khỏi đề")
+    toast.success(`Đã xoá ${section.title} khỏi đề`)
   }
 
-  const moveSection = (fromIndex: number, toIndex: number) => {
-    if (!exam || toIndex < 0 || toIndex >= exam.sections.length) return
+  /** Trash button: confirm only when the section actually holds data. */
+  const requestRemoveSection = (index: number) => {
+    if (!exam) return
+    const section = exam.sections[index]
+    if (!section) return
+    const hasMedia =
+      (section.media ?? []).length > 0 || (section.mediaIds?.length ?? 0) > 0
+    if (countSectionQuestions(section) === 0 && !hasMedia) {
+      performRemoveSection(index)
+      return
+    }
+    setDeleteTargetIndex(index)
+  }
+
+  /** Duplicate a section, minting new ids, right after the source. */
+  const duplicateSection = (index: number) => {
+    if (!exam) return
+    const source = exam.sections[index]
+    if (!source) return
+    const sameSkillCount = exam.sections.filter((s) => s.skill === source.skill).length
+    if (sameSkillCount >= MAX_PARTS[source.skill]) {
+      toast.error(`${SKILL_LABEL[source.skill]} chỉ có tối đa ${MAX_PARTS[source.skill]} phần.`)
+      return
+    }
+    const clone = cloneSection(source)
+    if (!isDefaultSectionTitle(source.skill, source.title)) {
+      clone.title = `${source.title} (bản sao)`
+    }
     const nextSections = [...exam.sections]
-    const [removed] = nextSections.splice(fromIndex, 1)
-    nextSections.splice(toIndex, 0, removed)
-    setExam({ ...exam, sections: nextSections })
-    setActiveIndex(toIndex)
-    markDirty()
+    nextSections.splice(index + 1, 0, clone)
+    applySections(renumberEverything(nextSections), index + 1)
+    toast.success(`Đã nhân bản ${source.title}`)
+  }
+
+  /** Move a section to a new position within its own skill (drag & drop). */
+  const moveSectionWithinSkill = (
+    fromIndex: number,
+    overIndex: number,
+    position: "top" | "bottom"
+  ) => {
+    if (!exam) return
+    const from = exam.sections[fromIndex]
+    const over = exam.sections[overIndex]
+    if (!from || !over || from.skill !== over.skill) return
+
+    // Positions the dragged skill currently occupies in the flat array.
+    const skillPositions = exam.sections
+      .map((section, i) => (section.skill === from.skill ? i : -1))
+      .filter((i) => i !== -1)
+    const ordered = skillPositions.map((i) => exam.sections[i])
+    const fromPos = skillPositions.indexOf(fromIndex)
+    const overPos = skillPositions.indexOf(overIndex)
+    if (fromPos === -1 || overPos === -1) return
+
+    const [moved] = ordered.splice(fromPos, 1)
+    let insertPos = overPos + (position === "bottom" ? 1 : 0)
+    if (fromPos < insertPos) insertPos -= 1
+    insertPos = Math.max(0, Math.min(insertPos, ordered.length))
+    if (insertPos === fromPos) return
+
+    ordered.splice(insertPos, 0, moved)
+    const nextSections = [...exam.sections]
+    skillPositions.forEach((arrayIndex, k) => {
+      nextSections[arrayIndex] = ordered[k]
+    })
+    applySections(renumberEverything(nextSections), skillPositions[insertPos])
     toast.success("Đã đổi thứ tự phần thi")
+  }
+
+  // ----- Drag & drop handlers (sidebar outline) -----
+  const handleDragStart = (event: React.DragEvent<HTMLDivElement>, index: number) => {
+    setDragIndex(index)
+    event.dataTransfer.effectAllowed = "move"
+    try {
+      event.dataTransfer.setData("text/plain", String(index))
+    } catch {
+      /* some browsers restrict setData during dragstart */
+    }
+  }
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>, index: number) => {
+    if (dragIndex === null || !exam) return
+    const from = exam.sections[dragIndex]
+    const over = exam.sections[index]
+    // Only allow reordering within the same skill.
+    if (!from || !over || from.skill !== over.skill) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+    const rect = event.currentTarget.getBoundingClientRect()
+    const position: "top" | "bottom" =
+      event.clientY - rect.top < rect.height / 2 ? "top" : "bottom"
+    setDropTarget((prev) =>
+      prev && prev.index === index && prev.position === position ? prev : { index, position }
+    )
+  }
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>, index: number) => {
+    if (!dropTarget || dropTarget.index !== index) return
+    const related = event.relatedTarget as Node | null
+    if (related && event.currentTarget.contains(related)) return
+    setDropTarget(null)
+  }
+
+  const handleDropSection = (event: React.DragEvent<HTMLDivElement>, index: number) => {
+    event.preventDefault()
+    if (dragIndex === null) return
+    const position =
+      dropTarget && dropTarget.index === index ? dropTarget.position : "bottom"
+    if (dragIndex !== index) moveSectionWithinSkill(dragIndex, index, position)
+    setDragIndex(null)
+    setDropTarget(null)
+  }
+
+  const handleDragEnd = () => {
+    setDragIndex(null)
+    setDropTarget(null)
+  }
+
+  /** Manually renumber every question across the exam (1..N per skill). */
+  const handleRenumberAll = () => {
+    if (!exam) return
+    const nextSections = renumberEverything(exam.sections)
+    const total = nextSections.reduce(
+      (acc, section) => acc + countSectionQuestions(section),
+      0
+    )
+    setExam({ ...exam, sections: nextSections })
+    markDirty()
+    toast.success(`Đã đánh số lại toàn bộ ${total} câu hỏi theo thứ tự chuẩn`)
   }
 
   const handlePublish = () => {
@@ -876,6 +1123,9 @@ export default function ExamBuilderPage() {
 
   if (!exam) return null
 
+  const deleteTarget =
+    deleteTargetIndex !== null ? exam.sections[deleteTargetIndex] : undefined
+
   return (
     <div className="flex min-h-[calc(100vh-4rem)] flex-col">
       {/* Header */}
@@ -998,10 +1248,24 @@ export default function ExamBuilderPage() {
       <div className="mt-5 grid flex-1 grid-cols-1 gap-5 lg:grid-cols-[15rem_1fr_18rem]">
         {/* Outline */}
         <Card className="h-fit border-border shadow-xs">
-          <CardHeader className="border-b border-border pb-3">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-border pb-3">
             <CardTitle className="font-heading text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Cấu trúc đề
             </CardTitle>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={examReadonly}
+                  onClick={handleRenumberAll}
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                >
+                  <HugeiconsIcon icon={RefreshIcon} size={13} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Đánh số lại câu hỏi</TooltipContent>
+            </Tooltip>
           </CardHeader>
           <CardContent className="space-y-4 p-3">
             {grouped.map((group) => (
@@ -1017,64 +1281,95 @@ export default function ExamBuilderPage() {
                     (section.skill === "listening" &&
                       !((section.media ?? []).length > 0 || (section.mediaIds?.length ?? 0) > 0)) ||
                     (section.skill === "reading" && !section.passageText?.trim())
+                  const atMaxParts =
+                    exam.sections.filter((s) => s.skill === section.skill).length >=
+                    MAX_PARTS[section.skill]
+                  const isDropTarget =
+                    dropTarget?.index === index && dragIndex !== null && dragIndex !== index
+                  const isDragging = dragIndex === index
                   return (
-                    <div
-                      key={`${section.skill}-${index}`}
-                      className={cn(
-                        "group flex w-full items-center justify-between gap-1 rounded-lg px-2 py-1.5 transition-colors",
-                        activeIndex === index
-                          ? "bg-primary/10 font-semibold text-primary"
-                          : "text-muted-foreground hover:bg-muted"
+                    <div key={section.id ?? `${section.skill}-${index}`} className="relative">
+                      {isDropTarget && dropTarget?.position === "top" && (
+                        <span className="pointer-events-none absolute -top-1 right-1 left-1 z-10 h-0.5 rounded-full bg-primary" />
                       )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setActiveIndex(index)}
-                        className="flex flex-1 items-center justify-between gap-2 text-left text-xs truncate"
+                      <div
+                        draggable={!examReadonly}
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragEnd={handleDragEnd}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragLeave={(e) => handleDragLeave(e, index)}
+                        onDrop={(e) => handleDropSection(e, index)}
+                        className={cn(
+                          "group flex w-full items-center justify-between gap-1 rounded-lg px-2 py-1.5 transition-colors",
+                          activeIndex === index
+                            ? "bg-primary/10 font-semibold text-primary"
+                            : "text-muted-foreground hover:bg-muted",
+                          !examReadonly && "cursor-grab active:cursor-grabbing",
+                          isDragging && "opacity-40"
+                        )}
                       >
-                        <span className="truncate">
-                          {section.skill === "reading"
-                            ? `Passage ${section.part}`
-                            : section.skill === "writing"
-                              ? `Task ${section.part}`
-                              : `Part ${section.part}`}
-                        </span>
-                        <span className="flex items-center gap-1 shrink-0">
-                          {count > 0 && <span className="font-mono text-[10px]">({count})</span>}
-                          {(count === 0 || missing) && (
-                            <HugeiconsIcon icon={Alert02Icon} size={12} className="text-amber-600" />
-                          )}
-                        </span>
-                      </button>
-                      {!examReadonly && (
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            disabled={index === 0}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              moveSection(index, index - 1)
-                            }}
-                            className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-                            title="Di chuyển lên"
-                          >
-                            <HugeiconsIcon icon={ArrowUp01Icon} size={11} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            disabled={index === exam.sections.length - 1}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              moveSection(index, index + 1)
-                            }}
-                            className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-                            title="Di chuyển xuống"
-                          >
-                            <HugeiconsIcon icon={ArrowDown01Icon} size={11} />
-                          </Button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveIndex(index)}
+                          className="flex flex-1 items-center justify-between gap-2 text-left text-xs truncate"
+                        >
+                          <span className="truncate">
+                            {section.skill === "reading"
+                              ? `Passage ${section.part}`
+                              : section.skill === "writing"
+                                ? `Task ${section.part}`
+                                : `Part ${section.part}`}
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0">
+                            {count > 0 && <span className="font-mono text-[10px]">({count})</span>}
+                            {(count === 0 || missing) && (
+                              <HugeiconsIcon icon={Alert02Icon} size={12} className="text-amber-600" />
+                            )}
+                          </span>
+                        </button>
+                        {!examReadonly && (
+                          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            <span
+                              aria-hidden
+                              title="Kéo để đổi thứ tự"
+                              className="flex h-5 w-5 items-center justify-center text-muted-foreground/60"
+                            >
+                              <HugeiconsIcon icon={DragDropVerticalIcon} size={13} />
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              disabled={atMaxParts}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                duplicateSection(index)
+                              }}
+                              className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                              title={
+                                atMaxParts
+                                  ? `${SKILL_LABEL[section.skill]} đã đủ ${MAX_PARTS[section.skill]} phần`
+                                  : "Nhân bản phần này"
+                              }
+                            >
+                              <HugeiconsIcon icon={Copy01Icon} size={11} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                requestRemoveSection(index)
+                              }}
+                              className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                              title="Xoá phần này"
+                            >
+                              <HugeiconsIcon icon={Delete02Icon} size={11} />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                      {isDropTarget && dropTarget?.position === "bottom" && (
+                        <span className="pointer-events-none absolute -bottom-1 right-1 left-1 z-10 h-0.5 rounded-full bg-primary" />
                       )}
                     </div>
                   )
@@ -1134,7 +1429,7 @@ export default function ExamBuilderPage() {
                     size="icon-sm"
                     disabled={examReadonly}
                     className="text-muted-foreground hover:text-destructive"
-                    onClick={() => removeSection(activeIndex)}
+                    onClick={() => requestRemoveSection(activeIndex)}
                   >
                     <HugeiconsIcon icon={Delete02Icon} size={15} />
                   </Button>
@@ -1473,6 +1768,49 @@ export default function ExamBuilderPage() {
           </Card>
         </div>
       </div>
+
+      {/* Delete section confirmation */}
+      <AlertDialog
+        open={deleteTargetIndex !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTargetIndex(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xoá phần này?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget ? (
+                <>
+                  Bạn sắp xoá{" "}
+                  <span className="font-semibold text-foreground">{deleteTarget.title}</span>
+                  {countSectionQuestions(deleteTarget) > 0
+                    ? ` cùng ${countSectionQuestions(deleteTarget)} câu hỏi`
+                    : ""}
+                  {((deleteTarget.media ?? []).length > 0 ||
+                    (deleteTarget.mediaIds?.length ?? 0) > 0)
+                    ? " và media đã gắn"
+                    : ""}
+                  . Hành động này không thể hoàn tác.
+                </>
+              ) : (
+                ""
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Quay lại</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (deleteTargetIndex !== null) performRemoveSection(deleteTargetIndex)
+              }}
+            >
+              Xoá phần
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Bank sheet */}
       <BankGroupSheet

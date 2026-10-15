@@ -34,6 +34,7 @@ export function useAutosave(
   const markAnswersSynced = useExamSessionStore((s) => s.markAnswersSynced)
   const resyncTimer = useExamSessionStore((s) => s.resyncTimer)
   const setPhase = useExamSessionStore((s) => s.setPhase)
+  const highlights = useExamSessionStore((s) => s.highlights)
 
   const inFlightRef = React.useRef(false)
   const flushAgainRef = React.useRef(false)
@@ -149,7 +150,7 @@ export function useAutosave(
     }
   }, [answers, phase])
 
-  // FIX-06: ghi snapshot vào IndexedDB NGAY khi answers đổi (không throttle), để
+  // FIX-06: ghi snapshot vào IndexedDB NGAY khi answers hoặc highlights đổi (không throttle), để
   // F5/đóng tab trong vòng vài ms vẫn còn dữ liệu local.
   React.useEffect(() => {
     if (!attemptId) return
@@ -157,9 +158,10 @@ export function useAutosave(
     void saveAttemptSnapshot(attemptId, {
       answers: state.answers,
       flagged: state.flagged,
+      highlights: state.highlights,
       savedAt: Date.now(),
     })
-  }, [answers, attemptId])
+  }, [answers, highlights, attemptId])
 
   // flush khi tab ẩn / đóng
   React.useEffect(() => {

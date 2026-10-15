@@ -50,6 +50,12 @@ import {
   parseInlineToken,
   resolveInlineBlankQuestion,
 } from "@/features/exam-engine/lib/exam-flow"
+import {
+  HighlightControls,
+  HighlightLayer,
+  SelectableHighlightedText,
+} from "@/features/exam-engine/components/highlight-layer"
+import { scrollToQuestion } from "@/features/exam-engine/lib/question-nav"
 import { toast } from "sonner"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { useExamSessionStore } from "@/stores/exam-session.store"
@@ -107,6 +113,12 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const [writingTask, setWritingTask] = React.useState<"task1" | "task2">(
     "task1"
   )
+  const [activeQuestionNumber, setActiveQuestionNumber] = React.useState<
+    number | null
+  >(null)
+  const [pendingScrollQNum, setPendingScrollQNum] = React.useState<
+    number | null
+  >(null)
   const submitMutation = useSubmitAttemptMutation()
   const handleSubmitRef = React.useRef<(auto?: boolean) => Promise<void>>(
     async () => {}
@@ -182,6 +194,37 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   React.useEffect(() => {
     handleSubmitRef.current = handleSubmit
   })
+
+  // ─── Question navigation (palette → scroll inside question panel) ─────────
+  const jumpToQuestion = React.useCallback(
+    (questionNumber: number, sectionIndex: number) => {
+      setActiveQuestionNumber(questionNumber)
+      if (sectionIndex !== activeSectionIndex) {
+        setPendingScrollQNum(questionNumber)
+        setActiveSectionIndex(sectionIndex)
+      } else {
+        window.requestAnimationFrame(() => scrollToQuestion(questionNumber))
+      }
+    },
+    [activeSectionIndex, setActiveSectionIndex]
+  )
+
+  // After a section switch the question panel mounts asynchronously — scroll on
+  // the next frame so the anchor element exists.
+  React.useEffect(() => {
+    if (pendingScrollQNum == null) return
+    let raf2 = 0
+    const raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        scrollToQuestion(pendingScrollQNum)
+        setPendingScrollQNum(null)
+      })
+    })
+    return () => {
+      window.cancelAnimationFrame(raf1)
+      window.cancelAnimationFrame(raf2)
+    }
+  }, [pendingScrollQNum, activeSectionIndex])
 
   // ─── Recovery states ───────────────────────────────────────
   if (recoveryStatus === "loading") {
@@ -397,6 +440,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
         {currentSection.skill === "listening" && (
           <ListeningSection
             section={currentSection}
+            sectionIndex={activeSectionIndex}
             answers={answers}
             flagged={flagged}
             onAnswer={(qid, v) => setAnswer(qid, v)}
@@ -407,6 +451,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
         {currentSection.skill === "reading" && (
           <ReadingSection
             section={currentSection}
+            sectionIndex={activeSectionIndex}
             answers={answers}
             flagged={flagged}
             onAnswer={(qid, v) => setAnswer(qid, v)}
@@ -440,18 +485,23 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
               const isAnswered = !!answers[q.id]?.value?.trim()
               const isFlag = !!flagged[q.id]
               const isCurrentSec = q.sectionIndex === activeSectionIndex
+              const qNum = q.questionNumber ?? idx + 1
+              const isActiveQuestion = activeQuestionNumber === qNum
               return (
                 <button
                   key={q.id}
-                  onClick={() => setActiveSectionIndex(q.sectionIndex)}
+                  onClick={() => jumpToQuestion(qNum, q.sectionIndex)}
+                  aria-current={isActiveQuestion ? "true" : undefined}
                   className={cn(
                     "relative flex size-8 items-center justify-center rounded-lg font-mono text-xs font-bold transition-all",
                     isAnswered
                       ? "bg-primary text-primary-foreground shadow-xs"
                       : "border border-border bg-card text-foreground hover:bg-muted",
-                    isCurrentSec
-                      ? "ring-2 ring-primary ring-offset-1"
-                      : "opacity-80"
+                    isActiveQuestion
+                      ? "ring-2 ring-amber-500 ring-offset-2"
+                      : isCurrentSec
+                        ? "ring-2 ring-primary ring-offset-1"
+                        : "opacity-80"
                   )}
                 >
                   {idx + 1}
@@ -517,6 +567,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
 
 interface SectionProps {
   section: CandidateSection
+  sectionIndex?: number
   answers: Record<string, { value: string; updatedAt: number; dirty: boolean }>
   flagged: Record<string, true>
   onAnswer: (questionId: string, value: string) => void
@@ -679,157 +730,89 @@ function ListeningSection({
   )
 }
 
-function HighlightedPassage({
-  text,
-  highlights,
-}: {
-  text: string
-  highlights: string[]
-}) {
-  if (!highlights.length || !text) {
-    return <span>{text}</span>
-  }
-  const escaped = highlights
-    .filter(Boolean)
-    .sort((a, b) => b.length - a.length)
-    .map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-  if (!escaped.length) return <span>{text}</span>
-  const regex = new RegExp(`(${escaped.join("|")})`, "gi")
-  const parts = text.split(regex)
-  return (
-    <>
-      {parts.map((part, i) => {
-        const isMatch = highlights.some(
-          (h) => h.toLowerCase() === part.toLowerCase()
-        )
-        return isMatch ? (
-          <mark
-            key={i}
-            className="rounded bg-amber-200 px-0.5 font-medium text-stone-900 dark:bg-amber-400 dark:text-stone-900"
-          >
-            {part}
-          </mark>
-        ) : (
-          <React.Fragment key={i}>{part}</React.Fragment>
-        )
-      })}
-    </>
-  )
-}
-
 function ReadingSection({
   section,
+  sectionIndex = 0,
   answers,
   flagged,
   onAnswer,
   onToggleFlag,
 }: SectionProps) {
-  const [highlights, setHighlights] = React.useState<string[]>([])
-  const [selectedText, setSelectedText] = React.useState<string>("")
-
-  const handleMouseUp = () => {
-    if (typeof window === "undefined") return
-    const sel = window.getSelection()?.toString().trim()
-    if (sel && sel.length > 1) {
-      setSelectedText(sel)
-    } else {
-      setSelectedText("")
-    }
-  }
-
-  const addHighlight = () => {
-    if (selectedText) {
-      setHighlights((prev) =>
-        prev.includes(selectedText) ? prev : [...prev, selectedText]
-      )
-      setSelectedText("")
-    }
-  }
+  const highlights = useExamSessionStore((s) => s.highlights)
+  const setHighlights = useExamSessionStore((s) => s.setHighlights)
 
   return (
-    <ResizablePanelGroup orientation="horizontal" className="h-full w-full">
-      <ResizablePanel
-        defaultSize={50}
-        minSize={30}
-        className="overflow-y-auto border-r border-border bg-card"
-      >
-        <div
-          className="mx-auto max-w-2xl space-y-6 p-8"
-          onMouseUp={handleMouseUp}
+    <HighlightLayer
+      sectionIndex={sectionIndex}
+      items={highlights}
+      onItemsChange={setHighlights}
+      className="h-full"
+    >
+      <ResizablePanelGroup orientation="horizontal" className="h-full w-full">
+        <ResizablePanel
+          defaultSize={50}
+          minSize={30}
+          className="overflow-y-auto border-r border-border bg-card"
         >
-          <div className="flex items-center justify-between border-b border-border pb-4">
-            <Badge
-              variant="outline"
-              className="text-xs font-semibold text-primary"
-            >
-              {section.title}
-            </Badge>
-            <div className="flex items-center gap-2">
-              {selectedText && (
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={addHighlight}
-                  className="h-7 bg-amber-500 text-xs font-semibold text-stone-950 hover:bg-amber-600"
-                >
-                  Highlight vùng chọn
-                </Button>
-              )}
-              {highlights.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setHighlights([])}
-                  className="h-7 text-xs"
-                >
-                  Xóa highlight ({highlights.length})
-                </Button>
-              )}
+          <div className="mx-auto max-w-2xl space-y-6 p-8">
+            <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
+              <Badge
+                variant="outline"
+                className="text-xs font-semibold text-primary"
+              >
+                {section.title}
+              </Badge>
+              <div className="flex items-center gap-2">
+                <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                  Bôi đen để highlight / ghi chú
+                </span>
+                <HighlightControls />
+              </div>
+            </div>
+            <div className="space-y-4 font-serif text-sm leading-[1.8] whitespace-pre-line text-foreground/90 select-text">
+              <SelectableHighlightedText
+                targetId="passage"
+                text={section.passageText ?? ""}
+              />
+            </div>
+
+            <MediaImages media={section.media} />
+          </div>
+        </ResizablePanel>
+
+        <ResizableHandle withHandle />
+
+        <ResizablePanel
+          defaultSize={50}
+          minSize={30}
+          className="overflow-y-auto bg-muted/10"
+        >
+          <div className="mx-auto max-w-2xl space-y-6 p-8">
+            <div className="space-y-1 rounded-xl border border-border bg-card p-4">
+              <h3 className="font-heading text-sm font-bold text-foreground">
+                {section.title}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {section.instructions}
+              </p>
+            </div>
+
+            <div className="space-y-6">
+              {(section.questionGroups ?? []).map((group) => (
+                <GroupRenderer
+                  key={group.id}
+                  group={group}
+                  answers={answers}
+                  flagged={flagged}
+                  onAnswer={onAnswer}
+                  onToggleFlag={onToggleFlag}
+                />
+              ))}
             </div>
           </div>
-          <div className="space-y-4 font-serif text-sm leading-[1.8] whitespace-pre-line text-foreground/90 select-text">
-            <HighlightedPassage
-              text={section.passageText ?? ""}
-              highlights={highlights}
-            />
-          </div>
-
-          <MediaImages media={section.media} />
-        </div>
-      </ResizablePanel>
-
-      <ResizableHandle withHandle />
-
-      <ResizablePanel
-        defaultSize={50}
-        minSize={30}
-        className="overflow-y-auto bg-muted/10"
-      >
-        <div className="mx-auto max-w-2xl space-y-6 p-8">
-          <div className="space-y-1 rounded-xl border border-border bg-card p-4">
-            <h3 className="font-heading text-sm font-bold text-foreground">
-              {section.title}
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              {section.instructions}
-            </p>
-          </div>
-
-          <div className="space-y-6">
-            {(section.questionGroups ?? []).map((group) => (
-              <GroupRenderer
-                key={group.id}
-                group={group}
-                answers={answers}
-                flagged={flagged}
-                onAnswer={onAnswer}
-                onToggleFlag={onToggleFlag}
-              />
-            ))}
-          </div>
-        </div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </HighlightLayer>
   )
 }
 
@@ -994,6 +977,8 @@ function InlineBlank({
   const isFlag = !!ctx.flagged[q.id]
   return (
     <span
+      id={`exam-q-${q.questionNumber}`}
+      data-question-number={q.questionNumber}
       className={cn(
         "inline-flex items-center gap-1 align-baseline",
         compact ? "mx-0.5" : "mx-1.5 my-1"
@@ -1121,6 +1106,8 @@ function UnplacedQuestionsList({
         return (
           <div
             key={q.id}
+            id={`exam-q-${q.questionNumber}`}
+            data-question-number={q.questionNumber}
             className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5"
           >
             <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
@@ -1439,6 +1426,8 @@ function MatchingFeaturesRenderer({
                 return (
                   <tr
                     key={q.id}
+                    id={`exam-q-${q.questionNumber}`}
+                    data-question-number={q.questionNumber}
                     className="transition-colors hover:bg-muted/20"
                   >
                     <td className="sticky left-0 z-10 bg-card border-r border-border px-3.5 py-2.5 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
@@ -1447,7 +1436,10 @@ function MatchingFeaturesRenderer({
                           {q.questionNumber}
                         </span>
                         <span className="flex-1 text-xs sm:text-sm leading-snug text-foreground select-text break-words">
-                          {q.prompt}
+                          <SelectableHighlightedText
+                            targetId={`q-${q.id}`}
+                            text={q.prompt}
+                          />
                         </span>
                         <button
                           type="button"
@@ -1533,6 +1525,8 @@ function MatchingFeaturesRenderer({
           return (
             <div
               key={q.id}
+              id={`exam-q-${q.questionNumber}`}
+              data-question-number={q.questionNumber}
               className="space-y-2 rounded-lg border border-border p-3"
             >
               <div className="flex items-start gap-2.5">
@@ -1540,7 +1534,10 @@ function MatchingFeaturesRenderer({
                   {q.questionNumber}
                 </span>
                 <span className="flex-1 text-sm leading-snug text-foreground">
-                  {q.prompt}
+                  <SelectableHighlightedText
+                    targetId={`q-${q.id}`}
+                    text={q.prompt}
+                  />
                 </span>
                 <button
                   type="button"
@@ -1739,6 +1736,8 @@ function GroupRendererBody({
               return (
                 <div
                   key={q.id}
+                  id={`exam-q-${q.questionNumber}`}
+                  data-question-number={q.questionNumber}
                   className="flex items-center gap-1.5 rounded-md border border-border bg-muted/20 px-2 py-1 text-xs"
                 >
                   <span className="font-mono font-bold text-primary">
@@ -1823,6 +1822,8 @@ function GroupRendererBody({
                 return (
                   <tr
                     key={q.id}
+                    id={`exam-q-${q.questionNumber}`}
+                    data-question-number={q.questionNumber}
                     className="transition-colors hover:bg-muted/20"
                   >
                     <td className="sticky left-0 z-10 bg-card border-r border-border px-3.5 py-2.5 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
@@ -1831,7 +1832,10 @@ function GroupRendererBody({
                           {q.questionNumber}
                         </span>
                         <span className="flex-1 text-xs sm:text-sm leading-snug text-foreground select-text break-words">
-                          {q.prompt}
+                          <SelectableHighlightedText
+                            targetId={`q-${q.id}`}
+                            text={q.prompt}
+                          />
                         </span>
                         <button
                           type="button"
@@ -2099,13 +2103,23 @@ function GroupRendererBody({
           const answer = answers[q.id]?.value ?? ""
           const isFlagged = !!flagged[q.id]
           return (
-            <div key={q.id} className="flex items-start gap-3">
+            <div
+              key={q.id}
+              id={`exam-q-${q.questionNumber}`}
+              data-question-number={q.questionNumber}
+              className="flex items-start gap-3"
+            >
               <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-xs font-bold text-primary">
                 {q.questionNumber}
               </span>
               <div className="flex-1 space-y-1.5">
                 {q.prompt && (
-                  <p className="text-sm text-foreground">{q.prompt}</p>
+                  <p className="text-sm text-foreground">
+                    <SelectableHighlightedText
+                      targetId={`q-${q.id}`}
+                      text={q.prompt}
+                    />
+                  </p>
                 )}
                 {isTFNG || isYNNG ? (
                   <div className="flex gap-2">
@@ -2142,7 +2156,12 @@ function GroupRendererBody({
                         <span className="flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold">
                           {opt.id}
                         </span>
-                        <span>{opt.text || opt.id}</span>
+                        <span className="flex-1">
+                    <SelectableHighlightedText
+                      targetId={`opt-${q.id}-${opt.id}`}
+                      text={opt.text || opt.id}
+                    />
+                  </span>
                       </button>
                     ))}
                   </div>

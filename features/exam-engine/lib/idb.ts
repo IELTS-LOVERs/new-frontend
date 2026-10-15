@@ -1,12 +1,14 @@
 "use client"
 
 import { get, set, del } from "idb-keyval"
+import type { ExamHighlightItem } from "./highlight"
 
 const key = (attemptId: string) => `attempt:${attemptId}`
 
 export interface AttemptSnapshot {
   answers: Record<string, { value: string; updatedAt: number; dirty: boolean }>
   flagged: Record<string, true>
+  highlights?: ExamHighlightItem[]
   savedAt: number
 }
 

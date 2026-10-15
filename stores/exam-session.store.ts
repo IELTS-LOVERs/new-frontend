@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { CandidateExam } from "@/lib/api/types"
+import type { ExamHighlightItem } from "@/features/exam-engine/lib/highlight"
 
 export type ExamPhase =
   | "loading"
@@ -45,6 +46,7 @@ interface ExamSessionState {
   deadlineMono: number | null
   answers: Record<string, LocalAnswer>
   flagged: Record<string, true>
+  highlights: ExamHighlightItem[]
   activeSectionIndex: number
   activeQuestionId: string | null
   saveStatus: SaveStatus
@@ -61,6 +63,7 @@ interface ExamSessionState {
   markAnswerSynced: (questionId: string, sentAt: number) => void
   markAnswersSynced: (questionIds: string[], sentAt: number) => void
   toggleFlag: (questionId: string) => void
+  setHighlights: (highlights: ExamHighlightItem[]) => void
   setSaveStatus: (status: SaveStatus) => void
   resyncTimer: (serverRemainingSeconds: number) => void
   setAudioPosition: (sectionIndex: number, position: number) => void
@@ -77,6 +80,7 @@ const initialState = {
   deadlineMono: null,
   answers: {},
   flagged: {},
+  highlights: [] as ExamHighlightItem[],
   activeSectionIndex: 0,
   activeQuestionId: null,
   saveStatus: "idle" as SaveStatus,
@@ -96,6 +100,7 @@ export const useExamSessionStore = create<ExamSessionState>()((set) => ({
       phase: "active",
       answers: {},
       flagged: {},
+      highlights: [],
       activeSectionIndex: 0,
       activeQuestionId: null,
       saveStatus: "idle",
@@ -148,6 +153,8 @@ export const useExamSessionStore = create<ExamSessionState>()((set) => ({
       else next[questionId] = true
       return { flagged: next }
     }),
+
+  setHighlights: (highlights) => set({ highlights }),
 
   setSaveStatus: (saveStatus) => set({ saveStatus }),
 

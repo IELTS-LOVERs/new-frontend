@@ -110,7 +110,7 @@ describe("useExamSessionStore", () => {
     expect(useExamSessionStore.getState().answers.ghost).toBeUndefined()
   })
 
-  it("markAnswersSynced set 'saved', cập nhật lastSavedAt và tôn trọng câu mới hơn", () => {
+  it("markAnswersSynced set 'saved', cập nhật lastSavedAt và tôn trọng câu mới hơn", async () => {
     useExamSessionStore.getState().setAnswer("q1", "a")
     useExamSessionStore.getState().setAnswer("q2", "b")
     const q1At = useExamSessionStore.getState().answers.q1.updatedAt
@@ -124,6 +124,7 @@ describe("useExamSessionStore", () => {
     expect(s.lastSavedAt).not.toBeNull()
 
     // gửi lại với mốc thời gian trước khi q1 được cập nhật → q1 vẫn dirty
+    await new Promise((r) => setTimeout(r, 5))
     useExamSessionStore.getState().setAnswer("q1", "a2")
     useExamSessionStore.getState().markAnswersSynced(["q1"], q1At)
     expect(useExamSessionStore.getState().answers.q1.dirty).toBe(true)
@@ -170,6 +171,25 @@ describe("useExamSessionStore", () => {
       theme: "cream",
       splitRatio: 70,
     })
+  })
+
+  it("setHighlights lưu danh sách highlight và reset xoá sạch", () => {
+    useExamSessionStore.getState().setHighlights([
+      {
+        id: "hl-1",
+        sectionIndex: 0,
+        targetId: "passage",
+        start: 10,
+        end: 20,
+        text: "test text",
+        createdAt: 123,
+      },
+    ])
+    expect(useExamSessionStore.getState().highlights).toHaveLength(1)
+    expect(useExamSessionStore.getState().highlights[0].text).toBe("test text")
+
+    useExamSessionStore.getState().reset()
+    expect(useExamSessionStore.getState().highlights).toEqual([])
   })
 
   it("reset đưa toàn bộ state về ban đầu", () => {
