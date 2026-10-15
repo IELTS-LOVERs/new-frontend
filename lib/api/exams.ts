@@ -60,8 +60,6 @@ export interface CreateExamSectionPayload {
   transcript?: string
   mediaIds?: string[]
   questionGroups?: QuestionGroupPayload[]
-  /** @deprecated Use questionGroups */
-  questionIds?: string[]
 }
 
 export interface CreateExamPayload {
@@ -173,6 +171,8 @@ export interface TeacherQuestionGroup {
   groupType: QuestionGroupType
   instructions: string
   config: QuestionGroupConfig
+  /** Resolved group-level image (config.imageMediaId) with a presigned URL. */
+  media?: MediaItem[]
   questions: TeacherQuestionItem[]
 }
 
@@ -187,10 +187,6 @@ export interface TeacherExamSection {
   mediaIds?: string[]
   media?: MediaItem[]
   questionGroups?: TeacherQuestionGroup[]
-  /** @deprecated Legacy */
-  questionIds?: string[]
-  /** @deprecated Legacy */
-  questions: Array<Record<string, any>>
 }
 
 export interface TeacherExamDetail {

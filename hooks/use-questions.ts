@@ -9,7 +9,7 @@ import {
   updateQuestionApi,
   deleteQuestionApi,
   type ListQuestionsParams,
-  type CreateQuestionPayload,
+  type CreateBankGroupPayload,
 } from "@/lib/api/questions"
 
 export function useQuestionsQuery(params: ListQuestionsParams = {}, enabled = true) {
@@ -34,7 +34,7 @@ export function useQuestionDetailQuery(id: string, enabled = true) {
 export function useCreateQuestionMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (payload: CreateQuestionPayload) => createQuestionApi(payload),
+    mutationFn: (payload: CreateBankGroupPayload) => createQuestionApi(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.questions.all })
     },
@@ -44,7 +44,7 @@ export function useCreateQuestionMutation() {
 export function useUpdateQuestionMutation(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (payload: Partial<CreateQuestionPayload>) => updateQuestionApi(id, payload),
+    mutationFn: (payload: Partial<CreateBankGroupPayload>) => updateQuestionApi(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.questions.all })
     },

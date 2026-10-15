@@ -155,23 +155,40 @@ export interface QuestionGroup {
   groupType: QuestionGroupType
   instructions: string
   config: QuestionGroupConfig
+  /** Resolved group-level image (config.imageMediaId) with a presigned URL. */
+  media?: MediaItem[]
   questions: QuestionItem[]
 }
 
-// === Candidate types (student-facing, no answers) ===
+// === Question Bank (group-based) ===
+// The bank stores reusable Question Groups (same shape as an exam section group,
+// minus `questionNumber` which is assigned when the group is inserted into an exam).
 
-export interface CandidateQuestion {
+export interface BankQuestionItem {
   id: string
-  skill: SkillType
-  type: QuestionType
-  part: number
   prompt: string
-  content?: string | null
-  data?: Record<string, any>
+  acceptedAnswers?: string[]
   points?: number
+  explanation?: string | null
   mediaIds?: string[]
   media?: MediaItem[]
 }
+
+export interface BankQuestionGroup {
+  id: string
+  skill: SkillType
+  part: number
+  groupType: QuestionGroupType
+  instructions: string
+  config: QuestionGroupConfig
+  questions: BankQuestionItem[]
+  questionCount?: number
+  createdBy?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+// === Candidate types (student-facing, no answers) ===
 
 export interface CandidateQuestionItem {
   id: string
@@ -187,6 +204,8 @@ export interface CandidateQuestionGroup {
   groupType: QuestionGroupType
   instructions: string
   config: QuestionGroupConfig
+  /** Resolved group-level image (config.imageMediaId) with a presigned URL. */
+  media?: MediaItem[]
   questions: CandidateQuestionItem[]
 }
 
@@ -200,11 +219,7 @@ export interface CandidateSection {
   transcript?: string | null
   mediaIds?: string[]
   media?: MediaItem[]
-  /** New: embedded question groups */
   questionGroups?: CandidateQuestionGroup[]
-  /** Legacy: flat question references */
-  questionIds?: string[]
-  questions: CandidateQuestion[]
 }
 
 export interface CandidateExam {

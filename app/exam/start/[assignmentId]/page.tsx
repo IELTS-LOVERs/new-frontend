@@ -195,7 +195,10 @@ function LobbyUI({
       const key = sec.skill
       if (!acc[key]) acc[key] = { parts: 0, questions: 0 }
       acc[key].parts += 1
-      acc[key].questions += sec.questions.length
+      acc[key].questions += (sec.questionGroups ?? []).reduce(
+        (sum, g) => sum + g.questions.length,
+        0
+      )
       return acc
     },
     {}

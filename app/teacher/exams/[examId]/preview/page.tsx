@@ -24,7 +24,7 @@ import { BrandLogo } from "@/components/layout/brand-logo"
 import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useTeacherExamDetailQuery } from "@/hooks/use-exams"
-import type { SkillType } from "@/lib/api/types"
+import type { MediaItem, SkillType } from "@/lib/api/types"
 import { DEMO_EXAM_MOCK_01, DEMO_QUESTION_BANK } from "@/mocks/demo-data"
 
 const MOCK_ANSWER_MAP = new Map(
@@ -48,7 +48,27 @@ interface PreviewSection {
   passageText?: string | null
   mediaIds?: string[]
   media?: Array<{ id: string; url: string; type: string; originalName?: string }>
+  questionGroups?: Array<{ id: string; groupType: string; media?: MediaItem[] }>
   questions: PreviewQuestion[]
+}
+
+/** Flatten a section's question groups into preview questions. */
+function flattenGroupsToPreviewQuestions(section: {
+  questionGroups?: Array<{
+    groupType: string
+    config?: Record<string, unknown>
+    questions?: Array<{ id: string; prompt: string; acceptedAnswers?: string[] }>
+  }>
+}): PreviewQuestion[] {
+  return (section.questionGroups ?? []).flatMap((g) =>
+    (g.questions ?? []).map((q) => ({
+      id: q.id,
+      type: g.groupType,
+      prompt: q.prompt,
+      data: (g.config ?? {}) as Record<string, unknown>,
+      acceptedAnswers: q.acceptedAnswers ?? [],
+    }))
+  )
 }
 
 export default function ExamPreviewPage() {
@@ -62,18 +82,29 @@ export default function ExamPreviewPage() {
 
   // Normalize exam data
   const exam: { title: string; sections: PreviewSection[] } | null = USE_MOCKS
-    ? { title: DEMO_EXAM_MOCK_01.title, sections: DEMO_EXAM_MOCK_01.sections as unknown as PreviewSection[] }
+    ? {
+        title: DEMO_EXAM_MOCK_01.title,
+        sections: DEMO_EXAM_MOCK_01.sections.map((s) => ({
+          ...s,
+          questions: flattenGroupsToPreviewQuestions(s),
+        })) as unknown as PreviewSection[],
+      }
     : examQuery.data
       ? {
           title: examQuery.data.title,
           sections: examQuery.data.sections.map((s) => ({
             ...s,
-            questions: (s.questions ?? []) as PreviewQuestion[],
+            questions: flattenGroupsToPreviewQuestions(s),
           })),
         }
       : null
 
   const current = exam?.sections[activeSectionIndex]
+
+  const sectionImages = (current?.media ?? []).filter((m) => m.type === "image") as MediaItem[]
+  const groupImages = (current?.questionGroups ?? [])
+    .flatMap((g) => g.media ?? [])
+    .filter((m) => m.type === "image")
 
   if (!USE_MOCKS && examQuery.isLoading) {
     return (
@@ -236,6 +267,36 @@ export default function ExamPreviewPage() {
             <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">
               {current.questions[0].prompt}
             </p>
+          </div>
+        )}
+
+        {/* Section illustration */}
+        {sectionImages.length > 0 && (
+          <div className="space-y-3">
+            {sectionImages.map((m) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={m.id}
+                src={m.url}
+                alt={m.originalName || "Ảnh minh hoạ"}
+                className="w-full rounded-2xl border border-border"
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Group-level images (config.imageMediaId) */}
+        {groupImages.length > 0 && (
+          <div className="space-y-3">
+            {groupImages.map((m) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={m.id}
+                src={m.url}
+                alt={m.originalName || "Ảnh của nhóm câu hỏi"}
+                className="w-full rounded-2xl border border-border"
+              />
+            ))}
           </div>
         )}
 

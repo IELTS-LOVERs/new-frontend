@@ -1,11 +1,17 @@
 import { apiClient } from "./client"
-import type { Question, QuestionType, SkillType } from "./types"
+import type {
+  BankQuestionGroup,
+  QuestionGroupConfig,
+  QuestionGroupType,
+  SkillType,
+} from "./types"
 import type { PaginatedMeta } from "./assignments"
 
 export interface ListQuestionsParams {
   skill?: SkillType
   part?: number
-  type?: QuestionType
+  /** Matches the group's `groupType`. */
+  type?: QuestionGroupType
   createdBy?: string
   scope?: "own" | "all"
   search?: string
@@ -14,7 +20,7 @@ export interface ListQuestionsParams {
 }
 
 export interface ListQuestionsResult {
-  items: Question[]
+  items: BankQuestionGroup[]
   meta?: PaginatedMeta
 }
 
@@ -29,31 +35,35 @@ export async function getQuestionsApi(params: ListQuestionsParams = {}): Promise
   if (params.page) search.set("page", String(params.page))
   if (params.limit) search.set("limit", String(params.limit))
   const qs = search.toString()
-  const { data, meta } = await apiClient<Question[]>(`/api/questions${qs ? `?${qs}` : ""}`)
+  const { data, meta } = await apiClient<BankQuestionGroup[]>(`/api/questions${qs ? `?${qs}` : ""}`)
   return { items: data, meta: meta as PaginatedMeta | undefined }
 }
 
-export async function getQuestionDetailApi(id: string, scope?: "all"): Promise<Question> {
+export async function getQuestionDetailApi(id: string, scope?: "all"): Promise<BankQuestionGroup> {
   const qs = scope ? `?scope=${scope}` : ""
-  const { data } = await apiClient<Question>(`/api/questions/${id}${qs}`)
+  const { data } = await apiClient<BankQuestionGroup>(`/api/questions/${id}${qs}`)
   return data
 }
 
-export interface CreateQuestionPayload {
-  skill: SkillType
-  type: QuestionType
-  part: number
+export interface BankQuestionItemPayload {
   prompt: string
-  content?: string
-  data?: Record<string, any>
   acceptedAnswers?: string[]
   points?: number
   explanation?: string
   mediaIds?: string[]
 }
 
-export async function createQuestionApi(payload: CreateQuestionPayload): Promise<Question> {
-  const { data } = await apiClient<Question>("/api/questions", {
+export interface CreateBankGroupPayload {
+  skill: SkillType
+  part: number
+  groupType: QuestionGroupType
+  instructions: string
+  config: QuestionGroupConfig
+  questions: BankQuestionItemPayload[]
+}
+
+export async function createQuestionApi(payload: CreateBankGroupPayload): Promise<BankQuestionGroup> {
+  const { data } = await apiClient<BankQuestionGroup>("/api/questions", {
     method: "POST",
     body: JSON.stringify(payload),
   })
@@ -62,7 +72,7 @@ export async function createQuestionApi(payload: CreateQuestionPayload): Promise
 
 export async function updateQuestionApi(
   id: string,
-  payload: Partial<CreateQuestionPayload>
+  payload: Partial<CreateBankGroupPayload>
 ): Promise<{ id: string; message: string }> {
   const { data } = await apiClient<{ id: string; message: string }>(`/api/questions/${id}`, {
     method: "PUT",
@@ -76,4 +86,44 @@ export async function deleteQuestionApi(id: string): Promise<string> {
     method: "DELETE",
   })
   return data.message
+}
+
+/**
+ * Legacy flat question type → QuestionGroupType.
+ * Only the two generic legacy types need remapping; the rest are identical.
+ */
+export const LEGACY_TYPE_TO_GROUP_TYPE: Record<string, QuestionGroupType> = {
+  multiple_choice: "multiple_choice_single",
+  matching: "matching_headings",
+}
+
+/** Convert a legacy flat `Question` object into a bank group payload (1 question). */
+export function legacyQuestionToGroupPayload(q: {
+  skill: SkillType
+  type: string
+  part: number
+  prompt: string
+  content?: string | null
+  data?: Record<string, unknown>
+  acceptedAnswers?: string[]
+  points?: number
+  explanation?: string | null
+  mediaIds?: string[]
+}): CreateBankGroupPayload {
+  return {
+    skill: q.skill,
+    part: q.part,
+    groupType: (LEGACY_TYPE_TO_GROUP_TYPE[q.type] ?? q.type) as QuestionGroupType,
+    instructions: q.content ?? "",
+    config: (q.data ?? {}) as QuestionGroupConfig,
+    questions: [
+      {
+        prompt: q.prompt,
+        acceptedAnswers: q.acceptedAnswers ?? [],
+        points: q.points ?? 1,
+        explanation: q.explanation ?? undefined,
+        mediaIds: q.mediaIds ?? [],
+      },
+    ],
+  }
 }

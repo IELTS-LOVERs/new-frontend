@@ -106,7 +106,11 @@ export default function TeacherExamDetailPage() {
   const analytics = USE_MOCKS ? DEMO_EXAM_ANALYTICS : analyticsQuery.data
 
   const totalQuestions = exam
-    ? exam.sections.reduce((sum, s) => sum + (s.questions?.length ?? 0), 0)
+    ? exam.sections.reduce(
+        (sum, s) =>
+          sum + (s.questionGroups ?? []).reduce((a, g) => a + g.questions.length, 0),
+        0
+      )
     : 0
 
   const isLoading = !USE_MOCKS && examQuery.isLoading
@@ -235,7 +239,11 @@ export default function TeacherExamDetailPage() {
               const hasAudio =
                 (sectionAny.media ?? []).some((m) => m.type === "audio") ||
                 (sectionAny.mediaIds?.length ?? 0) > 0
-              const questionCount = section.questions?.length ?? 0
+              const questionCount = (section.questionGroups ?? []).reduce(
+                (sum, g) => sum + g.questions.length,
+                0
+              )
+              const firstGroupType = section.questionGroups?.[0]?.groupType
               return (
                 <Card key={`${section.skill}-${index}`} className="border-border shadow-xs">
                   <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -263,9 +271,9 @@ export default function TeacherExamDetailPage() {
                               {section.passageText?.trim() ? "Có bài đọc" : "Thiếu bài đọc"}
                             </Badge>
                           )}
-                          {questionCount > 0 && section.questions[0] && (
+                          {questionCount > 0 && firstGroupType && (
                             <Badge variant="outline" className="text-[10px] font-normal">
-                              {(section.questions[0] as { type?: string }).type?.replace(/_/g, " ") ?? "—"}
+                              {firstGroupType.replace(/_/g, " ")}
                             </Badge>
                           )}
                         </div>

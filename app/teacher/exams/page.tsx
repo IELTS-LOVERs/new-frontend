@@ -118,10 +118,14 @@ export default function TeacherExamsPage() {
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = React.useState(false)
   const [isBulkBusy, setIsBulkBusy] = React.useState(false)
 
-  // Clear selections when tab or page changes
-  React.useEffect(() => {
+  // Clear selections when tab or page changes — adjusted during render instead
+  // of via an effect to avoid a cascading re-render.
+  const scope = `${status}|${page}`
+  const [selectionScope, setSelectionScope] = React.useState(scope)
+  if (selectionScope !== scope) {
+    setSelectionScope(scope)
     setSelectedIds(new Set())
-  }, [status, page])
+  }
 
   const queryParams = React.useMemo(
     () => ({

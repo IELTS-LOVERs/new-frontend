@@ -68,32 +68,28 @@ import {
   useCloneExamMutation,
 } from "@/hooks/use-exams"
 import { useQuestionsQuery, useCreateQuestionMutation } from "@/hooks/use-questions"
+import { type CreateBankGroupPayload } from "@/lib/api/questions"
 import {
-  migrateExamApi,
   type CreateExamSectionPayload,
-  type QuestionGroupPayload,
   type QuestionItemPayload,
 } from "@/lib/api/exams"
 import {
-  QUESTION_TYPE_LABEL,
   QUESTION_GROUP_TYPE_LABEL,
   SKILL_LABEL,
   defaultGroupInstructions,
   defaultGroupConfig,
 } from "@/lib/format"
 import type {
+  BankQuestionGroup,
   CandidateExam,
-  CandidateQuestion,
   CandidateQuestionGroup,
   CandidateSection,
   MediaItem,
-  Question,
   QuestionGroupType,
   QuestionItem,
   SkillType,
 } from "@/lib/api/types"
-import { DEMO_EXAM_BUILDER, DEMO_EXAM_MOCK_01, DEMO_EXAMS, DEMO_QUESTION_BANK } from "@/mocks/demo-data"
-import { QuestionForm } from "@/features/questions/question-form"
+import { DEMO_BANK_GROUPS, DEMO_EXAM_BUILDER, DEMO_EXAM_MOCK_01, DEMO_EXAMS } from "@/mocks/demo-data"
 import { QuestionGroupEditor } from "@/features/questions/question-group-editor"
 import { QuestionTypePickerDialog } from "@/features/questions/question-type-picker-dialog"
 import { MediaPicker } from "@/components/shared/media-picker"
@@ -159,12 +155,12 @@ function toLocalExam(detail: {
     transcript?: string | null
     mediaIds?: string[]
     media?: MediaItem[]
-    questionIds?: string[]
     questionGroups?: Array<{
       id: string
       groupType: QuestionGroupType
       instructions: string
       config: Record<string, unknown>
+      media?: MediaItem[]
       questions: Array<{
         id: string
         questionNumber: number
@@ -175,7 +171,6 @@ function toLocalExam(detail: {
         mediaIds?: string[]
       }>
     }>
-    questions?: Array<Record<string, unknown>>
   }>
 }): CandidateExam {
   return {
@@ -187,12 +182,12 @@ function toLocalExam(detail: {
       // Defensive: ignore any legacy sections whose skill is no longer supported.
       .filter((s) => s.skill === "listening" || s.skill === "reading" || s.skill === "writing")
       .map((s) => {
-      const questions = (s.questions ?? []) as unknown as CandidateQuestion[]
       const questionGroups: CandidateQuestionGroup[] = (s.questionGroups ?? []).map((g) => ({
         id: g.id,
         groupType: g.groupType,
         instructions: g.instructions,
         config: g.config as any,
+        media: g.media ?? [],
         questions: g.questions.map((q) => ({
           id: q.id,
           questionNumber: q.questionNumber,
@@ -213,9 +208,7 @@ function toLocalExam(detail: {
         transcript: s.transcript ?? "",
         mediaIds: s.mediaIds ?? [],
         media: s.media ?? [],
-        questionIds: s.questionIds ?? questions.map((q) => q.id),
         questionGroups,
-        questions,
       } as CandidateSection
     }),
   }
@@ -232,16 +225,27 @@ function toIsoOrUndefined(value: string): string | undefined {
 
 // Convert local CandidateExam -> PUT payload
 function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
-  const sections: CreateExamSectionPayload[] = exam.sections.map((s) => {
-    const usesGroups = (s.questionGroups ?? []).length > 0
-
-    const questionGroups: QuestionGroupPayload[] | undefined = usesGroups
-      ? s.questionGroups!.map((g) => ({
-          _id: isValidObjectId(g.id) ? g.id : undefined,
-          groupType: g.groupType,
-          instructions: g.instructions ?? "",
-          config: g.config ?? {},
-          questions: g.questions.map((q) => ({
+  const sections: CreateExamSectionPayload[] = exam.sections.map((s) => ({
+    _id: isValidObjectId(s.id) ? s.id : undefined,
+    skill: s.skill,
+    part: s.part,
+    title: s.title,
+    instructions: s.instructions ?? "",
+    passageText: s.skill === "reading" ? (s.passageText ?? "") : undefined,
+    transcript: s.skill === "listening" ? (s.transcript ?? "") : undefined,
+    // Prefer media picked in this session; otherwise fall back to the persisted
+    // mediaIds. The teacher detail endpoint does not hydrate `media` objects,
+    // so without this fallback every autosave would wipe section audio/images.
+    mediaIds:
+      (s.media ?? []).length > 0 ? (s.media ?? []).map((m) => m.id) : (s.mediaIds ?? []),
+    questionGroups: (s.questionGroups ?? []).map((g) => ({
+      _id: isValidObjectId(g.id) ? g.id : undefined,
+      groupType: g.groupType,
+      instructions: g.instructions ?? "",
+      config: g.config ?? {},
+      questions: g.questions.map(
+        (q) =>
+          ({
             _id: isValidObjectId(q.id) ? q.id : undefined,
             questionNumber: q.questionNumber,
             prompt: q.prompt ?? "",
@@ -249,27 +253,10 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
             points: q.points ?? 1,
             explanation: (q as any).explanation ?? undefined,
             mediaIds: q.mediaIds,
-          } as QuestionItemPayload)),
-        }))
-      : undefined
-
-    return {
-      _id: isValidObjectId(s.id) ? s.id : undefined,
-      skill: s.skill,
-      part: s.part,
-      title: s.title,
-      instructions: s.instructions ?? "",
-      passageText: s.skill === "reading" ? (s.passageText ?? "") : undefined,
-      transcript: s.skill === "listening" ? (s.transcript ?? "") : undefined,
-      // Prefer media picked in this session; otherwise fall back to the persisted
-      // mediaIds. The teacher detail endpoint does not hydrate `media` objects,
-      // so without this fallback every autosave would wipe section audio/images.
-      mediaIds:
-        (s.media ?? []).length > 0 ? (s.media ?? []).map((m) => m.id) : (s.mediaIds ?? []),
-      questionGroups,
-      questionIds: usesGroups ? [] : s.questions.map((q) => q.id),
-    }
-  })
+          }) as QuestionItemPayload
+      ),
+    })),
+  }))
   return {
     title: exam.title,
     description: exam.description ?? undefined,
@@ -316,10 +303,8 @@ export default function ExamBuilderPage() {
   const [hasAttemptsError, setHasAttemptsError] = React.useState(false)
 
   const [bankOpen, setBankOpen] = React.useState(false)
-  const [createOpen, setCreateOpen] = React.useState(false)
-  const [editingQuestion, setEditingQuestion] = React.useState<CandidateQuestion | null>(null)
-  const [editOpen, setEditOpen] = React.useState(false)
   const [mediaPickerOpen, setMediaPickerOpen] = React.useState(false)
+  const [imagePickerOpen, setImagePickerOpen] = React.useState(false)
   const [publishConfirmOpen, setPublishConfirmOpen] = React.useState(false)
   const [errorsOpen, setErrorsOpen] = React.useState(false)
   const [successOpen, setSuccessOpen] = React.useState(false)
@@ -425,6 +410,9 @@ export default function ExamBuilderPage() {
 
   const examReadonly = status !== "draft"
   const active = exam?.sections[activeIndex] as CandidateSection | undefined
+  const activeMedia = active?.media ?? []
+  const activeAudio = activeMedia.filter((m) => m.type === "audio")
+  const activeImages = activeMedia.filter((m) => m.type === "image")
 
   const updateExam = (patch: Partial<CandidateExam>) => {
     setExam((prev) => (prev ? { ...prev, ...patch } : prev))
@@ -447,19 +435,11 @@ export default function ExamBuilderPage() {
     const map = new Map<string, number>()
     const counters: Record<string, number> = { listening: 0, reading: 0, writing: 0 }
     exam?.sections.forEach((sec) => {
-      const groups = sec.questionGroups ?? []
-      if (groups.length > 0) {
-        groups.forEach((g) => {
-          g.questions.forEach((q) => {
-            counters[sec.skill] += 1
-            map.set(q.id, counters[sec.skill])
-          })
-        })
-      } else {
-        sec.questions.forEach((q) => {
+      for (const group of sec.questionGroups ?? []) {
+        for (const q of group.questions) {
           counters[sec.skill] += 1
           map.set(q.id, counters[sec.skill])
-        })
+        }
       }
     })
     return map
@@ -476,9 +456,7 @@ export default function ExamBuilderPage() {
     }
     exam.sections.forEach((section, index) => {
       const groups = section.questionGroups ?? []
-      const totalQs = groups.length > 0
-        ? groups.reduce((acc, g) => acc + g.questions.length, 0)
-        : section.questions.length
+      const totalQs = groups.reduce((acc, g) => acc + g.questions.length, 0)
       if (totalQs === 0) {
         list.push({
           level: "error",
@@ -486,29 +464,27 @@ export default function ExamBuilderPage() {
           sectionIndex: index,
         })
       }
-      if (groups.length > 0) {
-        groups.forEach((g) => {
-          if (g.questions.length === 0) {
-            list.push({
-              level: "error",
-              message: `${section.title}: Nhóm "${QUESTION_GROUP_TYPE_LABEL[g.groupType] || g.groupType}" không được để trống (0 câu hỏi).`,
-              sectionIndex: index,
-            })
-          }
-          if (section.skill !== "writing") {
-            g.questions.forEach((q) => {
-              const answers = (q as any).acceptedAnswers ?? []
-              if (answers.length === 0) {
-                list.push({
-                  level: "error",
-                  message: `${section.title}: Câu số ${numbering.get(q.id) ?? q.questionNumber} chưa thiết lập đáp án đúng.`,
-                  sectionIndex: index,
-                })
-              }
-            })
-          }
-        })
-      }
+      groups.forEach((g) => {
+        if (g.questions.length === 0) {
+          list.push({
+            level: "error",
+            message: `${section.title}: Nhóm "${QUESTION_GROUP_TYPE_LABEL[g.groupType] || g.groupType}" không được để trống (0 câu hỏi).`,
+            sectionIndex: index,
+          })
+        }
+        if (section.skill !== "writing") {
+          g.questions.forEach((q) => {
+            const answers = (q as any).acceptedAnswers ?? []
+            if (answers.length === 0) {
+              list.push({
+                level: "error",
+                message: `${section.title}: Câu số ${numbering.get(q.id) ?? q.questionNumber} chưa thiết lập đáp án đúng.`,
+                sectionIndex: index,
+              })
+            }
+          })
+        }
+      })
       if (
         section.skill === "listening" &&
         !((section.media ?? []).length > 0 || (section.mediaIds?.length ?? 0) > 0)
@@ -527,28 +503,15 @@ export default function ExamBuilderPage() {
         })
       }
       if (section.skill === "writing") {
-        if (groups.length > 0) {
-          const writingGroups = groups.filter(
-            (g) => g.groupType === "writing_task_1" || g.groupType === "writing_task_2"
-          )
-          if (writingGroups.length !== 1) {
-            list.push({
-              level: "warning",
-              message: `${section.title} cần đúng 1 nhóm writing_task.`,
-              sectionIndex: index,
-            })
-          }
-        } else {
-          const writingQs = section.questions.filter(
-            (q) => q.type === "writing_task_1" || q.type === "writing_task_2"
-          )
-          if (writingQs.length !== 1) {
-            list.push({
-              level: "warning",
-              message: `${section.title} cần đúng 1 câu writing_task_${section.part}.`,
-              sectionIndex: index,
-            })
-          }
+        const writingGroups = groups.filter(
+          (g) => g.groupType === "writing_task_1" || g.groupType === "writing_task_2"
+        )
+        if (writingGroups.length !== 1) {
+          list.push({
+            level: "warning",
+            message: `${section.title} cần đúng 1 nhóm writing_task.`,
+            sectionIndex: index,
+          })
         }
       }
     })
@@ -561,74 +524,83 @@ export default function ExamBuilderPage() {
   const errors = issues.filter((i) => i.level === "error")
   const warnings = issues.filter((i) => i.level === "warning")
 
-  const addQuestions = (ids: string[]) => {
-    if (!active || !exam) return
-    if (USE_MOCKS) {
-      const existing = new Set(active.questions.map((q) => q.id))
-      const added: CandidateQuestion[] = DEMO_QUESTION_BANK.filter(
-        (q) => ids.includes(q.id) && !existing.has(q.id)
-      ).map((q) => ({
-        id: q.id,
-        skill: q.skill,
-        type: q.type,
-        part: q.part,
-        prompt: q.prompt,
-        content: q.content,
-        data: q.data,
-        points: q.points,
-        mediaIds: q.mediaIds,
-      }))
-      updateSection(activeIndex, { questions: [...active.questions, ...added] })
-      toast.success(`Đã thêm ${added.length} câu hỏi vào ${active.title}`)
-      setBankOpen(false)
-      return
-    }
-    // Real mode: BankSheet đã trả về full question objects qua onAddQuestions
-    // (xử lý trong BankSheet — giữ nguyên hàm này cho trường hợp mock)
-  }
+  /** Insert copies of bank question groups into the active section (renumbered). */
+  const addGroupsFromBank = (bankGroups: BankQuestionGroup[]) => {
+    if (!active || bankGroups.length === 0) return
 
-  const addQuestionsFromBank = (questions: Question[]) => {
-    if (!active) return
-    const existing = new Set(active.questions.map((q) => q.id))
-    const added: CandidateQuestion[] = questions
-      .filter((q) => !existing.has(q.id))
-      .map((q) => ({
-        id: q.id,
-        skill: q.skill,
-        type: q.type,
-        part: q.part,
-        prompt: q.prompt,
-        content: q.content,
-        data: q.data,
-        points: q.points,
-        mediaIds: q.mediaIds,
-      }))
-    updateSection(activeIndex, { questions: [...active.questions, ...added] })
-    toast.success(`Đã thêm ${added.length} câu hỏi vào ${active.title}`)
+    const existingGroups = active.questionGroups ?? []
+    let maxNumber = 0
+    for (const group of existingGroups) {
+      for (const question of group.questions) {
+        if (question.questionNumber > maxNumber) maxNumber = question.questionNumber
+      }
+    }
+
+    const copies = bankGroups.map((bankGroup) => {
+      const questions: QuestionItem[] = bankGroup.questions.map((item) => {
+        maxNumber += 1
+        return {
+          id: createClientId("from-bank-q"),
+          questionNumber: maxNumber,
+          prompt: item.prompt ?? "",
+          acceptedAnswers: item.acceptedAnswers ?? [],
+          points: item.points ?? 1,
+          explanation: item.explanation ?? undefined,
+          mediaIds: item.mediaIds ?? [],
+        }
+      })
+      return {
+        id: createClientId("from-bank"),
+        groupType: bankGroup.groupType,
+        instructions: bankGroup.instructions ?? "",
+        config: (bankGroup.config ?? {}) as Record<string, unknown>,
+        questions,
+      } as unknown as CandidateQuestionGroup
+    })
+
+    updateSection(activeIndex, { questionGroups: [...existingGroups, ...copies] })
+    toast.success(`Đã thêm ${copies.length} nhóm câu hỏi vào ${active.title}`)
     setBankOpen(false)
   }
 
-  const removeQuestion = (qid: string) => {
-    if (!active) return
-    const removed = active.questions.find((q) => q.id === qid)
-    updateSection(activeIndex, { questions: active.questions.filter((q) => q.id !== qid) })
-    toast.success("Đã gỡ câu hỏi khỏi phần", {
-      action: {
-        label: "Hoàn tác",
-        onClick: () => {
-          if (removed) updateSection(activeIndex, { questions: [...active.questions, removed] })
-        },
-      },
-    })
-  }
+  const [savingBankId, setSavingBankId] = React.useState<string | null>(null)
 
-  const reorder = (to: number) => {
-    if (!active || dragIndex === null || dragIndex === to) return
-    const next = [...active.questions]
-    const [moved] = next.splice(dragIndex, 1)
-    next.splice(to, 0, moved)
-    updateSection(activeIndex, { questions: next })
-    setDragIndex(null)
+  /** Persist a section group into the shared Question Bank. */
+  const saveGroupToBank = async (group: CandidateQuestionGroup) => {
+    if (!active) return
+    if (group.questions.length === 0) {
+      toast.error("Nhóm chưa có câu hỏi để lưu.")
+      return
+    }
+    if (USE_MOCKS) {
+      toast.success("Đã lưu nhóm vào ngân hàng (demo)")
+      return
+    }
+    setSavingBankId(group.id)
+    try {
+      const payload: CreateBankGroupPayload = {
+        skill: active.skill,
+        part: active.part,
+        groupType: group.groupType,
+        instructions: group.instructions ?? "",
+        config: (group.config ?? {}) as Record<string, unknown>,
+        questions: group.questions.map((q) => ({
+          prompt: q.prompt ?? "",
+          acceptedAnswers: (q as QuestionItem).acceptedAnswers ?? [],
+          points: q.points ?? 1,
+          explanation: (q as QuestionItem).explanation ?? undefined,
+          mediaIds: q.mediaIds ?? [],
+        })),
+      }
+      await createQuestionMutation.mutateAsync(payload)
+      toast.success(
+        `Đã lưu nhóm "${QUESTION_GROUP_TYPE_LABEL[group.groupType] || group.groupType}" vào ngân hàng`
+      )
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Không thể lưu nhóm vào ngân hàng.")
+    } finally {
+      setSavingBankId(null)
+    }
   }
 
   const addSection = (skill: SkillType) => {
@@ -653,7 +625,6 @@ export default function ExamBuilderPage() {
       transcript: "",
       media: [],
       questionGroups: [],
-      questions: [],
     }
     const nextSections = [...exam.sections, newSection]
     setExam((prev) => (prev ? { ...prev, sections: nextSections } : prev))
@@ -773,25 +744,6 @@ export default function ExamBuilderPage() {
     toast.success("Đã đổi thứ tự phần thi")
   }
 
-  const [migrating, setMigrating] = React.useState(false)
-  const handleMigrateExam = async () => {
-    if (USE_MOCKS) {
-      toast.info("Đang ở chế độ demo / mock data.")
-      return
-    }
-    setMigrating(true)
-    try {
-      const res = await migrateExamApi(examId)
-      toast.success(res.message || "Chuyển đổi sang Question Groups thành công.")
-      hydratedFor.current = null
-      await examQuery.refetch()
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Không thể chuyển đổi đề thi.")
-    } finally {
-      setMigrating(false)
-    }
-  }
-
   const handlePublish = () => {
     if (errors.length > 0) {
       setErrorsOpen(true)
@@ -865,58 +817,6 @@ export default function ExamBuilderPage() {
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Không thể nhân bản đề.")
     }
-  }
-
-  const persistNewQuestion = async (q: Question): Promise<Question> => {
-    if (USE_MOCKS) return q
-    const created = await createQuestionMutation.mutateAsync({
-      skill: q.skill,
-      type: q.type,
-      part: q.part,
-      prompt: q.prompt,
-      content: q.content ?? undefined,
-      data: q.data,
-      acceptedAnswers: q.acceptedAnswers,
-      points: q.points,
-      explanation: q.explanation ?? undefined,
-      mediaIds: q.mediaIds,
-    })
-    return created
-  }
-
-  const handleCreateQuestion = async (question: Question, keepOpen = false) => {
-    if (!active) return
-    try {
-      const saved = await persistNewQuestion(question)
-      const cq: CandidateQuestion = {
-        id: saved.id,
-        skill: saved.skill,
-        type: saved.type,
-        part: saved.part,
-        prompt: saved.prompt,
-        content: saved.content,
-        data: saved.data,
-        points: saved.points,
-        mediaIds: saved.mediaIds,
-      }
-      updateSection(activeIndex, { questions: [...active.questions, cq] })
-      toast.success("Đã thêm câu hỏi mới vào phần")
-      if (!keepOpen) setCreateOpen(false)
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Không thể tạo câu hỏi.")
-      throw err
-    }
-  }
-
-  const handleEditQuestion = async (question: Question) => {
-    if (!active) return
-    updateSection(activeIndex, {
-      questions: active.questions.map((q) =>
-        q.id === question.id ? { ...q, ...question, id: q.id } : q
-      ),
-    })
-    toast.success("Đã cập nhật câu hỏi")
-    setEditOpen(false)
   }
 
   const grouped = SKILL_ORDER.map((skill) => ({
@@ -1112,9 +1012,7 @@ export default function ExamBuilderPage() {
                 </div>
                 {group.sections.map(({ section, index }) => {
                   const groups = section.questionGroups ?? []
-                  const count = groups.length > 0
-                    ? groups.reduce((acc, g) => acc + g.questions.length, 0)
-                    : section.questions.length
+                  const count = groups.reduce((acc, g) => acc + g.questions.length, 0)
                   const missing =
                     (section.skill === "listening" &&
                       !((section.media ?? []).length > 0 || (section.mediaIds?.length ?? 0) > 0)) ||
@@ -1268,7 +1166,7 @@ export default function ExamBuilderPage() {
                     <div className="space-y-2">
                       <Label className="text-xs">Audio của phần</Label>
                       <div className="space-y-2">
-                        {(active.media ?? []).map((m) => (
+                        {activeAudio.map((m) => (
                           <div
                             key={m.id}
                             className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 px-3 py-2"
@@ -1282,7 +1180,7 @@ export default function ExamBuilderPage() {
                               className="text-muted-foreground hover:text-destructive"
                               onClick={() =>
                                 updateSection(activeIndex, {
-                                  media: (active.media ?? []).filter((x) => x.id !== m.id),
+                                  media: activeMedia.filter((x) => x.id !== m.id),
                                 })
                               }
                             >
@@ -1290,7 +1188,9 @@ export default function ExamBuilderPage() {
                             </Button>
                           </div>
                         ))}
-                        {(active.media ?? []).length === 0 && (active.mediaIds ?? []).length > 0 && (
+                        {activeAudio.length === 0 &&
+                          activeMedia.length === 0 &&
+                          (active.mediaIds ?? []).length > 0 && (
                           <p className="text-xs text-muted-foreground">
                             {active.mediaIds!.length} tệp audio đã gắn (id: {active.mediaIds!.join(", ")})
                           </p>
@@ -1347,78 +1247,100 @@ export default function ExamBuilderPage() {
                       <span className="font-mono">writing_task_2</span>. Thêm chúng ở danh sách câu hỏi bên dưới.
                     </div>
                   )}
+
+                  {/* Section illustration (all skills) */}
+                  <div className="space-y-2">
+                    <Label className="text-xs">Ảnh minh hoạ của phần</Label>
+                    <div className="space-y-2">
+                      {activeImages.map((m) => (
+                        <div
+                          key={m.id}
+                          className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 px-3 py-2"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={m.url}
+                            alt={m.originalName || "Ảnh minh hoạ"}
+                            className="h-12 w-16 shrink-0 rounded-md border border-border object-cover"
+                          />
+                          <span className="flex-1 truncate text-xs font-medium">
+                            {m.originalName || "Ảnh minh hoạ"}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={examReadonly}
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() =>
+                              updateSection(activeIndex, {
+                                media: activeMedia.filter((x) => x.id !== m.id),
+                              })
+                            }
+                          >
+                            <HugeiconsIcon icon={Delete02Icon} size={14} />
+                          </Button>
+                        </div>
+                      ))}
+                      {activeImages.length === 0 &&
+                        activeMedia.length === 0 &&
+                        (active.mediaIds ?? []).length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {active.mediaIds!.length} tệp đã gắn (id: {active.mediaIds!.join(", ")})
+                        </p>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={examReadonly}
+                        className="gap-1.5 text-xs"
+                        onClick={() => setImagePickerOpen(true)}
+                      >
+                        <HugeiconsIcon icon={Add01Icon} size={13} /> Chọn ảnh minh hoạ
+                      </Button>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 
-              {/* Question Groups + Legacy Question list */}
+              {/* Question Groups */}
               <Card className="border-border shadow-xs">
                 <CardHeader className="flex flex-row items-center justify-between border-b border-border pb-3">
                   <CardTitle className="font-heading text-sm font-bold">
-                    Nhóm câu hỏi ({(active.questionGroups ?? []).length > 0
-                      ? `${(active.questionGroups ?? []).reduce((acc, g) => acc + g.questions.length, 0)} câu trong ${(active.questionGroups ?? []).length} nhóm`
-                      : `${active.questions.length} câu`
-                    })
+                    Nhóm câu hỏi ({(active.questionGroups ?? []).reduce(
+                      (acc, g) => acc + g.questions.length,
+                      0
+                    )}{" "}
+                    câu trong {(active.questionGroups ?? []).length} nhóm)
                   </CardTitle>
                   <div className="flex gap-2">
-                    {(active.questionGroups ?? []).length === 0 && active.questions.length > 0 ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={examReadonly}
-                          onClick={() => setBankOpen(true)}
-                          className="gap-1.5 text-xs"
-                        >
-                          <HugeiconsIcon icon={SparklesIcon} size={13} /> Từ ngân hàng
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={examReadonly}
-                          onClick={() => setCreateOpen(true)}
-                          className="gap-1.5 text-xs"
-                        >
-                          <HugeiconsIcon icon={Add01Icon} size={13} /> Tạo mới
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        disabled={examReadonly}
-                        onClick={() => setGroupTypePickerOpen(true)}
-                        className="gap-1.5 text-xs"
-                      >
-                        <HugeiconsIcon icon={Add01Icon} size={13} /> Thêm nhóm câu hỏi
-                      </Button>
-                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={examReadonly}
+                      onClick={() => setBankOpen(true)}
+                      className="gap-1.5 text-xs"
+                    >
+                      <HugeiconsIcon icon={SparklesIcon} size={13} /> Từ ngân hàng
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={examReadonly}
+                      onClick={() => setGroupTypePickerOpen(true)}
+                      className="gap-1.5 text-xs"
+                    >
+                      <HugeiconsIcon icon={Add01Icon} size={13} /> Thêm nhóm câu hỏi
+                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="p-3">
-                  {/* Migration banner for legacy sections */}
-                  {(active.questionGroups ?? []).length === 0 && active.questions.length > 0 && (
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3.5 mb-3">
-                      <div className="space-y-0.5">
-                        <p className="text-xs font-bold text-primary flex items-center gap-1.5">
-                          <HugeiconsIcon icon={SparklesIcon} size={14} /> Phần thi này đang dùng cấu trúc câu hỏi cũ
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          Chuyển đổi sang Question Groups để sử dụng đầy đủ các dạng bài IELTS (Matching, Completions, TFNG...).
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="default"
-                        className="gap-1.5 text-xs font-semibold shrink-0"
-                        onClick={handleMigrateExam}
-                        disabled={migrating}
-                      >
-                        <HugeiconsIcon icon={RefreshIcon} size={13} className={migrating ? "animate-spin" : ""} />
-                        {migrating ? "Đang chuyển đổi..." : "Chuyển sang Question Groups"}
-                      </Button>
+                  {(active.questionGroups ?? []).length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 py-10 text-center">
+                      <HugeiconsIcon icon={Alert02Icon} size={26} className="text-amber-600" />
+                      <p className="text-sm text-muted-foreground">
+                        Phần này chưa có nhóm câu hỏi. Thêm từ ngân hàng hoặc tạo nhóm mới.
+                      </p>
                     </div>
-                  )}
-
-                  {(active.questionGroups ?? []).length > 0 ? (
-                    /* New: Question Groups rendering */
+                  ) : (
                     <div className="space-y-4">
                       {(active.questionGroups ?? []).map((group) => (
                         <QuestionGroupEditor
@@ -1431,6 +1353,8 @@ export default function ExamBuilderPage() {
                           onAddQuestion={() => addQuestionToGroup(group.id)}
                           onRemoveQuestion={(qId) => removeQuestionFromGroup(group.id, qId)}
                           onUpdateQuestion={(qId, patch) => updateQuestionInGroup(group.id, qId, patch)}
+                          onSaveToBank={() => void saveGroupToBank(group)}
+                          savingToBank={savingBankId === group.id}
                         />
                       ))}
                       <Button
@@ -1442,76 +1366,6 @@ export default function ExamBuilderPage() {
                       >
                         <HugeiconsIcon icon={Add01Icon} size={13} /> Thêm nhóm câu hỏi mới
                       </Button>
-                    </div>
-                  ) : active.questions.length === 0 ? (
-                    <div className="flex flex-col items-center gap-2 py-10 text-center">
-                      <HugeiconsIcon icon={Alert02Icon} size={26} className="text-amber-600" />
-                      <p className="text-sm text-muted-foreground">
-                        Phần này chưa có câu hỏi. Thêm từ ngân hàng hoặc tạo mới.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {active.questions.map((q, index) => (
-                        <div
-                          key={q.id}
-                          draggable={!examReadonly}
-                          onDragStart={() => setDragIndex(index)}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={() => reorder(index)}
-                          className={cn(
-                            "group flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 transition-colors",
-                            dragIndex === index && "opacity-50"
-                          )}
-                        >
-                          <HugeiconsIcon
-                            icon={DragDropIcon}
-                            size={16}
-                            className="cursor-grab text-muted-foreground"
-                          />
-                          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-xs font-bold text-primary">
-                            {numbering.get(q.id)}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-foreground">{q.prompt}</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {QUESTION_TYPE_LABEL[q.type]}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  disabled={examReadonly}
-                                  onClick={() => {
-                                    setEditingQuestion(q)
-                                    setEditOpen(true)
-                                  }}
-                                >
-                                  <HugeiconsIcon icon={PencilEdit02Icon} size={14} />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Sửa câu hỏi</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  disabled={examReadonly}
-                                  className="text-muted-foreground hover:text-destructive"
-                                  onClick={() => removeQuestion(q.id)}
-                                >
-                                  <HugeiconsIcon icon={Delete02Icon} size={14} />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Gỡ khỏi phần</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </div>
-                      ))}
                     </div>
                   )}
                 </CardContent>
@@ -1621,98 +1475,12 @@ export default function ExamBuilderPage() {
       </div>
 
       {/* Bank sheet */}
-      <BankSheet
+      <BankGroupSheet
         open={bankOpen}
         onOpenChange={setBankOpen}
         section={active}
-        onAddMockIds={addQuestions}
-        onAddQuestions={addQuestionsFromBank}
+        onAddGroups={addGroupsFromBank}
       />
-
-      {/* Create sheet */}
-      <Sheet open={createOpen} onOpenChange={setCreateOpen}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle className="font-heading text-lg font-bold">Tạo câu hỏi mới</SheetTitle>
-            <SheetDescription className="text-xs">
-              Kỹ năng và Part được khoá theo phần đang chọn ({active && SKILL_LABEL[active.skill]} · Part {active?.part}).
-            </SheetDescription>
-          </SheetHeader>
-          <div className="px-6 pb-8">
-            {active && (
-              <QuestionForm
-                key={`create-${activeIndex}-${active.questions.length}`}
-                lockedSkill={active.skill}
-                lockedPart={active.part}
-                onSave={(q) => {
-                  void handleCreateQuestion(q, false)
-                }}
-                onSaveAndContinue={(q) => {
-                  void handleCreateQuestion(q, true)
-                }}
-                onBatchSave={(list) => {
-                  void (async () => {
-                    try {
-                      const saved: CandidateQuestion[] = []
-                      for (const q of list) {
-                        const created = await persistNewQuestion(q)
-                        saved.push({
-                          id: created.id,
-                          skill: created.skill,
-                          type: created.type,
-                          part: created.part,
-                          prompt: created.prompt,
-                          content: created.content,
-                          data: created.data,
-                          points: created.points,
-                          mediaIds: created.mediaIds,
-                        })
-                      }
-                      updateSection(activeIndex, { questions: [...active.questions, ...saved] })
-                      setCreateOpen(false)
-                      toast.success(`Đã thêm ${saved.length} câu hỏi điền từ`)
-                    } catch (err) {
-                      toast.error(err instanceof ApiError ? err.message : "Không thể tạo câu hỏi.")
-                    }
-                  })()
-                }}
-                submitLabel={
-                  !USE_MOCKS && createQuestionMutation.isPending ? "Đang lưu…" : "Lưu & đóng"
-                }
-              />
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Edit sheet */}
-      <Sheet open={editOpen} onOpenChange={setEditOpen}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle className="font-heading text-lg font-bold">Sửa câu hỏi</SheetTitle>
-            <SheetDescription className="text-xs">Cập nhật nội dung câu hỏi trong phần này.</SheetDescription>
-          </SheetHeader>
-          <div className="px-6 pb-8">
-            {editingQuestion && (
-              <QuestionForm
-                initial={{
-                  id: editingQuestion.id,
-                  skill: editingQuestion.skill,
-                  type: editingQuestion.type,
-                  part: editingQuestion.part,
-                  prompt: editingQuestion.prompt,
-                  content: editingQuestion.content,
-                  data: editingQuestion.data,
-                  points: editingQuestion.points,
-                  mediaIds: editingQuestion.mediaIds,
-                }}
-                onSave={(q) => void handleEditQuestion(q)}
-                submitLabel="Lưu thay đổi"
-              />
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
 
       <MediaPicker
         open={mediaPickerOpen}
@@ -1722,6 +1490,22 @@ export default function ExamBuilderPage() {
           if (!active) return
           const item: MediaItem = { id: asset.id, url: asset.url, type: "audio", originalName: asset.originalName }
           updateSection(activeIndex, { media: [...(active.media ?? []), item] })
+        }}
+      />
+
+      <MediaPicker
+        open={imagePickerOpen}
+        onOpenChange={setImagePickerOpen}
+        type="image"
+        onSelect={(asset) => {
+          if (!active) return
+          if ((active.media ?? []).some((m) => m.id === asset.id)) {
+            toast.info("Ảnh này đã được gắn vào phần.")
+            return
+          }
+          const item: MediaItem = { id: asset.id, url: asset.url, type: "image", originalName: asset.originalName }
+          updateSection(activeIndex, { media: [...(active.media ?? []), item] })
+          toast.success("Đã gắn ảnh minh hoạ cho phần.")
         }}
       />
 
@@ -1820,18 +1604,16 @@ export default function ExamBuilderPage() {
   )
 }
 
-function BankSheet({
+function BankGroupSheet({
   open,
   onOpenChange,
   section,
-  onAddMockIds,
-  onAddQuestions,
+  onAddGroups,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   section?: CandidateSection
-  onAddMockIds: (ids: string[]) => void
-  onAddQuestions: (questions: Question[]) => void
+  onAddGroups: (groups: BankQuestionGroup[]) => void
 }) {
   const [query, setQuery] = React.useState("")
   const [selected, setSelected] = React.useState<string[]>([])
@@ -1857,14 +1639,15 @@ function BankSheet({
     !USE_MOCKS && open && !!section
   )
 
-  const existing = new Set(section?.questions.map((q) => q.id) ?? [])
-  const candidates: Question[] = USE_MOCKS
-    ? DEMO_QUESTION_BANK.filter(
-        (q) =>
+  const candidates: BankQuestionGroup[] = USE_MOCKS
+    ? DEMO_BANK_GROUPS.filter(
+        (g) =>
           section &&
-          q.skill === section.skill &&
-          q.part === section.part &&
-          q.prompt.toLowerCase().includes(query.toLowerCase())
+          g.skill === section.skill &&
+          g.part === section.part &&
+          `${g.instructions} ${g.questions.map((q) => q.prompt).join(" ")}`
+            .toLowerCase()
+            .includes(query.toLowerCase())
       )
     : (bankQuery.data?.items ?? [])
 
@@ -1872,21 +1655,17 @@ function BankSheet({
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
 
   const handleAdd = () => {
-    if (USE_MOCKS) {
-      onAddMockIds(selected)
-      return
-    }
-    const selectedQuestions = candidates.filter((q) => selected.includes(q.id))
-    onAddQuestions(selectedQuestions)
+    const selectedGroups = candidates.filter((g) => selected.includes(g.id))
+    onAddGroups(selectedGroups)
   }
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent className="w-full sm:max-w-2xl">
         <SheetHeader>
-          <SheetTitle className="font-heading text-lg font-bold">Thêm câu hỏi từ ngân hàng</SheetTitle>
+          <SheetTitle className="font-heading text-lg font-bold">Thêm nhóm câu hỏi từ ngân hàng</SheetTitle>
           <SheetDescription className="text-xs">
-            Đã lọc theo {section && SKILL_LABEL[section.skill]} · Part {section?.part}. Tick chọn nhiều câu để thêm.
+            Đã lọc theo {section && SKILL_LABEL[section.skill]} · Part {section?.part}. Nhóm được chèn dưới dạng bản sao và đánh số lại.
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3 px-6 pb-6">
@@ -1895,7 +1674,7 @@ function BankSheet({
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Tìm câu hỏi..."
+              placeholder="Tìm nhóm câu hỏi..."
               className="h-9 pl-9 text-sm"
             />
           </div>
@@ -1904,7 +1683,7 @@ function BankSheet({
               {!USE_MOCKS && bankQuery.isLoading ? (
                 <div className="space-y-2 py-2">
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full" />
+                    <Skeleton key={i} className="h-14 w-full" />
                   ))}
                 </div>
               ) : !USE_MOCKS && bankQuery.isError ? (
@@ -1925,25 +1704,19 @@ function BankSheet({
                 </div>
               ) : candidates.length === 0 ? (
                 <p className="py-10 text-center text-xs text-muted-foreground">
-                  Không tìm thấy câu hỏi phù hợp với phần này.
+                  Không tìm thấy nhóm câu hỏi phù hợp với phần này.
                 </p>
               ) : (
-                candidates.map((q) => {
-                  const added = existing.has(q.id)
-                  const checked = selected.includes(q.id)
+                candidates.map((g) => {
+                  const checked = selected.includes(g.id)
                   return (
                     <button
-                      key={q.id}
+                      key={g.id}
                       type="button"
-                      disabled={added}
-                      onClick={() => toggle(q.id)}
+                      onClick={() => toggle(g.id)}
                       className={cn(
                         "flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
-                        added
-                          ? "border-border bg-muted/40 opacity-60"
-                          : checked
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:bg-muted"
+                        checked ? "border-primary bg-primary/5" : "border-border hover:bg-muted"
                       )}
                     >
                       <span
@@ -1955,12 +1728,18 @@ function BankSheet({
                         {checked && <HugeiconsIcon icon={Tick02Icon} size={11} />}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground">{q.prompt}</span>
-                        <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                          {QUESTION_TYPE_LABEL[q.type]} · Part {q.part}
+                        <span className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px] font-semibold">
+                            {QUESTION_GROUP_TYPE_LABEL[g.groupType] || g.groupType}
+                          </Badge>
+                          <span className="text-[11px] text-muted-foreground">
+                            {g.questions.length} câu · Part {g.part}
+                          </span>
+                        </span>
+                        <span className="mt-1 block truncate text-sm font-medium text-foreground">
+                          {g.instructions || g.questions[0]?.prompt || "—"}
                         </span>
                       </span>
-                      {added && <Badge variant="secondary" className="text-[10px]">Đã thêm</Badge>}
                     </button>
                   )
                 })
@@ -1968,13 +1747,13 @@ function BankSheet({
             </div>
           </ScrollArea>
           <div className="flex items-center justify-between border-t border-border pt-3">
-            <span className="text-xs text-muted-foreground">Đã chọn {selected.length} câu</span>
+            <span className="text-xs text-muted-foreground">Đã chọn {selected.length} nhóm</span>
             <Button
               disabled={selected.length === 0}
               onClick={handleAdd}
               className="font-semibold"
             >
-              Thêm {selected.length > 0 ? `${selected.length} ` : ""}câu
+              Thêm {selected.length > 0 ? `${selected.length} ` : ""}nhóm
             </Button>
           </div>
         </div>

@@ -44,7 +44,11 @@ export function useAutosave(
     async () => {}
   )
   const onFatalRef = React.useRef<(() => void) | undefined>(options.onFatal)
-  onFatalRef.current = options.onFatal
+
+  // Keep the latest callback without writing to the ref during render.
+  React.useEffect(() => {
+    onFatalRef.current = options.onFatal
+  }, [options.onFatal])
 
   async function flush(flushOptions?: { keepalive?: boolean }) {
     if (!attemptId || inFlightRef.current) {

@@ -1,5 +1,6 @@
 import type { APIRequestContext } from "@playwright/test"
 import {
+  apiGet,
   apiPatch,
   apiPost,
   loginViaApi,
@@ -44,11 +45,22 @@ export interface Scenario {
   examId: string
   examTitle: string
   assignmentId: string
-  /** id câu hỏi theo đúng thứ tự tạo (flatten theo section). */
+  /** id câu hỏi NHÚNG trong đề (theo thứ tự), dùng để trả lời. */
   questionIds: string[]
 }
 
 const TEACHER = { email: "teacher@ielts.com", password: "Teacher@123" } as const
+
+/** Legacy flat question type → QuestionGroupType (chỉ 2 type cần remap). */
+const LEGACY_TYPE_TO_GROUP: Record<string, string> = {
+  multiple_choice: "multiple_choice_single",
+  matching: "matching_headings",
+}
+
+function groupTypeFor(section: SectionSpec): string {
+  const legacyType = section.questions[0]?.type ?? "short_answer"
+  return LEGACY_TYPE_TO_GROUP[legacyType] ?? legacyType
+}
 
 let seq = 0
 /** Hậu tố duy nhất, an toàn cho cả email, tên lớp và tiêu đề đề. */
@@ -59,7 +71,7 @@ function uniqueSuffix(prefix: string): string {
 
 /**
  * Tạo mới hoàn toàn (độc lập, lặp lại được) một kịch bản gồm:
- * câu hỏi → đề → xuất bản → lớp → học sinh mới → giao bài.
+ * nhóm câu hỏi → đề → xuất bản → lớp → học sinh mới → giao bài.
  * Mọi test dùng hàm này thay vì dựa vào trạng thái seed có thể bị thay đổi.
  */
 export async function createScenario(
@@ -69,40 +81,52 @@ export async function createScenario(
   const suffix = uniqueSuffix("e2e")
   const teacher = await loginViaApi(api, TEACHER.email, TEACHER.password)
 
-  // 1. Tạo câu hỏi, giữ id theo thứ tự section.
-  const sectionQuestionIds: string[][] = []
+  // 1. Tạo một Question Group cho mỗi section (mỗi nhóm chứa các câu của section).
   for (const section of options.sections) {
-    const ids: string[] = []
-    for (const q of section.questions) {
-      const created = await apiPost(api, "/api/questions", teacher.token, {
-        skill: q.skill,
-        type: q.type,
-        part: q.part,
+    await apiPost(api, "/api/questions", teacher.token, {
+      skill: section.skill,
+      part: section.part,
+      groupType: groupTypeFor(section),
+      instructions: section.instructions ?? "",
+      config: section.questions[0]?.data ?? {},
+      questions: section.questions.map((q) => ({
         prompt: `${q.prompt} [${suffix}]`,
-        data: q.data ?? {},
         acceptedAnswers: q.acceptedAnswers ?? [],
         points: 1,
-      })
-      ids.push(created.id)
-    }
-    sectionQuestionIds.push(ids)
+      })),
+    })
   }
 
-  // 2. Tạo đề nháp với các section tham chiếu câu hỏi.
+  // 2. Tạo đề nháp: mỗi section nhúng một bản sao Question Group.
   const examTitle = `${options.titlePrefix} ${suffix}`
   const exam = await apiPost(api, "/api/exams", teacher.token, {
     title: examTitle,
     description: "Đề E2E được tạo tự động cho kiểm thử nghiệm thu.",
     durationMinutes: options.durationMinutes ?? 60,
-    sections: options.sections.map((section, index) => ({
-      skill: section.skill,
-      part: section.part,
-      title: section.title,
-      instructions: section.instructions ?? "",
-      passageText: section.passageText ?? "",
-      mediaIds: [],
-      questionIds: sectionQuestionIds[index],
-    })),
+    sections: options.sections.map((section) => {
+      let questionNumber = 1
+      return {
+        skill: section.skill,
+        part: section.part,
+        title: section.title,
+        instructions: section.instructions ?? "",
+        passageText: section.passageText ?? "",
+        mediaIds: [],
+        questionGroups: [
+          {
+            groupType: groupTypeFor(section),
+            instructions: section.instructions ?? "",
+            config: section.questions[0]?.data ?? {},
+            questions: section.questions.map((q) => ({
+              questionNumber: questionNumber++,
+              prompt: `${q.prompt} [${suffix}]`,
+              acceptedAnswers: q.acceptedAnswers ?? [],
+              points: 1,
+            })),
+          },
+        ],
+      }
+    }),
   })
 
   // 3. Xuất bản (yêu cầu đề có câu hỏi).
@@ -130,6 +154,14 @@ export async function createScenario(
     showScoreAfterSubmit: true,
   })
 
+  // 6. Đọc lại đề để lấy id câu hỏi đã nhúng (bản sao trong đề, không phải id bank).
+  const detail = await apiGet(api, `/api/exams/${exam.id}`, teacher.token)
+  const questionIds: string[] = ((detail?.sections ?? []) as Array<{
+    questionGroups?: Array<{ questions?: Array<{ id: string }> }>
+  }>).flatMap((s) =>
+    (s.questionGroups ?? []).flatMap((g) => (g.questions ?? []).map((q) => q.id))
+  )
+
   return {
     teacher,
     student,
@@ -138,6 +170,6 @@ export async function createScenario(
     examId: exam.id,
     examTitle,
     assignmentId: assignment.id,
-    questionIds: sectionQuestionIds.flat(),
+    questionIds,
   }
 }

@@ -207,33 +207,37 @@ export interface QuestionTypePickerDialogProps {
   onSelectType: (type: QuestionGroupType) => void
 }
 
-export function QuestionTypePickerDialog({
+export function QuestionTypePickerDialog(props: QuestionTypePickerDialogProps) {
+  // Remount on every open/close so search/filter start fresh — avoids syncing
+  // state inside an effect.
+  return (
+    <QuestionTypePickerBody key={props.open ? "open" : "closed"} {...props} />
+  )
+}
+
+function QuestionTypePickerBody({
   open,
   onOpenChange,
   activeSection,
   onSelectType,
 }: QuestionTypePickerDialogProps) {
   const [search, setSearch] = React.useState("")
-  const [selectedFilter, setSelectedFilter] = React.useState<string>("all")
+  const [selectedFilter, setSelectedFilter] = React.useState<string>(() =>
+    // Default to "recommended" for quick access when the section skill is known.
+    activeSection?.skill ? "recommended" : "all"
+  )
   const searchInputRef = React.useRef<HTMLInputElement>(null)
 
   const activeSkill = activeSection?.skill
 
-  // Reset state when opening
+  // Focus the search field when the dialog opens.
   React.useEffect(() => {
-    if (open) {
-      setSearch("")
-      // If section skill is present, default to "recommended" for quick access
-      if (activeSkill) {
-        setSelectedFilter("recommended")
-      } else {
-        setSelectedFilter("all")
-      }
-      setTimeout(() => {
-        searchInputRef.current?.focus()
-      }, 50)
-    }
-  }, [open, activeSkill])
+    if (!open) return
+    const timer = setTimeout(() => {
+      searchInputRef.current?.focus()
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [open])
 
   // Flat list of all items with metadata
   const allItems: QuestionTypeMeta[] = React.useMemo(() => {

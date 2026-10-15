@@ -28,7 +28,6 @@ import type {
   AttemptResult,
   AttemptResultDetail,
   CandidateExam,
-  CandidateQuestion,
   SkillType,
 } from "@/lib/api/types"
 import { DEMO_ATTEMPT_RESULT, DEMO_EXAM_MOCK_01 } from "@/mocks/demo-data"
@@ -175,34 +174,20 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     let order = 0
     exam.sections.forEach((sec) => {
       const skill = sec.skill as SkillType
-      const isGroups = Array.isArray(sec.questionGroups) && sec.questionGroups.length > 0
 
-      if (isGroups) {
-        sec.questionGroups!.forEach((g) => {
-          g.questions.forEach((q) => {
-            order += 1
-            rowsBySkill[skill]?.push({
-              questionId: q.id,
-              order: q.questionNumber ?? order,
-              prompt: q.prompt,
-              groupType: g.groupType,
-              groupInstructions: g.instructions,
-              detail: detailByQuestionId.get(q.id),
-            })
-          })
-        })
-      } else {
-        (sec.questions ?? []).forEach((q: CandidateQuestion) => {
+      ;(sec.questionGroups ?? []).forEach((g) => {
+        g.questions.forEach((q) => {
           order += 1
-          const qSkill = (q.skill ?? sec.skill) as SkillType
-          rowsBySkill[qSkill]?.push({
+          rowsBySkill[skill]?.push({
             questionId: q.id,
-            order,
+            order: q.questionNumber ?? order,
             prompt: q.prompt,
+            groupType: g.groupType,
+            groupInstructions: g.instructions,
             detail: detailByQuestionId.get(q.id),
           })
         })
-      }
+      })
     })
   }
 

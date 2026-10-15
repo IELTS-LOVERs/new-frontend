@@ -38,6 +38,18 @@ import {
   parseMarkdownTable,
   splitFlowSteps,
 } from "@/features/exam-engine/lib/template-layout"
+import {
+  INLINE_TOKEN_SPLIT,
+  buildExamQuestionIndex,
+  computeAnsweredCount,
+  computeSectionReviews,
+  countWords,
+  findWritingQuestion,
+  flattenSectionQuestions,
+  getGroupViewMeta,
+  parseInlineToken,
+  resolveInlineBlankQuestion,
+} from "@/features/exam-engine/lib/exam-flow"
 import { toast } from "sonner"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { useExamSessionStore } from "@/stores/exam-session.store"
@@ -55,40 +67,8 @@ import type {
   CandidateSection,
   CandidateQuestionGroup,
   CandidateQuestionItem,
-  CandidateQuestion,
+  MediaItem,
 } from "@/lib/api/types"
-
-function countWords(text: string): number {
-  const trimmed = text.trim()
-  return trimmed ? trimmed.split(/\s+/).length : 0
-}
-
-/** Helper: Check if a section uses the new questionGroups format */
-function sectionHasGroups(section: CandidateSection): boolean {
-  return (
-    Array.isArray(section.questionGroups) && section.questionGroups.length > 0
-  )
-}
-
-/** Helper: Extract flat question list from section (handles both formats) */
-function flattenSectionQuestions(
-  section: CandidateSection
-): Array<{ id: string; prompt: string; type?: string }> {
-  if (sectionHasGroups(section)) {
-    return section.questionGroups!.flatMap((g) =>
-      g.questions.map((q) => ({
-        id: q.id,
-        prompt: q.prompt,
-        type: g.groupType,
-      }))
-    )
-  }
-  return section.questions.map((q) => ({
-    id: q.id,
-    prompt: q.prompt,
-    type: q.type,
-  }))
-}
 
 export default function ExamEnginePage() {
   const params = useParams<{ attemptId: string }>()
@@ -261,17 +241,8 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   }
 
   const currentSection = exam.sections[activeSectionIndex] ?? exam.sections[0]
-  const allQuestions = exam.sections.flatMap((s, sIdx) => {
-    const qs = flattenSectionQuestions(s)
-    return qs.map((q, qIdx) => ({
-      ...q,
-      sectionIndex: sIdx,
-      displayNumber: qIdx + 1,
-    }))
-  })
-  const answeredCount = Object.values(answers).filter((a) =>
-    a.value?.trim()
-  ).length
+  const allQuestions = buildExamQuestionIndex(exam)
+  const answeredCount = computeAnsweredCount(answers)
   const totalQuestions = allQuestions.length
 
   return (
@@ -553,113 +524,30 @@ interface SectionProps {
   uiTheme?: "white" | "cream"
 }
 
-function QuestionCard({
-  q,
-  idx,
-  flagged,
-  onToggleFlag,
-  children,
+/**
+ * Render illustration images (presigned URLs from the API) for a section or a
+ * question group. Renders nothing when there are no image items.
+ */
+function MediaImages({
+  media,
+  className,
 }: {
-  q: CandidateQuestion
-  idx: number
-  flagged: boolean
-  onToggleFlag: () => void
-  children: React.ReactNode
+  media?: MediaItem[]
+  className?: string
 }) {
+  const images = (media ?? []).filter((m) => m.type === "image")
+  if (images.length === 0) return null
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
-            {idx + 1}
-          </span>
-          <span className="text-sm font-semibold text-foreground">
-            {q.prompt}
-          </span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "size-7",
-            flagged ? "bg-amber-500/10 text-amber-600" : "text-muted-foreground"
-          )}
-          onClick={onToggleFlag}
-          title="Đánh dấu câu hỏi để xem lại"
-        >
-          <HugeiconsIcon icon={Flag01Icon} size={14} />
-        </Button>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function QuestionInput({
-  q,
-  answer,
-  onAnswer,
-}: {
-  q: CandidateQuestion
-  answer: string
-  onAnswer: (v: string) => void
-}) {
-  const options: Array<{ id: string; text: string }> | undefined =
-    (q.data?.options as any) ?? (q.data?.headings as any)
-
-  // Multiple choice / matching / true-false-not-given
-  if (
-    (q.type === "multiple_choice" ||
-      q.type === "true_false_not_given" ||
-      q.type === "yes_no_not_given" ||
-      q.type === "matching" ||
-      q.type === "matching_headings" ||
-      q.type === "map_labelling" ||
-      q.type === "diagram_labelling") &&
-    options
-  ) {
-    return (
-      <div className="space-y-2 pt-1">
-        {options.map((opt) => {
-          const isSelected = answer === opt.id
-          return (
-            <label
-              key={opt.id}
-              onClick={() => onAnswer(opt.id)}
-              className={cn(
-                "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-xs font-medium transition-colors",
-                isSelected
-                  ? "border-primary bg-primary/5 font-semibold text-primary"
-                  : "border-border text-foreground hover:bg-muted/30"
-              )}
-            >
-              <span
-                className={cn(
-                  "flex size-5 items-center justify-center rounded-full border font-mono text-[11px] font-bold",
-                  isSelected
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border"
-                )}
-              >
-                {opt.id}
-              </span>
-              <span>{opt.text}</span>
-            </label>
-          )
-        })}
-      </div>
-    )
-  }
-
-  // Default: text input
-  return (
-    <div className="pt-1">
-      <Input
-        value={answer}
-        onChange={(e) => onAnswer(e.target.value)}
-        placeholder="Nhập câu trả lời của bạn..."
-        className="h-10 max-w-md text-sm font-medium"
-      />
+    <div className={cn("space-y-3", className)}>
+      {images.map((m) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={m.id}
+          src={m.url}
+          alt={m.originalName || "Hình ảnh minh hoạ"}
+          className="w-full rounded-xl border border-border"
+        />
+      ))}
     </div>
   )
 }
@@ -772,38 +660,20 @@ function ListeningSection({
           </p>
         </div>
 
-        {sectionHasGroups(section) ? (
-          <div className="space-y-8">
-            {section.questionGroups!.map((group) => (
-              <GroupRenderer
-                key={group.id}
-                group={group}
-                answers={answers}
-                flagged={flagged}
-                onAnswer={onAnswer}
-                onToggleFlag={onToggleFlag}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {section.questions.map((q, idx) => (
-              <QuestionCard
-                key={q.id}
-                q={q}
-                idx={idx}
-                flagged={!!flagged[q.id]}
-                onToggleFlag={() => onToggleFlag(q.id)}
-              >
-                <QuestionInput
-                  q={q}
-                  answer={answers[q.id]?.value ?? ""}
-                  onAnswer={(v) => onAnswer(q.id, v)}
-                />
-              </QuestionCard>
-            ))}
-          </div>
-        )}
+        <MediaImages media={section.media} />
+
+        <div className="space-y-8">
+          {(section.questionGroups ?? []).map((group) => (
+            <GroupRenderer
+              key={group.id}
+              group={group}
+              answers={answers}
+              flagged={flagged}
+              onAnswer={onAnswer}
+              onToggleFlag={onToggleFlag}
+            />
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -923,6 +793,8 @@ function ReadingSection({
               highlights={highlights}
             />
           </div>
+
+          <MediaImages media={section.media} />
         </div>
       </ResizablePanel>
 
@@ -944,32 +816,16 @@ function ReadingSection({
           </div>
 
           <div className="space-y-6">
-            {sectionHasGroups(section)
-              ? section.questionGroups!.map((group) => (
-                  <GroupRenderer
-                    key={group.id}
-                    group={group}
-                    answers={answers}
-                    flagged={flagged}
-                    onAnswer={onAnswer}
-                    onToggleFlag={onToggleFlag}
-                  />
-                ))
-              : section.questions.map((q, idx) => (
-                  <QuestionCard
-                    key={q.id}
-                    q={q}
-                    idx={idx}
-                    flagged={!!flagged[q.id]}
-                    onToggleFlag={() => onToggleFlag(q.id)}
-                  >
-                    <QuestionInput
-                      q={q}
-                      answer={answers[q.id]?.value ?? ""}
-                      onAnswer={(v) => onAnswer(q.id, v)}
-                    />
-                  </QuestionCard>
-                ))}
+            {(section.questionGroups ?? []).map((group) => (
+              <GroupRenderer
+                key={group.id}
+                group={group}
+                answers={answers}
+                flagged={flagged}
+                onAnswer={onAnswer}
+                onToggleFlag={onToggleFlag}
+              />
+            ))}
           </div>
         </div>
       </ResizablePanel>
@@ -990,38 +846,8 @@ function WritingSection({
   onSwitchTask: (t: "task1" | "task2") => void
   onAnswer: (questionId: string, value: string) => void
 }) {
-  const task1Q = sectionHasGroups(section)
-    ? (() => {
-        const g = section.questionGroups!.find(
-          (g) => g.groupType === "writing_task_1"
-        )
-        return g?.questions[0]
-          ? {
-              id: g.questions[0].id,
-              type: "writing_task_1" as const,
-              prompt: g.questions[0].prompt,
-              content: undefined as string | null | undefined,
-              media: undefined as any[] | undefined,
-            }
-          : undefined
-      })()
-    : section.questions.find((q) => q.type === "writing_task_1")
-  const task2Q = sectionHasGroups(section)
-    ? (() => {
-        const g = section.questionGroups!.find(
-          (g) => g.groupType === "writing_task_2"
-        )
-        return g?.questions[0]
-          ? {
-              id: g.questions[0].id,
-              type: "writing_task_2" as const,
-              prompt: g.questions[0].prompt,
-              content: undefined as string | null | undefined,
-              media: undefined as any[] | undefined,
-            }
-          : undefined
-      })()
-    : section.questions.find((q) => q.type === "writing_task_2")
+  const task1Q = findWritingQuestion(section, "writing_task_1")
+  const task2Q = findWritingQuestion(section, "writing_task_2")
   const currentQ = writingTask === "task1" ? task1Q : task2Q
   const text = currentQ ? (answers[currentQ.id]?.value ?? "") : ""
   const wordCount = countWords(text)
@@ -1087,6 +913,8 @@ function WritingSection({
               )}
             </div>
           )}
+
+          <MediaImages media={section.media} />
         </div>
 
         {/* Right: editor */}
@@ -1148,12 +976,10 @@ interface BlankRenderContext {
 }
 
 /**
- * Splits text on `[X]` / `{{qX}}` blanks. Unlike the old inline engine the
- * regex uses NO inner capture groups, so `String.split` returns only whole
- * tokens (no stray digits leaking into the output).
+ * Inline `[X]` / `{{qX}}` blanks are split by `INLINE_TOKEN_SPLIT` (imported
+ * from the exam-flow lib) and each token's question number is read by
+ * `parseInlineToken`.
  */
-const INLINE_TOKEN_SPLIT = /(\{\{\s*(?:q)?\d+\s*\}\}|\[\s*(?:q)?\d+\s*\])/gi
-const INLINE_TOKEN_TEST = /^\{\{\s*(?:q)?\d+\s*\}\}$|^\[\s*(?:q)?\d+\s*\]$/i
 
 function InlineBlank({
   q,
@@ -1236,12 +1062,9 @@ function renderInlineBlanks(
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
     if (!part) continue
-    if (INLINE_TOKEN_TEST.test(part)) {
-      const numStr = part.match(/\d+/)?.[0] ?? ""
-      const num = parseInt(numStr, 10)
-      const q =
-        ctx.questions.find((item) => item.questionNumber === num) ||
-        ctx.questions[num - 1]
+    const num = parseInlineToken(part)
+    if (num !== null) {
+      const q = resolveInlineBlankQuestion(ctx.questions, num)
       if (q) {
         ctx.matched.add(q.questionNumber)
         nodes.push(
@@ -1258,7 +1081,7 @@ function renderInlineBlanks(
             key={`${keyPrefix}-miss-${i}`}
             className="font-mono text-muted-foreground"
           >
-            [{numStr}]
+            [{num}]
           </span>
         )
       }
@@ -1766,56 +1589,47 @@ function MatchingFeaturesRenderer({
   )
 }
 
-function GroupRenderer({
-  group,
-  answers,
-  flagged,
-  onAnswer,
-  onToggleFlag,
-}: {
+interface GroupRendererProps {
   group: CandidateQuestionGroup
   answers: Record<string, { value: string; updatedAt: number; dirty: boolean }>
   flagged: Record<string, true>
   onAnswer: (questionId: string, value: string) => void
   onToggleFlag: (questionId: string) => void
-}) {
-  const config = group.config || {}
-  const options = (config.options as Array<{ id: string; text: string }>) ?? []
-  const optionsPool =
-    (config.optionsPool as Array<{ id: string; text: string }>) ?? []
-  const labelsPool =
-    (config.labels as Array<{ id: string; label: string }>) ?? []
-  const isTFNG = group.groupType === "true_false_not_given"
-  const isYNNG = group.groupType === "yes_no_not_given"
-  const isMatching = group.groupType.startsWith("matching_")
-  const isCompletion = [
-    "sentence_completion",
-    "note_completion",
-    "table_completion",
-    "summary_completion",
-    "form_completion",
-    "flow_chart_completion",
-    "short_answer",
-  ].includes(group.groupType)
-  const maxWords = (config.maxWords as number) ?? undefined
-  const wordLimitText = maxWords
-    ? `NO MORE THAN ${maxWords} WORD${maxWords > 1 ? "S" : ""}`
-    : undefined
+}
 
-  const matchPool: Array<{ id: string; text: string }> = (() => {
-    if (group.groupType === "matching_headings")
-      return (config.headingsPool as any[]) ?? []
-    if (group.groupType === "matching_information")
-      return ((config.paragraphLabels as string[]) ?? []).map((l: string) => ({
-        id: l,
-        text: l,
-      }))
-    if (group.groupType === "matching_features")
-      return (config.featuresPool as any[]) ?? []
-    if (group.groupType === "matching_sentence_endings")
-      return (config.endingsPool as any[]) ?? []
-    return []
-  })()
+/**
+ * Renders the group-level illustration (config.imageMediaId, resolved to a
+ * presigned URL by the API) above the type-specific group body.
+ */
+function GroupRenderer(props: GroupRendererProps) {
+  return (
+    <div className="space-y-4">
+      <MediaImages media={props.group.media} />
+      <GroupRendererBody {...props} />
+    </div>
+  )
+}
+
+function GroupRendererBody({
+  group,
+  answers,
+  flagged,
+  onAnswer,
+  onToggleFlag,
+}: GroupRendererProps) {
+  const config = group.config || {}
+  const {
+    options,
+    optionsPool,
+    labelsPool,
+    isTFNG,
+    isYNNG,
+    isMatching,
+    isCompletion,
+    maxWords,
+    wordLimitText,
+    matchPool,
+  } = getGroupViewMeta(group)
 
   // ─── Multiple Choice Multiple ──────────────────────────────────────────────
   if (group.groupType === "multiple_choice_multiple") {
@@ -2426,14 +2240,7 @@ function SubmitReviewDialog({
   onConfirm: () => void
   submitting: boolean
 }) {
-  const sections = exam.sections.map((sec) => {
-    const qs = flattenSectionQuestions(sec)
-    const total = qs.length
-    const answered = qs.filter((q) => answers[q.id]?.value?.trim()).length
-    const flaggedCount = qs.filter((q) => flagged[q.id]).length
-    const isWriting = sec.skill === "writing"
-    return { sec, total, answered, flaggedCount, isWriting, qs }
-  })
+  const sections = computeSectionReviews(exam, answers, flagged)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2451,7 +2258,14 @@ function SubmitReviewDialog({
         <div className="space-y-3 py-2 text-xs">
           <div className="space-y-1.5 rounded-xl border border-border bg-muted/20 p-3">
             {sections.map(
-              ({ sec, total, answered, flaggedCount, isWriting, qs }) => (
+              ({
+                section: sec,
+                total,
+                answered,
+                flaggedCount,
+                isWriting,
+                wordCounts,
+              }) => (
                 <div
                   key={`${sec.skill}-${sec.part}`}
                   className="flex justify-between font-medium"
@@ -2462,8 +2276,7 @@ function SubmitReviewDialog({
                   </span>
                   {isWriting ? (
                     <span className="font-mono text-muted-foreground">
-                      {qs
-                        .map((q) => countWords(answers[q.id]?.value ?? ""))
+                      {wordCounts
                         .map((w, i) => `Task ${i + 1}: ${w} từ`)
                         .join(" · ")}
                     </span>
@@ -2586,7 +2399,7 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
   }
 
   const allQuestions = exam.sections.flatMap((s, sIdx) =>
-    s.questions.map((q, qIdx) => ({
+    flattenSectionQuestions(s).map((q, qIdx) => ({
       ...q,
       sectionIndex: sIdx,
       displayNumber: qIdx + 1,
@@ -2761,7 +2574,7 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
               </div>
 
               <div className="space-y-6">
-                {currentSection.questions.map((q, idx) => (
+                {flattenSectionQuestions(currentSection).map((q, idx) => (
                   <div
                     key={q.id}
                     className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs"
@@ -2803,7 +2616,7 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                         />
                       </div>
                     )}
-                    {q.type === "multiple_choice" && q.data?.options && (
+                    {q.type === "multiple_choice" && q.data?.options != null && (
                       <div className="space-y-2 pt-1">
                         {(
                           q.data.options as Array<{ id: string; text: string }>
@@ -2883,7 +2696,7 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                   </p>
                 </div>
                 <div className="space-y-6">
-                  {currentSection.questions.map((q, idx) => (
+                  {flattenSectionQuestions(currentSection).map((q, idx) => (
                     <div
                       key={q.id}
                       className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs"
@@ -2932,7 +2745,7 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
                           ))}
                         </div>
                       )}
-                      {q.type === "matching_headings" && q.data?.headings && (
+                      {q.type === "matching_headings" && q.data?.headings != null && (
                         <div className="space-y-2 pt-1">
                           {(
                             q.data.headings as Array<{

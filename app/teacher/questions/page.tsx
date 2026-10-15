@@ -4,7 +4,7 @@ import * as React from "react"
 import { parseAsInteger, parseAsString, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
-import { QuestionForm } from "@/features/questions/question-form"
+import { BankGroupForm } from "@/features/questions/bank-group-form"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -68,14 +68,15 @@ import {
   useUpdateQuestionMutation,
   useDeleteQuestionMutation,
 } from "@/hooks/use-questions"
-import type { CreateQuestionPayload } from "@/lib/api/questions"
+import type { CreateBankGroupPayload } from "@/lib/api/questions"
 import {
-  QUESTION_TYPE_LABEL,
+  QUESTION_GROUP_CATEGORIES,
+  QUESTION_GROUP_TYPE_LABEL,
   SKILL_LABEL,
   formatRelative,
 } from "@/lib/format"
-import type { Question, QuestionType, SkillType } from "@/lib/api/types"
-import { DEMO_QUESTION_BANK } from "@/mocks/demo-data"
+import type { BankQuestionGroup, QuestionGroupConfig, QuestionGroupType, SkillType } from "@/lib/api/types"
+import { DEMO_BANK_GROUPS } from "@/mocks/demo-data"
 
 const SKILL_TABS = [
   { value: "all", label: "Tất cả" },
@@ -84,52 +85,58 @@ const SKILL_TABS = [
   { value: "writing", label: "Writing" },
 ]
 
-const QUESTION_TYPES = Object.keys(QUESTION_TYPE_LABEL) as QuestionType[]
+const GROUP_TYPES: QuestionGroupType[] = QUESTION_GROUP_CATEGORIES.flatMap((c) => c.types)
 const PAGE_SIZE = 20
 
-function QuestionPreview({ question }: { question: Question }) {
-  if (question.type === "multiple_choice" || question.type === "true_false_not_given" || question.type === "yes_no_not_given") {
-    const options = (question.data?.options as Array<{ id: string; text: string }>) ?? []
-    return (
+function groupToPayload(group: BankQuestionGroup): CreateBankGroupPayload {
+  return {
+    skill: group.skill,
+    part: group.part,
+    groupType: group.groupType,
+    instructions: group.instructions ?? "",
+    config: group.config ?? {},
+    questions: (group.questions ?? []).map((q) => ({
+      prompt: q.prompt ?? "",
+      acceptedAnswers: q.acceptedAnswers ?? [],
+      points: q.points ?? 1,
+      explanation: q.explanation ?? undefined,
+      mediaIds: q.mediaIds ?? [],
+    })),
+  }
+}
+
+function GroupPreview({ group }: { group: BankQuestionGroup }) {
+  return (
+    <div className="space-y-3">
+      <Badge variant="secondary" className="font-medium">
+        {QUESTION_GROUP_TYPE_LABEL[group.groupType] || group.groupType}
+      </Badge>
+      {group.instructions && (
+        <p className="whitespace-pre-line rounded-lg border border-border bg-muted/20 p-3 text-sm leading-relaxed">
+          {group.instructions}
+        </p>
+      )}
       <div className="space-y-2">
-        {options.map((o) => (
-          <div key={o.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
-            <span className="flex size-5 items-center justify-center rounded-full border border-border font-mono text-[11px]">
-              {o.id}
-            </span>
-            {o.text}
+        {group.questions.map((q, index) => (
+          <div key={q.id} className="rounded-lg border border-border px-3 py-2">
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-[11px] font-bold text-primary">
+                {index + 1}
+              </span>
+              <p className="text-sm text-foreground">{q.prompt || "—"}</p>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1 pl-7">
+              {(q.acceptedAnswers ?? []).map((a) => (
+                <Badge key={a} variant="outline" className="font-mono text-[10px] font-normal">
+                  {a}
+                </Badge>
+              ))}
+            </div>
           </div>
         ))}
       </div>
-    )
-  }
-  if (question.type === "form_completion" || question.type === "summary_completion" || question.type === "note_completion" || question.type === "table_completion") {
-    return (
-      <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm leading-relaxed">
-        {(question.data?.templateText as string) ?? question.prompt}
-      </div>
-    )
-  }
-  return (
-    <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
-      {question.prompt}
     </div>
   )
-}
-
-function toPayload(q: Question): CreateQuestionPayload {
-  return {
-    skill: q.skill,
-    type: q.type,
-    part: q.part,
-    prompt: q.prompt,
-    content: q.content ?? undefined,
-    data: q.data,
-    acceptedAnswers: q.acceptedAnswers,
-    points: q.points,
-    explanation: q.explanation ?? undefined,
-    mediaIds: q.mediaIds,
-  }
 }
 
 export default function TeacherQuestionsPage() {
@@ -162,7 +169,7 @@ export default function TeacherQuestionsPage() {
     () => ({
       skill: skill !== "all" ? (skill as SkillType) : undefined,
       part: part !== "all" ? Number(part) : undefined,
-      type: type !== "all" ? (type as QuestionType) : undefined,
+      type: type !== "all" ? (type as QuestionGroupType) : undefined,
       scope: (scope === "mine" ? "own" : "all") as "own" | "all",
       search: search || undefined,
       page,
@@ -171,100 +178,111 @@ export default function TeacherQuestionsPage() {
     [skill, part, type, scope, search, page]
   )
 
-  const questionsQuery = useQuestionsQuery(queryParams, !USE_MOCKS)
+  const groupsQuery = useQuestionsQuery(queryParams, !USE_MOCKS)
   const createMutation = useCreateQuestionMutation()
   const updateMutation = useUpdateQuestionMutation(open !== "new" ? open : "")
   const deleteMutation = useDeleteQuestionMutation()
 
-  const [mockQuestions, setMockQuestions] = React.useState<Question[]>(DEMO_QUESTION_BANK)
+  const [mockGroups, setMockGroups] = React.useState<BankQuestionGroup[]>(() =>
+    DEMO_BANK_GROUPS
+  )
 
-  // Client-side filter cho mock mode
   const mockFiltered = React.useMemo(() => {
     if (!USE_MOCKS) return []
-    return mockQuestions.filter((q) => {
-      if (skill !== "all" && q.skill !== skill) return false
-      if (part !== "all" && String(q.part) !== part) return false
-      if (type !== "all" && q.type !== type) return false
-      if (search && !q.prompt.toLowerCase().includes(search.toLowerCase())) return false
+    return mockGroups.filter((g) => {
+      if (skill !== "all" && g.skill !== skill) return false
+      if (part !== "all" && String(g.part) !== part) return false
+      if (type !== "all" && g.groupType !== type) return false
+      if (search) {
+        const haystack = `${g.instructions} ${g.questions.map((q) => q.prompt).join(" ")}`
+        if (!haystack.toLowerCase().includes(search.toLowerCase())) return false
+      }
       return true
     })
-  }, [mockQuestions, skill, part, type, search])
+  }, [mockGroups, skill, part, type, search])
 
-  const questions = USE_MOCKS ? mockFiltered : (questionsQuery.data?.items ?? [])
-  const meta = USE_MOCKS ? undefined : questionsQuery.data?.meta
+  const groups = USE_MOCKS ? mockFiltered : (groupsQuery.data?.items ?? [])
+  const meta = USE_MOCKS ? undefined : groupsQuery.data?.meta
   const totalPages = meta?.totalPages ?? 1
 
-  const editing = questions.find((q) => q.id === open) ?? null
+  const editing = groups.find((g) => g.id === open) ?? null
 
-  const handleSave = async (question: Question) => {
+  const handleSave = async (payload: CreateBankGroupPayload) => {
     if (USE_MOCKS) {
-      setMockQuestions((prev) => {
-        const exists = prev.some((q) => q.id === question.id)
-        return exists ? prev.map((q) => (q.id === question.id ? question : q)) : [question, ...prev]
-      })
-      toast.success(open === "new" ? "Đã tạo câu hỏi mới" : "Đã cập nhật câu hỏi")
+      const next: BankQuestionGroup = {
+        id: open === "new" ? `bank-${Date.now()}` : open,
+        ...payload,
+        config: payload.config as QuestionGroupConfig,
+        questions: payload.questions.map((q, i) => ({ id: `bankq-${Date.now()}-${i}`, ...q })),
+        questionCount: payload.questions.length,
+        updatedAt: new Date().toISOString(),
+      }
+      setMockGroups((prev) =>
+        prev.some((g) => g.id === next.id)
+          ? prev.map((g) => (g.id === next.id ? next : g))
+          : [next, ...prev]
+      )
+      toast.success(open === "new" ? "Đã tạo nhóm câu hỏi" : "Đã cập nhật nhóm câu hỏi")
       setOpen(null)
       return
     }
-    const payload = toPayload(question)
     try {
       if (open === "new") {
         await createMutation.mutateAsync(payload)
-        toast.success("Đã tạo câu hỏi mới")
+        toast.success("Đã tạo nhóm câu hỏi")
       } else {
         await updateMutation.mutateAsync(payload)
-        toast.success("Đã cập nhật câu hỏi")
+        toast.success("Đã cập nhật nhóm câu hỏi")
       }
       setOpen(null)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Không thể lưu câu hỏi. Vui lòng thử lại.")
+      toast.error(err instanceof ApiError ? err.message : "Không thể lưu nhóm câu hỏi. Vui lòng thử lại.")
     }
   }
 
-  const handleDuplicate = async (q: Question) => {
+  const handleDuplicate = async (group: BankQuestionGroup) => {
+    const payload = groupToPayload(group)
     if (USE_MOCKS) {
-      const copy = { ...q, id: `q-copy-${Date.now()}`, updatedAt: new Date().toISOString() }
-      setMockQuestions((prev) => [copy, ...prev])
-      toast.success("Đã nhân bản câu hỏi")
-      return
-    }
-    try {
-      await createMutation.mutateAsync(toPayload(q))
-      toast.success("Đã nhân bản câu hỏi")
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Không thể nhân bản câu hỏi.")
-    }
-  }
-
-  const handleDelete = async (question: Question) => {
-    if (USE_MOCKS) {
-      if (question.id === "q-r1") {
-        toast.error("Câu hỏi đang nằm trong đề đã xuất bản, không thể xoá.", {
-          description: "Hãy gỡ câu hỏi khỏi đề trước khi xoá khỏi ngân hàng.",
-        })
-        return
+      const copy: BankQuestionGroup = {
+        ...group,
+        id: `bank-copy-${Date.now()}`,
+        updatedAt: new Date().toISOString(),
       }
-      setMockQuestions((prev) => prev.filter((q) => q.id !== question.id))
-      toast.success("Đã xoá câu hỏi")
+      setMockGroups((prev) => [copy, ...prev])
+      toast.success("Đã nhân bản nhóm câu hỏi")
       return
     }
     try {
-      await deleteMutation.mutateAsync(question.id)
-      toast.success("Đã xoá câu hỏi")
-      if (open === question.id) setOpen(null)
+      await createMutation.mutateAsync(payload)
+      toast.success("Đã nhân bản nhóm câu hỏi")
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Không thể nhân bản nhóm câu hỏi.")
+    }
+  }
+
+  const handleDelete = async (group: BankQuestionGroup) => {
+    if (USE_MOCKS) {
+      setMockGroups((prev) => prev.filter((g) => g.id !== group.id))
+      toast.success("Đã xoá nhóm câu hỏi")
+      return
+    }
+    try {
+      await deleteMutation.mutateAsync(group.id)
+      toast.success("Đã xoá nhóm câu hỏi")
+      if (open === group.id) setOpen(null)
     } catch (err) {
       if (err instanceof ApiError && err.code === "QUESTION_IN_USE") {
-        toast.error("Câu hỏi đang nằm trong đề đã xuất bản, không thể xoá.", {
-          description: "Hãy gỡ câu hỏi khỏi đề trước khi xoá khỏi ngân hàng.",
+        toast.error("Nhóm câu hỏi đang nằm trong đề đã xuất bản, không thể xoá.", {
+          description: "Hãy gỡ khỏi đề trước khi xoá khỏi ngân hàng.",
         })
       } else {
-        toast.error(err instanceof ApiError ? err.message : "Không thể xoá câu hỏi. Vui lòng thử lại.")
+        toast.error(err instanceof ApiError ? err.message : "Không thể xoá nhóm câu hỏi. Vui lòng thử lại.")
       }
     }
   }
 
-  const isLoading = !USE_MOCKS && questionsQuery.isLoading
-  const isError = !USE_MOCKS && questionsQuery.isError
+  const isLoading = !USE_MOCKS && groupsQuery.isLoading
+  const isError = !USE_MOCKS && groupsQuery.isError
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -274,7 +292,7 @@ export default function TeacherQuestionsPage() {
           { label: "Ngân hàng câu hỏi" },
         ]}
         title="Ngân hàng câu hỏi"
-        description="Quản lý và biên soạn câu hỏi theo từng kỹ năng, dạng bài để tích hợp vào các đề thi"
+        description="Lưu trữ các nhóm câu hỏi (Question Group) theo kỹ năng & dạng bài để tái sử dụng trong nhiều đề thi"
         actions={
           <Button
             variant="default"
@@ -283,7 +301,7 @@ export default function TeacherQuestionsPage() {
             onClick={() => setOpen("new")}
           >
             <HugeiconsIcon icon={Add01Icon} size={16} />
-            <span>Tạo câu hỏi mới</span>
+            <span>Tạo nhóm câu hỏi</span>
           </Button>
         }
       />
@@ -300,7 +318,7 @@ export default function TeacherQuestionsPage() {
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Tìm theo nội dung câu hỏi..."
+                placeholder="Tìm theo hướng dẫn / nội dung câu hỏi..."
                 className="h-9 pl-9 text-sm"
               />
             </div>
@@ -319,14 +337,14 @@ export default function TeacherQuestionsPage() {
                 </SelectContent>
               </Select>
               <Select value={type} onValueChange={(v) => setType(v === "all" ? null : v)}>
-                <SelectTrigger size="sm" className="w-44">
-                  <SelectValue placeholder="Loại câu" />
+                <SelectTrigger size="sm" className="w-52">
+                  <SelectValue placeholder="Dạng câu" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Mọi loại câu</SelectItem>
-                  {QUESTION_TYPES.map((t) => (
+                  <SelectItem value="all">Mọi dạng câu</SelectItem>
+                  {GROUP_TYPES.map((t) => (
                     <SelectItem key={t} value={t}>
-                      {QUESTION_TYPE_LABEL[t]}
+                      {QUESTION_GROUP_TYPE_LABEL[t]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -374,29 +392,29 @@ export default function TeacherQuestionsPage() {
           <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
             <p className="text-sm font-medium text-foreground">Không tải được ngân hàng câu hỏi</p>
             <p className="text-xs text-muted-foreground">
-              {questionsQuery.error instanceof ApiError
-                ? questionsQuery.error.message
+              {groupsQuery.error instanceof ApiError
+                ? groupsQuery.error.message
                 : "Đã xảy ra lỗi. Vui lòng thử lại."}
             </p>
             <Button
               variant="outline"
               size="sm"
               className="gap-1.5 text-xs font-medium"
-              onClick={() => questionsQuery.refetch()}
+              onClick={() => groupsQuery.refetch()}
             >
               <HugeiconsIcon icon={RefreshIcon} size={14} />
               <span>Thử lại</span>
             </Button>
           </CardContent>
         </Card>
-      ) : questions.length === 0 ? (
+      ) : groups.length === 0 ? (
         <EmptyState
           icon={Folder02Icon}
-          title="Chưa có câu hỏi nào"
-          description="Thử thay đổi bộ lọc, hoặc tạo câu hỏi mới để bổ sung vào ngân hàng."
+          title="Chưa có nhóm câu hỏi nào"
+          description="Thử thay đổi bộ lọc, hoặc tạo nhóm câu hỏi mới để bổ sung vào ngân hàng."
           action={
             <Button className="gap-2" onClick={() => setOpen("new")}>
-              <HugeiconsIcon icon={Add01Icon} size={16} /> Tạo câu hỏi
+              <HugeiconsIcon icon={Add01Icon} size={16} /> Tạo nhóm câu hỏi
             </Button>
           }
         />
@@ -406,91 +424,83 @@ export default function TeacherQuestionsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-72">Câu hỏi</TableHead>
+                  <TableHead className="min-w-72">Nhóm câu hỏi</TableHead>
                   <TableHead>Kỹ năng</TableHead>
                   <TableHead>Part</TableHead>
-                  <TableHead>Loại câu</TableHead>
-                  <TableHead>Đáp án</TableHead>
+                  <TableHead>Dạng</TableHead>
+                  <TableHead className="text-center">Số câu</TableHead>
                   <TableHead className="text-center">Media</TableHead>
                   <TableHead>Cập nhật</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {questions.map((q) => (
-                  <TableRow
-                    key={q.id}
-                    className="cursor-pointer"
-                    onClick={() => setOpen(q.id)}
-                  >
-                    <TableCell className="max-w-md">
-                      <p className="truncate text-sm font-medium text-foreground">{q.prompt}</p>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="font-normal">
-                        {SKILL_LABEL[q.skill]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{q.part}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {QUESTION_TYPE_LABEL[q.type]}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {(q.acceptedAnswers ?? []).slice(0, 2).map((a) => (
-                          <Badge key={a} variant="secondary" className="font-mono text-[10px] font-normal">
-                            {a}
-                          </Badge>
-                        ))}
-                        {(q.acceptedAnswers?.length ?? 0) === 0 && (
+                {groups.map((g) => {
+                  const hasMedia = g.questions.some((q) => (q.mediaIds?.length ?? 0) > 0)
+                  return (
+                    <TableRow key={g.id} className="cursor-pointer" onClick={() => setOpen(g.id)}>
+                      <TableCell className="max-w-md">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {g.instructions?.trim().split("\n")[0] || "—"}
+                        </p>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-normal">
+                          {SKILL_LABEL[g.skill]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{g.part}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {QUESTION_GROUP_TYPE_LABEL[g.groupType] || g.groupType}
+                      </TableCell>
+                      <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                        {g.questions.length}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {hasMedia ? (
+                          <HugeiconsIcon
+                            icon={g.skill === "listening" ? MusicNote01Icon : Image01Icon}
+                            size={15}
+                            className="mx-auto text-primary"
+                          />
+                        ) : (
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {(q.mediaIds?.length ?? 0) > 0 ? (
-                        <HugeiconsIcon
-                          icon={q.skill === "listening" ? MusicNote01Icon : Image01Icon}
-                          size={15}
-                          className="mx-auto text-primary"
-                        />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {formatRelative(q.updatedAt ?? q.createdAt)}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm">
-                            <HugeiconsIcon icon={MoreHorizontalIcon} size={16} />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setOpen(q.id)}>
-                            <HugeiconsIcon icon={PencilEdit02Icon} size={15} /> Sửa câu hỏi
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDuplicate(q)}
-                            disabled={!USE_MOCKS && createMutation.isPending}
-                          >
-                            <HugeiconsIcon icon={Copy01Icon} size={15} /> Nhân bản
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => handleDelete(q)}
-                            disabled={!USE_MOCKS && deleteMutation.isPending}
-                          >
-                            <HugeiconsIcon icon={Delete02Icon} size={15} /> Xoá
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatRelative(g.updatedAt ?? g.createdAt)}
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-sm">
+                              <HugeiconsIcon icon={MoreHorizontalIcon} size={16} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setOpen(g.id)}>
+                              <HugeiconsIcon icon={PencilEdit02Icon} size={15} /> Sửa nhóm
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDuplicate(g)}
+                              disabled={!USE_MOCKS && createMutation.isPending}
+                            >
+                              <HugeiconsIcon icon={Copy01Icon} size={15} /> Nhân bản
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => handleDelete(g)}
+                              disabled={!USE_MOCKS && deleteMutation.isPending}
+                            >
+                              <HugeiconsIcon icon={Delete02Icon} size={15} /> Xoá
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </CardContent>
@@ -501,15 +511,10 @@ export default function TeacherQuestionsPage() {
       {!USE_MOCKS && meta && totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
-            Trang {meta.page}/{totalPages} · {meta.total} câu hỏi
+            Trang {meta.page}/{totalPages} · {meta.total} nhóm câu hỏi
           </p>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage(page - 1)}
-            >
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
               Trang trước
             </Button>
             <Button
@@ -528,12 +533,12 @@ export default function TeacherQuestionsPage() {
         <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle className="font-heading text-lg font-bold">
-              {open === "new" ? "Tạo câu hỏi mới" : "Chi tiết câu hỏi"}
+              {open === "new" ? "Tạo nhóm câu hỏi" : "Chi tiết nhóm câu hỏi"}
             </SheetTitle>
             <SheetDescription className="text-xs">
               {open === "new"
-                ? "Điền thông tin để thêm câu hỏi vào ngân hàng."
-                : "Chỉnh sửa nội dung hoặc xem trước như học sinh."}
+                ? "Chọn dạng câu hỏi rồi soạn nội dung để lưu vào ngân hàng."
+                : "Chỉnh sửa nhóm câu hỏi hoặc xem trước như học sinh."}
             </SheetDescription>
           </SheetHeader>
           <div className="px-6 pb-24">
@@ -543,7 +548,7 @@ export default function TeacherQuestionsPage() {
                 <TabsTrigger value="preview" className="text-xs">Xem như học sinh</TabsTrigger>
               </TabsList>
               <TabsContent value="edit">
-                <QuestionForm
+                <BankGroupForm
                   key={open}
                   initial={editing}
                   onSave={handleSave}
@@ -551,23 +556,17 @@ export default function TeacherQuestionsPage() {
                     !USE_MOCKS && (createMutation.isPending || updateMutation.isPending)
                       ? "Đang lưu…"
                       : open === "new"
-                        ? "Tạo câu hỏi"
+                        ? "Tạo nhóm câu hỏi"
                         : "Cập nhật"
                   }
                 />
               </TabsContent>
               <TabsContent value="preview" className="space-y-4">
                 {editing ? (
-                  <>
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold text-primary uppercase">Câu hỏi</p>
-                      <p className="text-sm text-foreground">{editing.prompt}</p>
-                    </div>
-                    <QuestionPreview question={editing} />
-                  </>
+                  <GroupPreview group={editing} />
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    Lưu câu hỏi trước để xem trước.
+                    Lưu nhóm câu hỏi trước để xem trước.
                   </p>
                 )}
               </TabsContent>

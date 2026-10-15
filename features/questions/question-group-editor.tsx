@@ -14,6 +14,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Add01Icon,
+  BookmarkAdd01Icon,
   Delete02Icon,
   Image01Icon,
 } from "@hugeicons/core-free-icons"
@@ -66,6 +67,9 @@ export interface QuestionGroupEditorProps {
   onAddQuestion: () => void
   onRemoveQuestion: (questionId: string) => void
   onUpdateQuestion: (questionId: string, patch: Partial<QuestionItem>) => void
+  /** Optional: persist this group into the Question Bank. */
+  onSaveToBank?: () => void
+  savingToBank?: boolean
 }
 
 export function QuestionGroupEditor({
@@ -77,6 +81,8 @@ export function QuestionGroupEditor({
   onAddQuestion,
   onRemoveQuestion,
   onUpdateQuestion,
+  onSaveToBank,
+  savingToBank = false,
 }: QuestionGroupEditorProps) {
   const config = (group.config || {}) as Record<string, any>
   const [mediaPickerOpen, setMediaPickerOpen] = React.useState(false)
@@ -356,6 +362,9 @@ export function QuestionGroupEditor({
   const isShortAnswer = group.groupType === "short_answer"
   const isWriting = group.groupType.startsWith("writing_task")
 
+  /** Resolved group-level image (config.imageMediaId) with a presigned URL. */
+  const groupImage = (group.media ?? []).find((m) => m.type === "image")
+
   const firstQ = group.questions[0]?.questionNumber
   const lastQ = group.questions[group.questions.length - 1]?.questionNumber
   const qRangeText =
@@ -384,6 +393,24 @@ export function QuestionGroupEditor({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {onSaveToBank && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={savingToBank || examReadonly}
+                  className="text-muted-foreground hover:text-primary"
+                  onClick={onSaveToBank}
+                >
+                  <HugeiconsIcon icon={BookmarkAdd01Icon} size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {savingToBank ? "Đang lưu…" : "Lưu nhóm này vào ngân hàng câu hỏi"}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -416,6 +443,78 @@ export function QuestionGroupEditor({
             placeholder="VD: Questions 1–6. Do the following statements agree with the information..."
           />
         </div>
+
+        {/* ------------------------------------------------------------------- */}
+        {/* Group image (all types except map/diagram labelling, which keep    */}
+        {/* their dedicated block with label positions below)                   */}
+        {/* ------------------------------------------------------------------- */}
+        {!isLabelling && (
+          <div className="space-y-2.5 rounded-lg border border-border bg-muted/15 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <Label className="text-xs font-semibold text-foreground">
+                  Ảnh của nhóm
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Biểu đồ / hình minh hoạ hiển thị kèm nhóm này (PNG, JPG).
+                </p>
+              </div>
+              {!examReadonly && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMediaPickerOpen(true)}
+                  className="h-7 shrink-0 gap-1.5 text-xs"
+                >
+                  <HugeiconsIcon icon={Image01Icon} size={12} /> Chọn ảnh
+                </Button>
+              )}
+            </div>
+
+            {groupImage ? (
+              <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={groupImage.url}
+                  alt={groupImage.originalName || "Ảnh của nhóm"}
+                  className="h-14 w-20 shrink-0 rounded-md border border-border object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">
+                    {groupImage.originalName || "Ảnh của nhóm"}
+                  </p>
+                  {config.imageMediaId && (
+                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                      ID: {config.imageMediaId}
+                    </p>
+                  )}
+                </div>
+                {!examReadonly && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() =>
+                      onUpdateGroup({
+                        config: { ...config, imageMediaId: undefined },
+                        media: [],
+                      })
+                    }
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} size={13} />
+                  </Button>
+                )}
+              </div>
+            ) : config.imageMediaId ? (
+              <p className="text-xs text-muted-foreground">
+                Đã gắn ảnh (ID:{" "}
+                <span className="font-mono">{config.imageMediaId}</span>)
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">Chưa gắn ảnh.</p>
+            )}
+          </div>
+        )}
 
         {/* ------------------------------------------------------------------- */}
         {/* Multiple Choice Options Configuration */}
@@ -1470,9 +1569,19 @@ export function QuestionGroupEditor({
         onOpenChange={setMediaPickerOpen}
         type="image"
         onSelect={(item) => {
-          updateConfig({ imageMediaId: item.id })
+          onUpdateGroup({
+            config: { ...config, imageMediaId: item.id },
+            media: [
+              {
+                id: item.id,
+                url: item.url,
+                type: item.type,
+                originalName: item.originalName,
+              },
+            ],
+          })
           setMediaPickerOpen(false)
-          toast.success("Đã chọn ảnh sơ đồ.")
+          toast.success(isLabelling ? "Đã chọn ảnh sơ đồ." : "Đã chọn ảnh cho nhóm.")
         }}
       />
     </div>

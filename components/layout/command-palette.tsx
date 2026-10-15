@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import {
   Dialog,
   DialogContent,
@@ -24,8 +24,12 @@ import {
   SparklesIcon,
   Task01Icon,
   UserIcon,
+  UserGroupIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
+import { USE_MOCKS } from "@/lib/api/config"
+import { useClassesQuery } from "@/hooks/use-classes"
+import { useExamsQuery } from "@/hooks/use-exams"
 import { DEMO_CLASSES, DEMO_EXAMS } from "@/mocks/demo-data"
 
 interface CommandItem {
@@ -57,12 +61,25 @@ const TEACHER_PAGES: CommandItem[] = [
   { id: "t-settings", label: "Cài đặt", group: "Điều hướng", href: "/teacher/settings", icon: Settings01Icon },
 ]
 
+const ADMIN_PAGES: CommandItem[] = [
+  { id: "a-users", label: "Quản lý người dùng", group: "Quản trị", href: "/admin/users", icon: UserIcon },
+]
+
 const QUICK_ACTIONS: CommandItem[] = [
   { id: "a-exam", label: "Tạo đề thi mới", group: "Hành động nhanh", href: "/teacher/exams/new", icon: Add01Icon },
   { id: "a-question", label: "Tạo câu hỏi mới", group: "Hành động nhanh", href: "/teacher/questions?open=new", icon: SparklesIcon },
   { id: "a-assign", label: "Giao bài", group: "Hành động nhanh", href: "/teacher/assignments?action=assign", icon: Task01Icon },
   { id: "a-grade", label: "Chấm bài tiếp theo", group: "Hành động nhanh", href: "/teacher/grading/att-grade-01", icon: FileEditIcon },
 ]
+
+function removeAccents(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+}
 
 export function CommandPalette({
   open,
@@ -74,25 +91,35 @@ export function CommandPalette({
   isTeacher: boolean
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [query, setQuery] = React.useState("")
   const [activeIndex, setActiveIndex] = React.useState(0)
 
+  const isAdmin = pathname.startsWith("/admin")
+
+  // Load real data when USE_MOCKS is false; fallback to DEMO_* ONLY when USE_MOCKS is true
+  const classesQuery = useClassesQuery(!USE_MOCKS && open && isTeacher)
+  const examsQuery = useExamsQuery({ limit: 50 }, !USE_MOCKS && open && isTeacher)
+
+  const realClasses = USE_MOCKS ? DEMO_CLASSES : (classesQuery.data ?? [])
+  const realExams = USE_MOCKS ? DEMO_EXAMS : (examsQuery.data?.items ?? [])
+
   const classItems: CommandItem[] = React.useMemo(
     () =>
-      DEMO_CLASSES.map((c) => ({
+      realClasses.map((c) => ({
         id: `class-${c.id}`,
         label: c.name,
         group: "Lớp học",
         href: `/teacher/classes/${c.id}`,
-        icon: UserIcon,
+        icon: UserGroupIcon,
         keywords: c.code,
       })),
-    []
+    [realClasses]
   )
 
   const examItems: CommandItem[] = React.useMemo(
     () =>
-      DEMO_EXAMS.map((e) => ({
+      realExams.map((e) => ({
         id: `exam-${e.id}`,
         label: e.title,
         group: "Đề thi",
@@ -100,28 +127,30 @@ export function CommandPalette({
         icon: PencilEdit02Icon,
         keywords: e.status,
       })),
-    []
+    [realExams]
   )
 
   const allItems = React.useMemo(() => {
-    const pages = isTeacher ? TEACHER_PAGES : STUDENT_PAGES
-    return isTeacher
-      ? [...QUICK_ACTIONS, ...pages, ...classItems, ...examItems]
-      : pages
-  }, [isTeacher, classItems, examItems])
+    if (isAdmin) {
+      return [...ADMIN_PAGES, ...TEACHER_PAGES, ...classItems, ...examItems]
+    }
+    if (isTeacher) {
+      return [...QUICK_ACTIONS, ...TEACHER_PAGES, ...classItems, ...examItems]
+    }
+    return STUDENT_PAGES
+  }, [isAdmin, isTeacher, classItems, examItems])
 
   const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = removeAccents(query.trim())
     if (!q) return allItems
     return allItems.filter(
       (item) =>
-        item.label.toLowerCase().includes(q) ||
-        item.keywords?.toLowerCase().includes(q) ||
-        item.group.toLowerCase().includes(q)
+        removeAccents(item.label).includes(q) ||
+        (item.keywords ? removeAccents(item.keywords).includes(q) : false)
     )
   }, [allItems, query])
 
-  // Reset state khi mở/đóng bằng pattern "adjust during render" (tránh setState trong effect)
+  // Reset state when opening/closing
   const [prevOpen, setPrevOpen] = React.useState(open)
   if (open !== prevOpen) {
     setPrevOpen(open)

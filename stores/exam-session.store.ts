@@ -30,14 +30,11 @@ export function examUsesGroups(exam: CandidateExam): boolean {
   )
 }
 
-/** Collect all question IDs from a candidate exam (supports both formats) */
+/** Collect all question IDs from a candidate exam. */
 export function collectAllQuestionIds(exam: CandidateExam): string[] {
-  return exam.sections.flatMap((section) => {
-    if (section.questionGroups && section.questionGroups.length > 0) {
-      return section.questionGroups.flatMap((g) => g.questions.map((q) => q.id))
-    }
-    return section.questions.map((q) => q.id)
-  })
+  return exam.sections.flatMap((section) =>
+    (section.questionGroups ?? []).flatMap((g) => g.questions.map((q) => q.id))
+  )
 }
 
 interface ExamSessionState {

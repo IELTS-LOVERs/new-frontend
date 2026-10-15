@@ -40,7 +40,6 @@ function listeningSection(part: number): CreateExamSectionPayload {
     title: `Listening Part ${part}`,
     instructions: `Questions ${(part - 1) * 10 + 1}–${part * 10}`,
     mediaIds: [],
-    questionIds: [],
   }
 }
 
@@ -52,7 +51,6 @@ function readingSection(part: number): CreateExamSectionPayload {
     instructions: `Questions ${(part - 1) * 13 + 1}–${part * 13}`,
     passageText: "",
     mediaIds: [],
-    questionIds: [],
   }
 }
 
@@ -63,7 +61,6 @@ function writingSection(part: number): CreateExamSectionPayload {
     title: `Writing Task ${part}`,
     instructions: part === 1 ? "Write at least 150 words." : "Write at least 250 words.",
     mediaIds: [],
-    questionIds: [],
   }
 }
 

@@ -18,6 +18,9 @@ import type {
   ExamAnalytics,
   StudentProgressAnalytics,
   AntiCheatEvent,
+  BankQuestionGroup,
+  QuestionGroupConfig,
+  QuestionGroupType,
 } from "@/lib/api/types"
 
 export const DEMO_TEACHER: User = {
@@ -69,50 +72,51 @@ export const DEMO_EXAM_MOCK_01: CandidateExam = {
           originalName: "listening_part1.mp3",
         },
       ],
-      questions: [
+      questionGroups: [
         {
-          id: "q-l1",
-          skill: "listening",
-          part: 1,
-          type: "form_completion",
-          prompt: "Customer Name: Sarah [1]",
-          data: { templateText: "Customer Name: Sarah [1]" },
+          id: "g-l1",
+          groupType: "form_completion",
+          instructions:
+            "Complete the notes below. Write ONE WORD AND/OR A NUMBER for each answer.",
+          config: {
+            maxWords: 1,
+            allowNumbers: true,
+            template: "Customer Name: Sarah [1]\nDelivery Address: 42 [2] Street",
+          },
+          questions: [
+            { id: "q-l1", questionNumber: 1, prompt: "Customer Name: Sarah [1]" },
+            { id: "q-l2", questionNumber: 2, prompt: "Delivery Address: 42 [2] Street" },
+          ],
         },
         {
-          id: "q-l2",
-          skill: "listening",
-          part: 1,
-          type: "form_completion",
-          prompt: "Delivery Address: 42 [2] Street",
-          data: { templateText: "Delivery Address: 42 [2] Street" },
-        },
-        {
-          id: "q-l3",
-          skill: "listening",
-          part: 1,
-          type: "multiple_choice",
-          prompt: "What time does the morning museum tour start?",
-          data: {
+          id: "g-l2",
+          groupType: "multiple_choice_single",
+          instructions: "Choose the correct letter, A, B or C.",
+          config: {
             options: [
               { id: "A", text: "9:00 AM" },
               { id: "B", text: "10:30 AM" },
               { id: "C", text: "11:15 AM" },
             ],
           },
+          questions: [
+            { id: "q-l3", questionNumber: 3, prompt: "What time does the morning museum tour start?" },
+          ],
         },
         {
-          id: "q-l4",
-          skill: "listening",
-          part: 1,
-          type: "multiple_choice",
-          prompt: "The discount is available for members with:",
-          data: {
+          id: "g-l3",
+          groupType: "multiple_choice_single",
+          instructions: "Choose the correct letter, A, B or C.",
+          config: {
             options: [
               { id: "A", text: "Student card" },
               { id: "B", text: "Senior citizen pass" },
               { id: "C", text: "Annual subscription" },
             ],
           },
+          questions: [
+            { id: "q-l4", questionNumber: 4, prompt: "The discount is available for members with:" },
+          ],
         },
       ],
     },
@@ -129,48 +133,46 @@ A fascinating aspect of whale biology is their sophisticated vocalisation. Male 
 
 Paragraph C
 Human activities continue to present significant risks to cetacean populations worldwide. Commercial shipping lanes intersect directly with traditional migration corridors, leading to fatal vessel strikes. Furthermore, anthropogenic ocean noise pollution from seismic surveying and industrial shipping severely compromises their echolocation and communication faculties.`,
-      questions: [
+      questionGroups: [
         {
-          id: "q-r1",
-          skill: "reading",
-          part: 1,
-          type: "true_false_not_given",
-          prompt: "Humpback whales travel more than 8,000 km annually during migration.",
-          data: {
+          id: "g-r1",
+          groupType: "true_false_not_given",
+          instructions:
+            "Do the following statements agree with the information given in Reading Passage 1?\nWrite TRUE, FALSE or NOT GIVEN.",
+          config: {
             options: [
-              { id: "TRUE", text: "True" },
-              { id: "FALSE", text: "False" },
-              { id: "NOT GIVEN", text: "Not Given" },
+              { id: "TRUE", text: "TRUE" },
+              { id: "FALSE", text: "FALSE" },
+              { id: "NOT GIVEN", text: "NOT GIVEN" },
             ],
           },
+          questions: [
+            {
+              id: "q-r1",
+              questionNumber: 1,
+              prompt: "Humpback whales travel more than 8,000 km annually during migration.",
+            },
+            {
+              id: "q-r2",
+              questionNumber: 2,
+              prompt: "Whale songs remain completely unchanged from one breeding season to the next.",
+            },
+          ],
         },
         {
-          id: "q-r2",
-          skill: "reading",
-          part: 1,
-          type: "true_false_not_given",
-          prompt: "Whale songs remain completely unchanged from one breeding season to the next.",
-          data: {
-            options: [
-              { id: "TRUE", text: "True" },
-              { id: "FALSE", text: "False" },
-              { id: "NOT GIVEN", text: "Not Given" },
-            ],
-          },
-        },
-        {
-          id: "q-r3",
-          skill: "reading",
-          part: 1,
-          type: "matching_headings",
-          prompt: "Choose the correct heading for Paragraph B.",
-          data: {
-            headings: [
+          id: "g-r2",
+          groupType: "matching_headings",
+          instructions:
+            "Choose the correct heading for Paragraph B from the list of headings below.",
+          config: {
+            headingsPool: [
               { id: "i", text: "Acoustic culture and vocal evolution" },
               { id: "ii", text: "Threats posed by maritime traffic" },
               { id: "iii", text: "Record-breaking long distance journeys" },
             ],
+            allowReuse: false,
           },
+          questions: [{ id: "q-r3", questionNumber: 3, prompt: "Paragraph B" }],
         },
       ],
     },
@@ -179,24 +181,34 @@ Human activities continue to present significant risks to cetacean populations w
       part: 1,
       title: "Writing Section",
       instructions: "Answer both Task 1 and Task 2.",
-      questions: [
+      questionGroups: [
         {
-          id: "q-w1",
-          skill: "writing",
-          part: 1,
-          type: "writing_task_1",
-          prompt:
-            "The chart below illustrates the proportion of renewable energy consumption in four European countries from 2010 to 2024.\n\nSummarise the information by selecting and reporting the main features, and make comparisons where relevant. Write at least 150 words.",
-          data: { minWords: 150 },
+          id: "g-w1",
+          groupType: "writing_task_1",
+          instructions: "You should spend about 20 minutes on this task. Write at least 150 words.",
+          config: { minWords: 150 },
+          questions: [
+            {
+              id: "q-w1",
+              questionNumber: 1,
+              prompt:
+                "The chart below illustrates the proportion of renewable energy consumption in four European countries from 2010 to 2024.\n\nSummarise the information by selecting and reporting the main features, and make comparisons where relevant. Write at least 150 words.",
+            },
+          ],
         },
         {
-          id: "q-w2",
-          skill: "writing",
-          part: 2,
-          type: "writing_task_2",
-          prompt:
-            "Some people believe that artificial intelligence will soon replace human teachers in education, while others argue that human interaction is irreplaceable.\n\nDiscuss both views and give your own opinion. Write at least 250 words.",
-          data: { minWords: 250 },
+          id: "g-w2",
+          groupType: "writing_task_2",
+          instructions: "You should spend about 40 minutes on this task. Write at least 250 words.",
+          config: { minWords: 250 },
+          questions: [
+            {
+              id: "q-w2",
+              questionNumber: 2,
+              prompt:
+                "Some people believe that artificial intelligence will soon replace human teachers in education, while others argue that human interaction is irreplaceable.\n\nDiscuss both views and give your own opinion. Write at least 250 words.",
+            },
+          ],
         },
       ],
     },
@@ -854,15 +866,20 @@ export const DEMO_EXAM_BUILDER: CandidateExam = {
       part: 2,
       title: "Writing Task 2",
       instructions: "Answer the task below. Write at least 250 words.",
-      questions: [
+      questionGroups: [
         {
-          id: "q-w2",
-          skill: "writing",
-          part: 2,
-          type: "writing_task_2",
-          prompt:
-            "Some people believe that artificial intelligence will soon replace human teachers in education, while others argue that human interaction is irreplaceable. Discuss both views and give your own opinion.",
-          data: { minWords: 250 },
+          id: "g-w2-builder",
+          groupType: "writing_task_2",
+          instructions: "You should spend about 40 minutes on this task. Write at least 250 words.",
+          config: { minWords: 250 },
+          questions: [
+            {
+              id: "q-w2",
+              questionNumber: 1,
+              prompt:
+                "Some people believe that artificial intelligence will soon replace human teachers in education, while others argue that human interaction is irreplaceable. Discuss both views and give your own opinion.",
+            },
+          ],
         },
       ],
     },
@@ -1103,5 +1120,41 @@ export const DEMO_STUDENT_ANALYTICS: StudentProgressAnalytics = {
     { attemptId: "att-101", examId: "exam-mock-01", examTitle: "IELTS Mock Test 01", submittedAt: "2026-09-18T10:30:00.000Z", listening: 7.0, reading: 6.5, writing: 5.5, overall: 6.5 },
   ],
 }
+
+/**
+ * Demo Question Bank groups — derived from the legacy flat demo questions so
+ * mock mode stays in sync with the new group-based bank (dev only).
+ */
+export const DEMO_BANK_GROUPS: BankQuestionGroup[] = DEMO_QUESTION_BANK.map((q) => {
+  const groupType = (
+    q.type === "multiple_choice"
+      ? "multiple_choice_single"
+      : q.type === "matching"
+        ? "matching_headings"
+        : q.type
+  ) as QuestionGroupType
+
+  return {
+    id: q.id,
+    skill: q.skill,
+    part: q.part,
+    groupType,
+    instructions: q.content ?? "",
+    config: (q.data ?? {}) as QuestionGroupConfig,
+    questions: [
+      {
+        id: `${q.id}-q1`,
+        prompt: q.prompt,
+        acceptedAnswers: q.acceptedAnswers ?? [],
+        points: q.points ?? 1,
+        explanation: q.explanation ?? null,
+        mediaIds: q.mediaIds ?? [],
+      },
+    ],
+    questionCount: 1,
+    createdAt: q.createdAt,
+    updatedAt: q.updatedAt,
+  }
+})
 
 
