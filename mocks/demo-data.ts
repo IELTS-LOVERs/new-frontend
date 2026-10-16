@@ -471,7 +471,15 @@ export const DEMO_PENDING_GRADING: PendingWritingSubmission[] = [
 
 export const DEMO_ATTEMPT_RESULT: AttemptResult = {
   attemptId: "att-101",
+  examId: "exam-reading-03",
+  examTitle: "IELTS Reading Practice 03",
+  examDurationMinutes: 60,
+  studentName: "Nguyễn Mạnh Hùng",
+  studentEmail: "manhhung@gmail.com",
   status: "submitted",
+  startedAt: "2026-10-11T04:48:00.000Z",
+  submittedAt: "2026-10-11T04:50:00.000Z",
+  durationSeconds: 120, // 2 phút (khớp ví dụ học sinh làm bài nhanh)
   scores: {
     listeningRaw: 30,
     listeningBand: 7.0,

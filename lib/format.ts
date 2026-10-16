@@ -63,6 +63,31 @@ export function formatDuration(seconds: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
+export function formatDurationHuman(seconds?: number | null): string {
+  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return "—"
+  const total = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+
+  if (h > 0) {
+    return m > 0 ? `${h} giờ ${m} phút` : `${h} giờ`
+  }
+  if (m > 0) {
+    return s > 0 ? `${m} phút ${s} giây` : `${m} phút`
+  }
+  return `${s} giây`
+}
+
+/**
+ * Kiểm tra xem thời gian làm bài có bất thường (quá nhanh) hay không.
+ * Ví dụ: bài thi hoàn thành dưới 5 phút (< 300s) hoặc trung bình dưới 6s/câu.
+ */
+export function isSuspiciouslyFast(durationSeconds?: number | null, questionCount = 40): boolean {
+  if (durationSeconds === null || durationSeconds === undefined || durationSeconds <= 0) return false
+  return durationSeconds < 300 || (questionCount > 5 && durationSeconds / questionCount < 6)
+}
+
 export const SKILL_LABEL: Record<SkillType, string> = {
   listening: "Listening",
   reading: "Reading",

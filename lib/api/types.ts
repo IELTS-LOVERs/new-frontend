@@ -309,7 +309,14 @@ export interface AttemptResultDetail {
 export interface AttemptResult {
   attemptId: string
   examId?: string
+  examTitle?: string
+  examDurationMinutes?: number
+  studentName?: string
+  studentEmail?: string
   status: "submitted" | "expired"
+  startedAt?: string
+  submittedAt?: string
+  durationSeconds?: number
   scores: AttemptScores
   writingReview?: WritingReview | null
   details: AttemptResultDetail[]

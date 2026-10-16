@@ -27,7 +27,7 @@ import {
   WifiOff01Icon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
-import { formatBand, formatDate } from "@/lib/format"
+import { formatBand, formatDate, formatDurationHuman, isSuspiciouslyFast, formatDuration } from "@/lib/format"
 import type { AntiCheatEvent, AttemptResult } from "@/lib/api/types"
 import { DEMO_ANTI_CHEAT_EVENTS, DEMO_ATTEMPT_RESULT, DEMO_QUESTION_BANK, DEMO_PENDING_GRADING, DEMO_SUSPICIOUS_SUBMISSIONS } from "@/mocks/demo-data"
 import { USE_MOCKS } from "@/lib/api/config"
@@ -117,22 +117,31 @@ export default function TeacherSubmissionDetailPage() {
   const eventsSummary = USE_MOCKS ? null : (eventsQuery.data?.summary ?? null)
 
   // Thông tin học sinh/đề/thời gian nộp: API result không trả về → bổ sung từ
-  // danh sách grading/pending hoặc suspicious (nếu trùng attemptId).
+  // Thông tin học sinh/đề/thời gian nộp: lấy từ API result, fallback từ danh sách pending/suspicious
   const submissionInfo = USE_MOCKS
     ? (DEMO_PENDING_GRADING.find((p) => p.attemptId === attemptId) ??
        DEMO_SUSPICIOUS_SUBMISSIONS.find((s) => s.attemptId === attemptId) ?? null)
     : null
-  const studentName = submissionInfo?.studentName ?? "Học sinh"
-  const examTitle = submissionInfo?.examTitle ?? "Bài thi"
-  const submittedAt = submissionInfo?.submittedAt ?? null
+  const studentName = result.studentName ?? submissionInfo?.studentName ?? "Học sinh"
+  const examTitle = result.examTitle ?? submissionInfo?.examTitle ?? "Bài thi"
+  const submittedAt = result.submittedAt ?? submissionInfo?.submittedAt ?? null
+  const startedAt = result.startedAt ?? null
 
-  const promptById = new Map(DEMO_QUESTION_BANK.map((q) => [q.id, q.prompt]))
-  const writingGraded = !!result.writingReview
+  const durationSeconds =
+    result.durationSeconds ??
+    (startedAt && submittedAt
+      ? Math.max(0, Math.round((new Date(submittedAt).getTime() - new Date(startedAt).getTime()) / 1000))
+      : null)
 
   const answered = result.details.length
   const correct = result.details.filter((d) => d.isCorrect).length
   const wrong = result.details.filter((d) => !d.isCorrect && d.studentAnswer).length
   const blank = result.details.filter((d) => !d.studentAnswer).length
+
+  const isTooFast = isSuspiciouslyFast(durationSeconds, answered)
+
+  const promptById = new Map(DEMO_QUESTION_BANK.map((q) => [q.id, q.prompt]))
+  const writingGraded = !!result.writingReview
 
   const filteredDetails = result.details.filter((d) => {
     if (answerFilter === "correct") return d.isCorrect
@@ -166,13 +175,27 @@ export default function TeacherSubmissionDetailPage() {
             <span className="font-medium text-foreground">{studentName}</span>
             <span>·</span>
             <span>{examTitle}</span>
+            {durationSeconds !== null && durationSeconds !== undefined && (
+              <>
+                <span>·</span>
+                <span className="flex items-center gap-1 font-semibold text-foreground">
+                  <HugeiconsIcon icon={Clock01Icon} size={13} className="text-muted-foreground" />
+                  Làm bài: {formatDurationHuman(durationSeconds)}
+                </span>
+              </>
+            )}
             {submittedAt && (
               <>
                 <span>·</span>
                 <span className="flex items-center gap-1">
-                  <HugeiconsIcon icon={Clock01Icon} size={12} /> Nộp {formatDate(submittedAt)}
+                  Nộp {formatDate(submittedAt)}
                 </span>
               </>
+            )}
+            {isTooFast && (
+              <Badge variant="destructive" className="gap-1 text-[11px] font-semibold">
+                <HugeiconsIcon icon={Alert02Icon} size={12} /> Nộp quá nhanh
+              </Badge>
             )}
             {suspicious && <SuspiciousBadge label="Cần kiểm tra" />}
             {totalEvents > 0 && !suspicious && (
@@ -198,12 +221,55 @@ export default function TeacherSubmissionDetailPage() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      {/* Thống kê kết quả & Thời gian làm bài */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Listening" value={formatBand(result.scores.listeningBand)} icon={Award01Icon} hint={`${result.scores.listeningRaw ?? 0}/40 đúng`} />
         <StatCard label="Reading" value={formatBand(result.scores.readingBand)} icon={Award01Icon} hint={`${result.scores.readingRaw ?? 0}/40 đúng`} />
         <StatCard label="Writing" value={writingGraded ? formatBand(result.scores.writingBand) : "—"} icon={Award01Icon} hint={writingGraded ? "Đã chấm" : "Chờ chấm"} />
         <StatCard label="Overall" value={writingGraded ? formatBand(result.scores.overallBand) : "—"} icon={Award01Icon} accent hint="Điểm tổng" />
+        <StatCard
+          label="Thời gian làm bài"
+          value={formatDurationHuman(durationSeconds)}
+          icon={Clock01Icon}
+          className={cn(isTooFast && "border-amber-500/50 bg-amber-500/5 text-amber-700 dark:text-amber-300")}
+          hint={
+            isTooFast ? (
+              <span className="flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
+                <HugeiconsIcon icon={Alert02Icon} size={12} /> Bất thường (&lt; 5 phút)
+              </span>
+            ) : startedAt && submittedAt ? (
+              `Bắt đầu ${formatDate(startedAt).split(" ")[1] ?? ""} · Nộp ${formatDate(submittedAt).split(" ")[1] ?? ""}`
+            ) : result.examDurationMinutes ? (
+              `Thời lượng đề: ${result.examDurationMinutes} phút`
+            ) : (
+              "Thời gian hoàn thành"
+            )
+          }
+        />
       </div>
+
+      {/* Cảnh báo nộp bài quá nhanh */}
+      {isTooFast && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-amber-900 dark:text-amber-200">
+          <HugeiconsIcon
+            icon={Alert02Icon}
+            size={20}
+            className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+          />
+          <div className="space-y-1 text-xs sm:text-sm">
+            <p className="font-bold text-amber-950 dark:text-amber-100 flex items-center gap-2">
+              <span>Cảnh báo: Thời gian làm bài bất thường</span>
+              <Badge variant="destructive" className="text-[10px] py-0 px-1.5 font-semibold">
+                Nộp bài trong {formatDurationHuman(durationSeconds)}
+              </Badge>
+            </p>
+            <p className="text-amber-800/90 dark:text-amber-300/90 leading-relaxed text-xs">
+              Học sinh hoàn thành bài thi với tốc độ cực nhanh (trung bình ~{durationSeconds && answered > 0 ? Math.round(durationSeconds / answered) : "< 3"} giây/câu).
+              Thầy cô nên lưu ý kiểm tra khả năng học sinh sao chép đáp án có sẵn từ nguồn ngoài hoặc điền đáp án mà không đọc kỹ bài đọc/câu hỏi.
+            </p>
+          </div>
+        </div>
+      )}
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList className="bg-muted/50 p-1">
@@ -297,8 +363,8 @@ export default function TeacherSubmissionDetailPage() {
         <TabsContent value="log" className="space-y-4">
           {!USE_MOCKS && eventsQuery.isLoading ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                {Array.from({ length: 4 }).map((_, i) => (
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5">
+                {Array.from({ length: 5 }).map((_, i) => (
                   <Skeleton key={i} className="h-28 w-full rounded-xl" />
                 ))}
               </div>
@@ -308,8 +374,15 @@ export default function TeacherSubmissionDetailPage() {
             <QueryError error={eventsQuery.error} onRetry={() => eventsQuery.refetch()} />
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5">
                 <StatCard label="Tổng sự kiện" value={totalEvents} icon={Shield01Icon} accent />
+                <StatCard
+                  label="Thời gian hoàn thành"
+                  value={formatDurationHuman(durationSeconds)}
+                  icon={Clock01Icon}
+                  className={cn(isTooFast && "border-amber-500/50 bg-amber-500/5 text-amber-700 dark:text-amber-300")}
+                  hint={isTooFast ? "⚠️ Bất thường (< 5 phút)" : "Thời gian làm bài"}
+                />
                 <StatCard label="Rời tab" value={tabSwitches} icon={Alert02Icon} hint="Lần chuyển cửa sổ" />
                 <StatCard label="Dán văn bản" value={pastes} icon={Copy01Icon} hint="Lần dán" />
                 <StatCard label="Thoát fullscreen" value={fullscreenExits} icon={MaximizeScreenIcon} hint="Lần thoát" />

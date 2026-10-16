@@ -65,6 +65,7 @@ import { useExamRecovery } from "@/features/exam-engine/hooks/use-recovery"
 import { useAntiCheat } from "@/features/exam-engine/hooks/use-anti-cheat"
 import { useExamAudioPlayer } from "@/features/exam-engine/hooks/use-audio-player"
 import { useSubmitAttemptMutation } from "@/hooks/use-attempts"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { clearAttemptSnapshot } from "@/features/exam-engine/lib/idb"
 import { formatDuration } from "@/lib/format"
 import { DEMO_EXAM_MOCK_01 } from "@/mocks/demo-data"
@@ -701,12 +702,12 @@ function ListeningSection({
       </div>
 
       {/* Questions */}
-      <div className="mx-auto w-full max-w-3xl space-y-8 p-8">
-        <div className="space-y-1 rounded-xl border border-border bg-muted/20 p-4">
-          <h3 className="font-heading text-base font-bold text-foreground">
+      <div className="mx-auto w-full max-w-4xl space-y-8 p-4 sm:p-6 md:p-8">
+        <div className="space-y-1.5 rounded-xl border border-border bg-card p-4 sm:p-5">
+          <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
             {section.title}
           </h3>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
             {section.instructions}
           </p>
         </div>
@@ -740,6 +741,7 @@ function ReadingSection({
 }: SectionProps) {
   const highlights = useExamSessionStore((s) => s.highlights)
   const setHighlights = useExamSessionStore((s) => s.setHighlights)
+  const isMobile = useIsMobile()
 
   return (
     <HighlightLayer
@@ -748,28 +750,32 @@ function ReadingSection({
       onItemsChange={setHighlights}
       className="h-full"
     >
-      <ResizablePanelGroup orientation="horizontal" className="h-full w-full">
+      <ResizablePanelGroup
+        key={isMobile ? "vertical" : "horizontal"}
+        orientation={isMobile ? "vertical" : "horizontal"}
+        className="h-full w-full"
+      >
         <ResizablePanel
           defaultSize={50}
-          minSize={30}
-          className="overflow-y-auto border-r border-border bg-card"
+          minSize={25}
+          className="overflow-y-auto border-b md:border-b-0 md:border-r border-border bg-card"
         >
-          <div className="mx-auto max-w-2xl space-y-6 p-8">
-            <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
+          <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
+            <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 flex items-center justify-between gap-2 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur-xs sm:-mx-6 sm:-mt-6 sm:mb-6 sm:px-6 sm:py-3 md:-mx-8 md:-mt-6 md:mb-6 md:px-8 md:py-3.5 lg:-mx-10 lg:px-10">
               <Badge
                 variant="outline"
-                className="text-xs font-semibold text-primary"
+                className="text-xs sm:text-sm font-semibold text-primary truncate max-w-[160px] sm:max-w-none"
               >
                 {section.title}
               </Badge>
-              <div className="flex items-center gap-2">
-                <span className="hidden text-[11px] text-muted-foreground sm:inline">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="hidden text-xs text-muted-foreground lg:inline">
                   Bôi đen để highlight / ghi chú
                 </span>
                 <HighlightControls />
               </div>
             </div>
-            <div className="space-y-4 font-serif text-sm leading-[1.8] whitespace-pre-line text-foreground/90 select-text">
+            <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
               <SelectableHighlightedText
                 targetId="passage"
                 text={section.passageText ?? ""}
@@ -780,24 +786,27 @@ function ReadingSection({
           </div>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        <ResizableHandle
+          withHandle
+          className="touch-none bg-border/80 hover:bg-primary/50 transition-colors aria-[orientation=horizontal]:h-2 aria-[orientation=horizontal]:after:h-6 aria-[orientation=vertical]:w-2 aria-[orientation=vertical]:after:w-6"
+        />
 
         <ResizablePanel
           defaultSize={50}
-          minSize={30}
+          minSize={25}
           className="overflow-y-auto bg-muted/10"
         >
-          <div className="mx-auto max-w-2xl space-y-6 p-8">
-            <div className="space-y-1 rounded-xl border border-border bg-card p-4">
-              <h3 className="font-heading text-sm font-bold text-foreground">
+          <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
+            <div className="space-y-1.5 rounded-xl border border-border bg-card p-4 sm:p-5">
+              <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
                 {section.title}
               </h3>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                 {section.instructions}
               </p>
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-6 sm:space-y-8">
               {(section.questionGroups ?? []).map((group) => (
                 <GroupRenderer
                   key={group.id}
@@ -838,9 +847,9 @@ function WritingSection({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex h-full divide-x divide-border">
-        {/* Left: prompt */}
-        <div className="w-1/2 space-y-6 overflow-y-auto bg-card p-8">
+      <div className="flex h-full flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-border">
+        {/* Left / Top: prompt */}
+        <div className="h-1/2 md:h-full w-full md:w-1/2 space-y-4 md:space-y-6 overflow-y-auto bg-card p-4 sm:p-6 md:p-8">
           <div className="flex gap-2 border-b border-border pb-3">
             {task1Q && (
               <button
@@ -900,9 +909,9 @@ function WritingSection({
           <MediaImages media={section.media} />
         </div>
 
-        {/* Right: editor */}
-        <div className="flex w-1/2 flex-col bg-background">
-          <div className="flex items-center justify-between border-b border-border bg-muted/20 px-6 py-3">
+        {/* Right / Bottom: editor */}
+        <div className="flex h-1/2 md:h-full w-full md:w-1/2 flex-col bg-background">
+          <div className="flex items-center justify-between border-b border-border bg-muted/20 px-4 py-2.5 sm:px-6 sm:py-3">
             <div className="flex items-center gap-3">
               <span className="font-mono text-sm font-bold text-foreground">
                 {wordCount} words
@@ -917,7 +926,7 @@ function WritingSection({
               )}
             </div>
           </div>
-          <div className="flex-1 p-6">
+          <div className="flex-1 p-4 sm:p-6">
             {currentQ ? (
               <Textarea
                 value={text}
@@ -980,12 +989,12 @@ function InlineBlank({
       id={`exam-q-${q.questionNumber}`}
       data-question-number={q.questionNumber}
       className={cn(
-        "inline-flex items-center gap-1 align-baseline",
+        "inline-flex items-center gap-1.5 align-baseline",
         compact ? "mx-0.5" : "mx-1.5 my-1"
       )}
     >
       {!compact && (
-        <span className="flex size-5 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-[11px] font-bold text-primary">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
           {q.questionNumber}
         </span>
       )}
@@ -994,8 +1003,8 @@ function InlineBlank({
           value={answer}
           onChange={(e) => ctx.onAnswer(q.id, e.target.value)}
           className={cn(
-            "h-7 rounded-md border border-border bg-background font-mono text-xs font-medium focus:border-primary focus:outline-hidden",
-            compact ? "px-1.5" : "px-2"
+            "h-8 rounded-md border border-border bg-background font-mono text-sm font-medium focus:border-primary focus:outline-hidden",
+            compact ? "px-2" : "px-2.5"
           )}
         >
           <option value="">[{q.questionNumber}]</option>
@@ -1014,8 +1023,8 @@ function InlineBlank({
             ctx.maxWords ? `≤ ${ctx.maxWords} từ` : `[${q.questionNumber}]`
           }
           className={cn(
-            "h-7 rounded-md border border-border bg-background text-xs font-medium focus:border-primary focus:outline-hidden",
-            compact ? "w-24 px-1.5" : "w-28 px-2 sm:w-36"
+            "h-8 rounded-md border border-border bg-background text-sm font-medium focus:border-primary focus:outline-hidden",
+            compact ? "w-28 px-2" : "w-32 px-2.5 sm:w-44"
           )}
         />
       )}
@@ -1030,7 +1039,7 @@ function InlineBlank({
         )}
         title="Đánh dấu câu"
       >
-        <HugeiconsIcon icon={Flag01Icon} size={12} />
+        <HugeiconsIcon icon={Flag01Icon} size={13} />
       </button>
     </span>
   )
@@ -1176,7 +1185,7 @@ function InlineTemplateRenderer({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-border/80 bg-muted/10 p-4 font-serif text-sm leading-[2.2] text-foreground select-text">
+      <div className="rounded-xl border border-border/80 bg-muted/10 p-5 sm:p-6 font-serif text-[15px] sm:text-base md:text-[17px] leading-[2.4] text-foreground select-text">
         {renderedTokens}
       </div>
 
@@ -1693,12 +1702,12 @@ function GroupRendererBody({
           </div>
 
           {group.questions[0]?.prompt && (
-            <p className="text-sm font-semibold text-foreground">
+            <p className="text-sm sm:text-base font-semibold text-foreground leading-relaxed">
               {group.questions[0].prompt}
             </p>
           )}
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {options.map((opt) => {
               const isSelected = selectedOptionIds.includes(opt.id)
               return (
@@ -1707,7 +1716,7 @@ function GroupRendererBody({
                   type="button"
                   onClick={() => handleToggleOption(opt.id)}
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-lg border px-3.5 py-2.5 text-left text-xs transition-colors",
+                    "flex w-full items-center gap-3 rounded-lg border px-3.5 py-2.5 text-left text-xs sm:text-sm transition-colors",
                     isSelected
                       ? "border-primary bg-primary/5 font-semibold text-primary shadow-2xs"
                       : "border-border text-foreground hover:bg-muted"
@@ -1715,7 +1724,7 @@ function GroupRendererBody({
                 >
                   <div
                     className={cn(
-                      "flex size-5 shrink-0 items-center justify-center rounded border font-mono text-[10px] font-bold transition-colors",
+                      "flex size-5.5 sm:size-6 shrink-0 items-center justify-center rounded border font-mono text-[11px] sm:text-xs font-bold transition-colors",
                       isSelected
                         ? "border-primary bg-primary text-primary-foreground"
                         : "border-muted-foreground/40 bg-card"
@@ -2035,25 +2044,25 @@ function GroupRendererBody({
 
   // ─── Standard Group Renderer ───────────────────────────────────────────────
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-card p-5">
-      <div className="space-y-1">
-        <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+    <div className="space-y-5 rounded-xl border border-border bg-card p-4 sm:p-6">
+      <div className="space-y-1.5">
+        <p className="text-xs sm:text-sm font-semibold tracking-wide text-muted-foreground uppercase">
           Questions {group.questions[0]?.questionNumber}–
           {group.questions[group.questions.length - 1]?.questionNumber}
         </p>
-        <p className="text-sm font-medium whitespace-pre-line text-foreground">
+        <p className="text-sm sm:text-base font-semibold whitespace-pre-line text-foreground leading-relaxed">
           {group.instructions}
         </p>
         {wordLimitText && (
-          <p className="text-xs font-semibold text-primary">{wordLimitText}</p>
+          <p className="text-xs sm:text-sm font-bold text-primary">{wordLimitText}</p>
         )}
       </div>
 
       {isMatching && matchPool.length > 0 && (
-        <div className="space-y-1 rounded-lg border border-border bg-muted/20 p-3">
+        <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3 sm:p-4">
           {matchPool.map((item) => (
-            <div key={item.id} className="flex gap-2 text-xs">
-              <span className="w-5 font-bold text-primary">{item.id}</span>
+            <div key={item.id} className="flex gap-2 text-xs sm:text-sm">
+              <span className="w-6 font-bold text-primary">{item.id}</span>
               <span className="text-foreground">{item.text}</span>
             </div>
           ))}
@@ -2061,15 +2070,15 @@ function GroupRendererBody({
       )}
 
       {optionsPool.length > 0 && (
-        <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-          <span className="text-xs font-bold text-primary uppercase">
+        <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3 sm:p-4">
+          <span className="text-xs sm:text-sm font-bold text-primary uppercase">
             Word Bank:
           </span>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
             {optionsPool.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1 text-xs"
+                className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-xs sm:text-sm"
               >
                 <span className="font-bold text-primary">{item.id}</span>
                 <span className="text-foreground">{item.text}</span>
@@ -2080,15 +2089,15 @@ function GroupRendererBody({
       )}
 
       {labelsPool.length > 0 && (
-        <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
-          <span className="text-xs font-semibold text-muted-foreground uppercase">
+        <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 sm:p-4">
+          <span className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase">
             Danh sách nhãn:
           </span>
           <div className="flex flex-wrap gap-2">
             {labelsPool.map((l) => (
               <div
                 key={l.id}
-                className="flex items-center gap-1.5 rounded border border-border bg-card px-2.5 py-1 text-xs"
+                className="flex items-center gap-1.5 rounded border border-border bg-card px-3 py-1.5 text-xs sm:text-sm"
               >
                 <span className="font-bold text-primary">{l.id}</span>
                 <span className="text-foreground">{l.label || l.id}</span>
@@ -2098,7 +2107,7 @@ function GroupRendererBody({
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-4">
         {group.questions.map((q) => {
           const answer = answers[q.id]?.value ?? ""
           const isFlagged = !!flagged[q.id]
@@ -2107,14 +2116,14 @@ function GroupRendererBody({
               key={q.id}
               id={`exam-q-${q.questionNumber}`}
               data-question-number={q.questionNumber}
-              className="flex items-start gap-3"
+              className="flex items-start gap-3 sm:gap-3.5"
             >
-              <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-xs font-bold text-primary">
+              <span className="mt-0.5 flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-xs sm:text-sm font-bold text-primary">
                 {q.questionNumber}
               </span>
-              <div className="flex-1 space-y-1.5">
+              <div className="flex-1 space-y-2">
                 {q.prompt && (
-                  <p className="text-sm text-foreground">
+                  <p className="text-sm sm:text-base font-medium leading-relaxed text-foreground">
                     <SelectableHighlightedText
                       targetId={`q-${q.id}`}
                       text={q.prompt}
@@ -2122,14 +2131,14 @@ function GroupRendererBody({
                   </p>
                 )}
                 {isTFNG || isYNNG ? (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 sm:gap-2.5">
                     {options.map((opt) => (
                       <button
                         key={opt.id}
                         type="button"
                         onClick={() => onAnswer(q.id, opt.id)}
                         className={cn(
-                          "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                          "rounded-lg border px-4 py-2 text-xs sm:text-sm font-semibold transition-colors",
                           answer === opt.id
                             ? "border-primary bg-primary/10 text-primary"
                             : "border-border text-muted-foreground hover:bg-muted"
@@ -2140,28 +2149,28 @@ function GroupRendererBody({
                     ))}
                   </div>
                 ) : group.groupType === "multiple_choice_single" ? (
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     {options.map((opt) => (
                       <button
                         key={opt.id}
                         type="button"
                         onClick={() => onAnswer(q.id, opt.id)}
                         className={cn(
-                          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                          "flex w-full items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-left text-xs sm:text-sm transition-colors",
                           answer === opt.id
-                            ? "border-primary bg-primary/5 font-medium text-primary"
+                            ? "border-primary bg-primary/5 font-semibold text-primary"
                             : "border-border hover:bg-muted"
                         )}
                       >
-                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold">
+                        <span className="flex size-5.5 sm:size-6 shrink-0 items-center justify-center rounded-full border text-[11px] sm:text-xs font-bold">
                           {opt.id}
                         </span>
                         <span className="flex-1">
-                    <SelectableHighlightedText
-                      targetId={`opt-${q.id}-${opt.id}`}
-                      text={opt.text || opt.id}
-                    />
-                  </span>
+                          <SelectableHighlightedText
+                            targetId={`opt-${q.id}-${opt.id}`}
+                            text={opt.text || opt.id}
+                          />
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -2169,7 +2178,7 @@ function GroupRendererBody({
                   <select
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-8 rounded-lg border border-border bg-background px-2 text-xs"
+                    className="h-9 rounded-lg border border-border bg-background px-3 text-xs sm:text-sm"
                   >
                     <option value="">—</option>
                     {matchPool.map((opt) => (
@@ -2183,7 +2192,7 @@ function GroupRendererBody({
                   <select
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-8 rounded-lg border border-border bg-background px-2 font-mono text-xs font-medium"
+                    className="h-9 rounded-lg border border-border bg-background px-3 font-mono text-xs sm:text-sm font-medium"
                   >
                     <option value="">— Chọn từ khóa —</option>
                     {optionsPool.map((opt) => (
@@ -2196,7 +2205,7 @@ function GroupRendererBody({
                   <select
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-8 rounded-lg border border-border bg-background px-2 font-mono text-xs font-medium"
+                    className="h-9 rounded-lg border border-border bg-background px-3 font-mono text-xs sm:text-sm font-medium"
                   >
                     <option value="">— Chọn nhãn —</option>
                     {labelsPool.map((l) => (
@@ -2209,7 +2218,7 @@ function GroupRendererBody({
                   <Input
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-8 text-xs"
+                    className="h-9 text-xs sm:text-sm rounded-lg"
                     placeholder={
                       isCompletion && maxWords
                         ? `Tối đa ${maxWords} từ`
@@ -2222,13 +2231,14 @@ function GroupRendererBody({
                 type="button"
                 onClick={() => onToggleFlag(q.id)}
                 className={cn(
-                  "mt-1 shrink-0",
+                  "mt-1 shrink-0 p-1 rounded-md transition-colors",
                   isFlagged
                     ? "text-amber-500"
                     : "text-muted-foreground/40 hover:text-muted-foreground"
                 )}
+                title="Đánh dấu câu hỏi"
               >
-                <HugeiconsIcon icon={Flag01Icon} size={14} />
+                <HugeiconsIcon icon={Flag01Icon} size={16} />
               </button>
             </div>
           )
@@ -2349,6 +2359,7 @@ function SubmitReviewDialog({
 // ═══════════════════════════════════════════════════════════════
 function MockExamEngine({ attemptId }: { attemptId: string }) {
   const router = useRouter()
+  const isMobile = useIsMobile()
   const exam = DEMO_EXAM_MOCK_01
   const [activeSectionIndex, setActiveSectionIndex] = React.useState<number>(0)
   const currentSection = exam.sections[activeSectionIndex] || exam.sections[0]
@@ -2582,12 +2593,12 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
               </div>
             </div>
 
-            <div className="mx-auto w-full max-w-3xl space-y-8 p-8">
-              <div className="space-y-1 rounded-xl border border-border bg-muted/20 p-4">
-                <h3 className="font-heading text-base font-bold text-foreground">
+            <div className="mx-auto w-full max-w-4xl space-y-8 p-4 sm:p-6 md:p-8">
+              <div className="space-y-1.5 rounded-xl border border-border bg-card p-4 sm:p-5">
+                <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
                   {currentSection.title}
                 </h3>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                   {currentSection.instructions}
                 </p>
               </div>
@@ -2674,47 +2685,51 @@ function MockExamEngine({ attemptId }: { attemptId: string }) {
 
         {currentSection.skill === "reading" && (
           <ResizablePanelGroup
-            orientation="horizontal"
+            key={isMobile ? "vertical" : "horizontal"}
+            orientation={isMobile ? "vertical" : "horizontal"}
             className="h-full w-full"
           >
             <ResizablePanel
               defaultSize={50}
-              minSize={30}
-              className="overflow-y-auto border-r border-border bg-card"
+              minSize={25}
+              className="overflow-y-auto border-b md:border-b-0 md:border-r border-border bg-card"
             >
-              <div className="mx-auto max-w-2xl space-y-6 p-8">
+              <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
                 <div className="border-b border-border pb-4">
                   <Badge
                     variant="outline"
-                    className="mb-2 text-xs font-semibold text-primary"
+                    className="mb-2 text-xs sm:text-sm font-semibold text-primary"
                   >
                     {currentSection.title}
                   </Badge>
-                  <h2 className="font-heading text-xl leading-tight font-extrabold text-foreground">
+                  <h2 className="font-heading text-xl sm:text-2xl leading-tight font-extrabold text-foreground">
                     The Evolutionary Marvel of Cetacean Acoustic Biology
                   </h2>
                 </div>
-                <div className="space-y-4 font-serif text-sm leading-[1.8] whitespace-pre-line text-foreground/90 select-text">
+                <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
                   {currentSection.passageText}
                 </div>
               </div>
             </ResizablePanel>
-            <ResizableHandle withHandle />
+            <ResizableHandle
+              withHandle
+              className="touch-none bg-border/80 hover:bg-primary/50 transition-colors aria-[orientation=horizontal]:h-2 aria-[orientation=horizontal]:after:h-6 aria-[orientation=vertical]:w-2 aria-[orientation=vertical]:after:w-6"
+            />
             <ResizablePanel
               defaultSize={50}
-              minSize={30}
+              minSize={25}
               className="overflow-y-auto bg-muted/10"
             >
-              <div className="mx-auto max-w-2xl space-y-6 p-8">
-                <div className="space-y-1 rounded-xl border border-border bg-card p-4">
-                  <h3 className="font-heading text-sm font-bold text-foreground">
+              <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
+                <div className="space-y-1.5 rounded-xl border border-border bg-card p-4 sm:p-5">
+                  <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
                     Questions 1–3
                   </h3>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                     {currentSection.instructions}
                   </p>
                 </div>
-                <div className="space-y-6">
+                <div className="space-y-6 sm:space-y-8">
                   {flattenSectionQuestions(currentSection).map((q, idx) => (
                     <div
                       key={q.id}
