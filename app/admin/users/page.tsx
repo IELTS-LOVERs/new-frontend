@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { parseAsString, parseAsInteger, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatCard } from "@/components/shared/stat-card"
@@ -44,9 +45,11 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
+  Analytics01Icon,
   Copy01Icon,
   Key01Icon,
   LockIcon,
+  Logout01Icon,
   MoreHorizontalIcon,
   RefreshIcon,
   Search01Icon,
@@ -65,6 +68,7 @@ import {
   useCreateUserMutation,
   useUpdateUserStatusMutation,
   useResetUserPasswordMutation,
+  useRevokeUserSessionsMutation,
 } from "@/hooks/use-admin"
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -122,6 +126,7 @@ export default function AdminUsersPage() {
   const [resetUser, setResetUser] = React.useState<User | null>(null)
   const [newPassword, setNewPassword] = React.useState("")
   const [suspendUser, setSuspendUser] = React.useState<User | null>(null)
+  const [revokeUser, setRevokeUser] = React.useState<User | null>(null)
 
   // Debounce ô tìm kiếm
   const [debouncedQuery, setDebouncedQuery] = React.useState("")
@@ -147,6 +152,7 @@ export default function AdminUsersPage() {
   )
   const updateStatus = useUpdateUserStatusMutation()
   const resetPassword = useResetUserPasswordMutation()
+  const revokeSessions = useRevokeUserSessionsMutation()
 
   const filtered = usersQuery.data?.items ?? []
 
@@ -205,6 +211,20 @@ export default function AdminUsersPage() {
           toast.error(error instanceof ApiError ? error.message : "Không kích hoạt được tài khoản."),
       }
     )
+  }
+
+  const confirmRevokeSessions = () => {
+    if (!revokeUser) return
+    revokeSessions.mutate(revokeUser.id, {
+      onSuccess: (message) => {
+        toast.success(message || `Đã đăng xuất ${revokeUser.fullName} khỏi mọi thiết bị`)
+        setRevokeUser(null)
+      },
+      onError: (error) =>
+        toast.error(
+          error instanceof ApiError ? error.message : "Không đăng xuất được người dùng."
+        ),
+    })
   }
 
   return (
@@ -339,8 +359,18 @@ export default function AdminUsersPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {u.role === "student" && (
+                              <DropdownMenuItem asChild>
+                                <Link href={`/admin/students/${u.id}/progress`}>
+                                  <HugeiconsIcon icon={Analytics01Icon} size={15} /> Xem tiến độ
+                                </Link>
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handleReset(u)}>
                               <HugeiconsIcon icon={Key01Icon} size={15} /> Đặt lại mật khẩu
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setRevokeUser(u)}>
+                              <HugeiconsIcon icon={Logout01Icon} size={15} /> Đăng xuất mọi thiết bị
                             </DropdownMenuItem>
                             {u.status === "active" ? (
                               <DropdownMenuItem variant="destructive" onClick={() => setSuspendUser(u)}>
@@ -467,6 +497,33 @@ export default function AdminUsersPage() {
               onClick={confirmSuspend}
             >
               {updateStatus.isPending ? "Đang khoá..." : "Khoá tài khoản"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke all sessions confirm */}
+      <Dialog open={!!revokeUser} onOpenChange={(v) => !v && setRevokeUser(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-lg font-bold">
+              Đăng xuất mọi thiết bị?
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              <span className="font-semibold text-foreground">{revokeUser?.fullName}</span> sẽ bị
+              đăng xuất khỏi tất cả thiết bị và phải đăng nhập lại.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevokeUser(null)}>
+              Hủy
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={revokeSessions.isPending}
+              onClick={confirmRevokeSessions}
+            >
+              {revokeSessions.isPending ? "Đang đăng xuất..." : "Đăng xuất mọi thiết bị"}
             </Button>
           </DialogFooter>
         </DialogContent>

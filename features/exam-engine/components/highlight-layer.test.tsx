@@ -159,4 +159,24 @@ describe("HighlightLayer + SelectableHighlightedText", () => {
     expect(noteBtn.querySelector("svg")).toBeTruthy()
     expect(hlBtn.querySelector("svg")).toBeTruthy()
   })
+
+  it("hides highlight controls and ignores selections when disabled", () => {
+    render(
+      <HighlightLayer sectionIndex={0} disabled>
+        <HighlightControls />
+        <SelectableHighlightedText targetId="passage" text={PASSAGE} />
+      </HighlightLayer>
+    )
+    const target = document.querySelector(
+      '[data-hl-target="passage"]'
+    ) as HTMLElement
+    const textNode = target.firstChild as Text
+
+    expect(screen.queryByRole("button", { name: /Ghi ch/ })).toBeNull()
+
+    selectRange(textNode, 0, 7)
+    fireEvent.mouseUp(target)
+    expect(screen.queryByRole("button", { name: /^Highlight$/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /^Note$/ })).toBeNull()
+  })
 })

@@ -59,3 +59,10 @@ export async function resetUserPasswordApi(id: string, newPassword: string): Pro
   })
   return data.message
 }
+
+export async function revokeUserSessionsApi(id: string): Promise<string> {
+  const { data } = await apiClient<{ message: string }>(`/api/users/${id}/revoke-sessions`, {
+    method: "POST",
+  })
+  return data.message
+}

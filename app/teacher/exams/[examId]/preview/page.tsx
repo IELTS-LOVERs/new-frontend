@@ -87,6 +87,7 @@ export default function ExamPreviewPage() {
     : null
 
   const current = exam?.sections[activeSectionIndex]
+  const selectionBlocked = examQuery.data?.disableTextSelection === true
 
   const sectionImages = (current?.media ?? []).filter((m) => m.type === "image") as MediaItem[]
   const groupImages = (current?.questionGroups ?? [])
@@ -219,7 +220,12 @@ export default function ExamPreviewPage() {
         ))}
       </div>
 
-      <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 p-8">
+      <main
+        className={cn(
+          "mx-auto w-full max-w-4xl flex-1 space-y-6 p-8",
+          selectionBlocked && "exam-no-select"
+        )}
+      >
         {current.skill === "listening" && (
           <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-xs">
             <span className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground">

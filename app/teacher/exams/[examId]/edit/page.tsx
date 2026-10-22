@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -263,6 +264,7 @@ function toLocalExam(detail: TeacherExamDetail): CandidateExam {
     kind: detail.kind,
     scoringMode: detail.scoringMode,
     bandConversion: detail.bandConversion,
+    disableTextSelection: detail.disableTextSelection ?? false,
     curriculum: detail.curriculum,
     sections: detail.sections
       // Defensive: ignore any legacy sections whose skill is no longer supported.
@@ -351,6 +353,7 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
     kind: exam.kind,
     scoringMode: exam.scoringMode,
     bandConversion: exam.bandConversion,
+    disableTextSelection: exam.disableTextSelection ?? false,
     curriculum: exam.curriculum,
     sections,
     openAt: toIsoOrUndefined(openAt),
@@ -456,6 +459,7 @@ export default function ExamBuilderPage() {
           title: snapshot.exam.title,
           description: snapshot.exam.description ?? undefined,
           bannerUrl: snapshot.exam.bannerUrl ?? undefined,
+          disableTextSelection: snapshot.exam.disableTextSelection ?? false,
           openAt: toIsoOrUndefined(snapshot.openAt),
           closeAt: toIsoOrUndefined(snapshot.closeAt),
         })
@@ -1712,6 +1716,29 @@ export default function ExamBuilderPage() {
                   onChange={(e) => updateExam({ durationMinutes: Number(e.target.value) })}
                   className="h-9 font-mono text-sm"
                 />
+              </div>
+              <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/20 p-3">
+                <Checkbox
+                  id="disable-text-selection"
+                  checked={exam.disableTextSelection === true}
+                  onCheckedChange={(checked) =>
+                    updateExam({ disableTextSelection: checked === true })
+                  }
+                  disabled={status === "closed"}
+                  className="mt-0.5"
+                />
+                <div className="space-y-0.5">
+                  <Label
+                    htmlFor="disable-text-selection"
+                    className="cursor-pointer text-xs"
+                  >
+                    Chặn bôi đen văn bản
+                  </Label>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Học sinh không thể bôi đen, highlight hoặc ghi chú trên máy
+                    tính và điện thoại.
+                  </p>
+                </div>
               </div>
               {exam.kind === "practice" ? (
                 <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">

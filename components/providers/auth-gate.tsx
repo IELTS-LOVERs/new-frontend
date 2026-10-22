@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation"
 import { useAuthStore, initAuthFromStorage } from "@/stores/auth.store"
 import { getMeApi, refreshAccessTokenApi } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/client"
+import { forceLogout } from "@/lib/auth-session"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { UserRole } from "@/lib/api/types"
 
@@ -61,9 +62,17 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
 
     const timer = setTimeout(async () => {
       try {
-        await refreshAccessTokenApi()
+        const result = await refreshAccessTokenApi()
+        if (
+          !result.token &&
+          (result.errorCode === "SESSION_REPLACED" || result.errorCode === "TOKEN_REVOKED")
+        ) {
+          forceLogout(
+            result.errorCode === "TOKEN_REVOKED" ? "token_revoked" : "session_replaced"
+          )
+        }
       } catch {
-        // Bỏ qua lỗi ngầm, client.ts sẽ thử lại khi cần
+        // Bỏ qua lỗi ngầm (mạng/5xx), client.ts sẽ thử lại khi cần
       }
     }, msUntilRefresh)
 
@@ -95,8 +104,17 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
       }
 
       // Thử refresh token bằng cookie nếu chưa có token hoặc token đã hết hạn
-      const token = await refreshAccessTokenApi()
-      if (!token) {
+      const refreshResult = await refreshAccessTokenApi()
+      if (!refreshResult.token) {
+        if (
+          refreshResult.errorCode === "SESSION_REPLACED" ||
+          refreshResult.errorCode === "TOKEN_REVOKED"
+        ) {
+          forceLogout(
+            refreshResult.errorCode === "TOKEN_REVOKED" ? "token_revoked" : "session_replaced"
+          )
+          return
+        }
         logout()
         redirectToLogin()
         return
@@ -105,7 +123,7 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
       try {
         const me = await getMeApi()
         if (cancelled) return
-        setAuth(me, token)
+        setAuth(me, refreshResult.token)
         if (!allowedRoles.includes(me.role)) {
           redirectToRoleHome(me.role)
           return
@@ -113,6 +131,13 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
         if (!cancelled) setStatus("ready")
       } catch (err) {
         if (cancelled) return
+        if (
+          err instanceof ApiError &&
+          (err.code === "SESSION_REPLACED" || err.code === "TOKEN_REVOKED")
+        ) {
+          // forceLogout đã được gọi từ api client.
+          return
+        }
         if (err instanceof ApiError && err.status === 401) {
           logout()
           redirectToLogin()

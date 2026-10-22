@@ -16,6 +16,14 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import { Label } from "@/components/ui/label"
+import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
@@ -33,6 +41,7 @@ import {
   ArrowRight01Icon,
   ArrowLeft01Icon,
   Flag01Icon,
+  TextFontIcon,
 } from "@hugeicons/core-free-icons"
 import {
   parseMarkdownTable,
@@ -110,6 +119,12 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const setUITheme = useExamSessionStore((s) => s.setUITheme)
 
   const [isSubmitOpen, setIsSubmitOpen] = React.useState(false)
+  const [isDisplaySettingsOpen, setIsDisplaySettingsOpen] = React.useState(false)
+  const paletteRef = React.useRef<HTMLDivElement | null>(null)
+  const [paletteEdges, setPaletteEdges] = React.useState({
+    left: false,
+    right: false,
+  })
   const [writingTask, setWritingTask] = React.useState<"task1" | "task2">(
     "task1"
   )
@@ -227,6 +242,30 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
     }
   }, [pendingScrollQNum, activeSectionIndex])
 
+  // Keep the edge fades of the bottom question palette in sync with its
+  // overflow, so long exams show that more question numbers are available.
+  React.useEffect(() => {
+    const el = paletteRef.current
+    if (!el) return
+    const update = () => {
+      setPaletteEdges({
+        left: el.scrollLeft > 1,
+        right: el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
+      })
+    }
+    update()
+    el.addEventListener("scroll", update, { passive: true })
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update)
+    observer?.observe(el)
+    window.addEventListener("resize", update)
+    return () => {
+      el.removeEventListener("scroll", update)
+      observer?.disconnect()
+      window.removeEventListener("resize", update)
+    }
+  }, [exam, activeSectionIndex])
+
   // ─── Recovery states ───────────────────────────────────────
   if (recoveryStatus === "loading") {
     return (
@@ -290,6 +329,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const allQuestions = buildExamQuestionIndex(exam)
   const answeredCount = computeAnsweredCount(answers)
   const totalQuestions = allQuestions.length
+  const selectionBlocked = exam.disableTextSelection === true
 
   return (
     <div
@@ -303,21 +343,24 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
       {/* TOP BAR */}
       <header
         className={cn(
-          "z-30 flex h-14 shrink-0 items-center justify-between border-b px-6 select-none",
+          "z-30 flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3 select-none sm:gap-4 sm:px-6",
           ui.theme === "cream"
             ? "border-[#E8E4DD] bg-[#FAF8F5]"
             : "border-border bg-background"
         )}
       >
-        <div className="flex items-center gap-6">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-6">
           <BrandLogo href="/student" compact />
           <div className="hidden h-4 w-px bg-border sm:block" />
-          <span className="max-w-[260px] truncate font-heading text-sm font-semibold text-foreground">
+          <span
+            className="min-w-0 truncate font-heading text-xs font-semibold text-foreground sm:max-w-[260px] sm:text-sm"
+            title={exam.title}
+          >
             {exam.title}
           </span>
         </div>
 
-        <div className="hidden items-center gap-1 rounded-xl bg-muted/50 p-1 md:flex">
+        <div className="hidden items-center gap-1 rounded-xl bg-muted/50 p-1 lg:flex">
           {exam.sections.map((sec, idx) => (
             <button
               key={`${sec.skill}-${sec.part}`}
@@ -334,7 +377,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
           {/* Autosave status */}
           <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
             {saveStatus === "saving" ? (
@@ -360,7 +403,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
           </div>
 
           {/* Timer */}
-          <div className="flex items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-1 font-mono text-xs font-semibold sm:text-sm">
+          <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/40 px-2 py-1 font-mono text-xs font-semibold sm:gap-1.5 sm:px-3 sm:text-sm">
             <HugeiconsIcon
               icon={Timer01Icon}
               size={15}
@@ -408,7 +451,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
           </div>
 
           {/* Điều chỉnh cỡ chữ to/nhỏ */}
-          <div className="flex items-center rounded-xl border border-border bg-muted/20 p-0.5 text-xs">
+          <div className="hidden items-center rounded-xl border border-border bg-muted/20 p-0.5 text-xs sm:flex">
             <button
               type="button"
               onClick={decreaseFontScale}
@@ -440,20 +483,123 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
           </div>
 
           <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setIsDisplaySettingsOpen(true)}
+            className="size-10 sm:hidden"
+            title="Cỡ chữ và giao diện"
+            aria-label="Cỡ chữ và giao diện"
+          >
+            <HugeiconsIcon icon={TextFontIcon} size={16} />
+          </Button>
+
+          <Button
             size="sm"
             onClick={() => setIsSubmitOpen(true)}
-            className="h-8 px-3 text-xs font-medium"
+            className="h-10 px-2.5 text-xs font-medium sm:h-8 sm:px-3"
+            aria-label="Nộp bài"
           >
-            Nộp bài
+            <span className="sm:hidden">Nộp</span>
+            <span className="hidden sm:inline">Nộp bài</span>
           </Button>
         </div>
       </header>
+
+      <Sheet open={isDisplaySettingsOpen} onOpenChange={setIsDisplaySettingsOpen}>
+        <SheetContent
+          side="bottom"
+          className="rounded-t-3xl pb-[calc(1rem+env(safe-area-inset-bottom))]"
+        >
+          <SheetHeader className="p-4 pb-2">
+            <SheetTitle className="text-base">Hiển thị bài thi</SheetTitle>
+            <SheetDescription className="text-xs">
+              Điều chỉnh cỡ chữ và màu nền cho dễ đọc hơn.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="space-y-5 px-4 pb-2">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium">Cỡ chữ</Label>
+                <button
+                  type="button"
+                  onClick={resetFontScale}
+                  className="h-11 px-2 text-xs font-medium text-primary hover:underline"
+                >
+                  Đặt lại
+                </button>
+              </div>
+              <div className="grid grid-cols-[44px_1fr_44px] items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={decreaseFontScale}
+                  disabled={ui.fontScale <= 0.85}
+                  className="h-11 w-11 p-0 text-base font-bold"
+                  aria-label="Giảm cỡ chữ"
+                >
+                  −
+                </Button>
+                <div className="flex h-11 items-center justify-center rounded-lg border border-border bg-muted/20 font-mono text-sm font-semibold tabular-nums">
+                  {Math.round(ui.fontScale * 100)}%
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={increaseFontScale}
+                  disabled={ui.fontScale >= 1.4}
+                  className="h-11 w-11 p-0 text-base font-bold"
+                  aria-label="Tăng cỡ chữ"
+                >
+                  +
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">Màu nền</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-pressed={ui.theme === "white"}
+                  onClick={() => setUITheme("white")}
+                  className={cn(
+                    "h-11",
+                    ui.theme === "white" &&
+                      "border-primary bg-primary/10 font-semibold text-primary"
+                  )}
+                >
+                  Trắng
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-pressed={ui.theme === "cream"}
+                  onClick={() => setUITheme("cream")}
+                  className={cn(
+                    "h-11",
+                    ui.theme === "cream" &&
+                      "border-primary bg-primary/10 font-semibold text-primary"
+                  )}
+                >
+                  Ngà
+                </Button>
+              </div>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* BODY */}
       {/* Tailwind dùng đơn vị rem cho text-*, nên font-size % trên <main>
           không làm chữ to lên. `zoom` scale toàn bộ nội dung bài thi. */}
       <main
-        className="min-h-0 flex-1 overflow-hidden"
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden",
+          selectionBlocked && "exam-no-select"
+        )}
         style={{ zoom: ui.fontScale }}
       >
         {currentSection.skill === "listening" && (
@@ -475,6 +621,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             flagged={flagged}
             onAnswer={(qid, v) => setAnswer(qid, v)}
             onToggleFlag={toggleFlag}
+            selectionDisabled={selectionBlocked}
           />
         )}
         {currentSection.skill === "writing" && (
@@ -489,51 +636,68 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
       </main>
 
       {/* BOTTOM PALETTE */}
-      <footer className="z-30 flex h-14 shrink-0 items-center justify-between border-t border-border bg-background px-6 select-none">
-        <div className="flex items-center gap-4">
-          <span className="hidden text-xs font-semibold text-muted-foreground sm:inline">
+      <footer className="z-30 flex h-[calc(3.5rem+env(safe-area-inset-bottom))] shrink-0 items-center justify-between gap-2 border-t border-border bg-background px-3 pb-[env(safe-area-inset-bottom)] select-none sm:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="hidden shrink-0 text-xs font-semibold text-muted-foreground sm:inline">
             Tiến độ:{" "}
             <strong className="font-mono text-foreground">
               {answeredCount}/{totalQuestions}
             </strong>{" "}
             câu
           </span>
-          <div className="hidden h-4 w-px bg-border sm:block" />
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-            {allQuestions.map((q, idx) => {
-              const isAnswered = !!answers[q.id]?.value?.trim()
-              const isFlag = !!flagged[q.id]
-              const isCurrentSec = q.sectionIndex === activeSectionIndex
-              const qNum = q.questionNumber ?? idx + 1
-              const isActiveQuestion = activeQuestionNumber === qNum
-              return (
-                <button
-                  key={q.id}
-                  onClick={() => jumpToQuestion(qNum, q.sectionIndex)}
-                  aria-current={isActiveQuestion ? "true" : undefined}
-                  className={cn(
-                    "relative flex size-8 items-center justify-center rounded-lg font-mono text-xs font-bold transition-all",
-                    isAnswered
-                      ? "bg-primary text-primary-foreground shadow-xs"
-                      : "border border-border bg-card text-foreground hover:bg-muted",
-                    isActiveQuestion
-                      ? "ring-2 ring-amber-500 ring-offset-2"
-                      : isCurrentSec
-                        ? "ring-2 ring-primary ring-offset-1"
-                        : "opacity-80"
-                  )}
-                >
-                  {idx + 1}
-                  {isFlag && (
-                    <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-amber-500 ring-1 ring-background" />
-                  )}
-                </button>
-              )
-            })}
+          <div className="hidden h-4 w-px shrink-0 bg-border sm:block" />
+          <div className="relative min-w-0 flex-1">
+            <div
+              ref={paletteRef}
+              className="scrollbar-clean flex min-w-0 items-center gap-1.5 overflow-x-auto py-1"
+            >
+              {allQuestions.map((q, idx) => {
+                const isAnswered = !!answers[q.id]?.value?.trim()
+                const isFlag = !!flagged[q.id]
+                const isCurrentSec = q.sectionIndex === activeSectionIndex
+                const qNum = q.questionNumber ?? idx + 1
+                const isActiveQuestion = activeQuestionNumber === qNum
+                return (
+                  <button
+                    key={q.id}
+                    onClick={() => jumpToQuestion(qNum, q.sectionIndex)}
+                    aria-current={isActiveQuestion ? "true" : undefined}
+                    className={cn(
+                      "relative flex size-8 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold transition-all",
+                      isAnswered
+                        ? "bg-primary text-primary-foreground shadow-xs"
+                        : "border border-border bg-card text-foreground hover:bg-muted",
+                      isActiveQuestion
+                        ? "ring-2 ring-amber-500 ring-offset-2"
+                        : isCurrentSec
+                          ? "ring-2 ring-primary ring-offset-1"
+                          : "opacity-80"
+                    )}
+                  >
+                    {idx + 1}
+                    {isFlag && (
+                      <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-amber-500 ring-1 ring-background" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+            {paletteEdges.left && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-background to-transparent"
+              />
+            )}
+            {paletteEdges.right && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent"
+              />
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -541,7 +705,8 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             onClick={() =>
               setActiveSectionIndex(Math.max(0, activeSectionIndex - 1))
             }
-            className="h-8 gap-1 text-xs"
+            className="h-10 gap-1 text-xs sm:h-8"
+            aria-label="Phần trước"
           >
             <HugeiconsIcon icon={ArrowLeft01Icon} size={14} />
             <span className="hidden sm:inline">Phần trước</span>
@@ -555,7 +720,8 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
                 Math.min(exam.sections.length - 1, activeSectionIndex + 1)
               )
             }
-            className="h-8 gap-1 text-xs"
+            className="h-10 gap-1 text-xs sm:h-8"
+            aria-label="Phần tiếp theo"
           >
             <span className="hidden sm:inline">Phần tiếp theo</span>
             <HugeiconsIcon icon={ArrowRight01Icon} size={14} />
@@ -592,6 +758,7 @@ interface SectionProps {
   onAnswer: (questionId: string, value: string) => void
   onToggleFlag: (questionId: string) => void
   uiTheme?: "white" | "cream"
+  selectionDisabled?: boolean
 }
 
 /**
@@ -756,16 +923,76 @@ function ReadingSection({
   flagged,
   onAnswer,
   onToggleFlag,
+  selectionDisabled = false,
 }: SectionProps) {
   const highlights = useExamSessionStore((s) => s.highlights)
   const setHighlights = useExamSessionStore((s) => s.setHighlights)
   const isMobile = useIsMobile()
+
+  const passageContent = (
+    <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
+      <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 flex items-center justify-between gap-2 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur-xs sm:-mx-6 sm:-mt-6 sm:mb-6 sm:px-6 sm:py-3 md:-mx-8 md:-mt-6 md:mb-6 md:px-8 md:py-3.5 lg:-mx-10 lg:px-10">
+        <Badge
+          variant="outline"
+          className="text-xs sm:text-sm font-semibold text-primary truncate max-w-[160px] sm:max-w-none"
+        >
+          {section.title}
+        </Badge>
+        <div
+          className={cn(
+            "flex items-center gap-1.5 sm:gap-2",
+            selectionDisabled && "hidden"
+          )}
+        >
+          <span className="hidden text-xs text-muted-foreground lg:inline">
+            Bôi đen để highlight / ghi chú
+          </span>
+          <HighlightControls />
+        </div>
+      </div>
+      <MediaImages media={section.media} className="mb-4" />
+
+      <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
+        <SelectableHighlightedText
+          targetId="passage"
+          text={section.passageText ?? ""}
+        />
+      </div>
+    </div>
+  )
+
+  const questionsContent = (
+    <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
+      <div className="space-y-1.5 rounded-xl border border-border bg-card p-4 sm:p-5">
+        <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
+          {section.title}
+        </h3>
+        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+          <RichText text={section.instructions} />
+        </p>
+      </div>
+
+      <div className="space-y-6 sm:space-y-8">
+        {(section.questionGroups ?? []).map((group) => (
+          <GroupRenderer
+            key={group.id}
+            group={group}
+            answers={answers}
+            flagged={flagged}
+            onAnswer={onAnswer}
+            onToggleFlag={onToggleFlag}
+          />
+        ))}
+      </div>
+    </div>
+  )
 
   return (
     <HighlightLayer
       sectionIndex={sectionIndex}
       items={highlights}
       onItemsChange={setHighlights}
+      disabled={selectionDisabled}
       className="h-full"
     >
       <ResizablePanelGroup
@@ -778,30 +1005,7 @@ function ReadingSection({
           minSize={25}
           className="overflow-y-auto border-b md:border-b-0 md:border-r border-border bg-card"
         >
-          <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
-            <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 flex items-center justify-between gap-2 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur-xs sm:-mx-6 sm:-mt-6 sm:mb-6 sm:px-6 sm:py-3 md:-mx-8 md:-mt-6 md:mb-6 md:px-8 md:py-3.5 lg:-mx-10 lg:px-10">
-              <Badge
-                variant="outline"
-                className="text-xs sm:text-sm font-semibold text-primary truncate max-w-[160px] sm:max-w-none"
-              >
-                {section.title}
-              </Badge>
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="hidden text-xs text-muted-foreground lg:inline">
-                  Bôi đen để highlight / ghi chú
-                </span>
-                <HighlightControls />
-              </div>
-            </div>
-            <MediaImages media={section.media} className="mb-4" />
-
-            <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
-              <SelectableHighlightedText
-                targetId="passage"
-                text={section.passageText ?? ""}
-              />
-            </div>
-          </div>
+          {passageContent}
         </ResizablePanel>
 
         <ResizableHandle
@@ -814,29 +1018,7 @@ function ReadingSection({
           minSize={25}
           className="overflow-y-auto bg-muted/10"
         >
-          <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
-            <div className="space-y-1.5 rounded-xl border border-border bg-card p-4 sm:p-5">
-              <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
-                {section.title}
-              </h3>
-              <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                <RichText text={section.instructions} />
-              </p>
-            </div>
-
-            <div className="space-y-6 sm:space-y-8">
-              {(section.questionGroups ?? []).map((group) => (
-                <GroupRenderer
-                  key={group.id}
-                  group={group}
-                  answers={answers}
-                  flagged={flagged}
-                  onAnswer={onAnswer}
-                  onToggleFlag={onToggleFlag}
-                />
-              ))}
-            </div>
-          </div>
+          {questionsContent}
         </ResizablePanel>
       </ResizablePanelGroup>
     </HighlightLayer>
@@ -1026,7 +1208,7 @@ function InlineBlank({
           value={answer}
           onChange={(e) => ctx.onAnswer(q.id, e.target.value)}
           className={cn(
-            "h-8 rounded-md border border-border bg-background font-mono text-sm font-medium focus:border-primary focus:outline-hidden",
+            "h-11 rounded-md border border-border bg-background font-mono text-sm font-medium focus:border-primary focus:outline-hidden md:h-8",
             compact ? "px-2" : "px-2.5"
           )}
         >
@@ -1046,7 +1228,7 @@ function InlineBlank({
             ctx.maxWords ? `≤ ${ctx.maxWords} từ` : `[${q.questionNumber}]`
           }
           className={cn(
-            "h-8 rounded-md border border-border bg-background text-sm font-medium focus:border-primary focus:outline-hidden",
+            "h-11 rounded-md border border-border bg-background text-sm font-medium focus:border-primary focus:outline-hidden md:h-8",
             compact ? "w-28 px-2" : "w-32 px-2.5 sm:w-44"
           )}
         />
@@ -1163,7 +1345,7 @@ function UnplacedQuestionsList({
               value={answer}
               onChange={(e) => onAnswer(q.id, e.target.value)}
               placeholder="Nhập câu trả lời..."
-              className="h-8 w-44 text-xs font-medium"
+              className="h-11 w-44 text-xs font-medium md:h-8"
             />
             <button
               type="button"
@@ -2214,7 +2396,7 @@ function GroupRendererBody({
                   <select
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-9 rounded-lg border border-border bg-background px-3 text-xs sm:text-sm"
+                    className="h-11 rounded-lg border border-border bg-background px-3 text-xs sm:text-sm md:h-9"
                   >
                     <option value="">—</option>
                     {matchPool.map((opt) => (
@@ -2228,7 +2410,7 @@ function GroupRendererBody({
                   <select
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-9 rounded-lg border border-border bg-background px-3 font-mono text-xs sm:text-sm font-medium"
+                    className="h-11 rounded-lg border border-border bg-background px-3 font-mono text-xs sm:text-sm font-medium md:h-9"
                   >
                     <option value="">— Chọn từ khóa —</option>
                     {optionsPool.map((opt) => (
@@ -2241,7 +2423,7 @@ function GroupRendererBody({
                   <select
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-9 rounded-lg border border-border bg-background px-3 font-mono text-xs sm:text-sm font-medium"
+                    className="h-11 rounded-lg border border-border bg-background px-3 font-mono text-xs sm:text-sm font-medium md:h-9"
                   >
                     <option value="">— Chọn nhãn —</option>
                     {labelsPool.map((l) => (
@@ -2254,7 +2436,7 @@ function GroupRendererBody({
                   <Input
                     value={answer}
                     onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-9 text-xs sm:text-sm rounded-lg"
+                    className="h-11 text-xs sm:text-sm rounded-lg md:h-9"
                     placeholder={
                       isCompletion && maxWords
                         ? `Tối đa ${maxWords} từ`

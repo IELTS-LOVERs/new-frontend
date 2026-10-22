@@ -10,6 +10,7 @@ import {
   createUserApi,
   updateUserStatusApi,
   resetUserPasswordApi,
+  revokeUserSessionsApi,
   type ListUsersParams,
   type CreateUserPayload,
 } from "@/lib/api/users"
@@ -59,5 +60,15 @@ export function useResetUserPasswordMutation() {
   return useMutation({
     mutationFn: ({ id, newPassword }: { id: string; newPassword: string }) =>
       resetUserPasswordApi(id, newPassword),
+  })
+}
+
+export function useRevokeUserSessionsMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => revokeUserSessionsApi(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] })
+    },
   })
 }

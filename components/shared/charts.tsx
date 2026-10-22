@@ -99,16 +99,20 @@ export function LineChart({
   series,
   labels,
   target,
+  targetColorVar = "var(--chart-5)",
   min = 4,
   max = 9,
+  gridStep,
   height = 220,
   className,
 }: {
   series: Series[]
   labels: string[]
   target?: number
+  targetColorVar?: string
   min?: number
   max?: number
+  gridStep?: number
   height?: number
   className?: string
 }) {
@@ -122,7 +126,12 @@ export function LineChart({
   const x = (i: number) => padX + (i / n) * innerW
   const y = (v: number) => padY + innerH - ((v - min) / (max - min)) * innerH
 
-  const gridValues = Array.from({ length: 6 }, (_, i) => min + ((max - min) / 5) * i)
+  const gridValues = gridStep
+    ? Array.from(
+        { length: Math.floor((max - min) / gridStep) + 1 },
+        (_, i) => min + gridStep * i
+      )
+    : Array.from({ length: 6 }, (_, i) => min + ((max - min) / 5) * i)
 
   return (
     <div className={cn("w-full", className)}>
@@ -150,7 +159,7 @@ export function LineChart({
             x2={width - padX}
             y1={y(target)}
             y2={y(target)}
-            stroke="var(--chart-5)"
+            stroke={targetColorVar}
             strokeWidth={1.5}
             strokeDasharray="5 4"
             vectorEffect="non-scaling-stroke"
@@ -210,7 +219,10 @@ export function LineChart({
         ))}
         {target !== undefined && (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="h-0.5 w-4 rounded-full bg-[var(--chart-5)]" />
+            <span
+              className="h-0.5 w-4 rounded-full"
+              style={{ backgroundColor: targetColorVar }}
+            />
             Target {target.toFixed(1)}
           </span>
         )}

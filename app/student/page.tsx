@@ -245,7 +245,7 @@ export default function StudentDashboardPage() {
           hint={
             targetBand != null
               ? `Mục tiêu: Band ${formatBand(targetBand)} (${
-                  progress && progress.deltaFromTarget > 0 ? "+" : ""
+                  progress && (progress.deltaFromTarget ?? 0) > 0 ? "+" : ""
                 }${progress?.deltaFromTarget?.toFixed(1) ?? "—"})`
               : undefined
           }

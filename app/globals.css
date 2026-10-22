@@ -386,3 +386,20 @@
 [data-panel-resize-handle] {
     touch-action: none !important;
 }
+
+/* Exam option: block selecting / highlighting content on desktop and mobile. */
+.exam-no-select,
+.exam-no-select * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-touch-callout: none !important;
+}
+
+/* Answer editors still need normal selection/caret behaviour. */
+.exam-no-select input,
+.exam-no-select textarea,
+.exam-no-select [contenteditable="true"] {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    -webkit-touch-callout: default !important;
+}

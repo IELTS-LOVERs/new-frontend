@@ -1,4 +1,4 @@
-import { apiClient } from "./client"
+import { apiClient, ApiError } from "./client"
 import { useAuthStore } from "@/stores/auth.store"
 import type { User } from "./types"
 
@@ -46,7 +46,12 @@ export async function logoutApi(): Promise<void> {
   }
 }
 
-export async function refreshAccessTokenApi(): Promise<string | null> {
+export interface RefreshAccessTokenResult {
+  token: string | null
+  errorCode?: string
+}
+
+export async function refreshAccessTokenApi(): Promise<RefreshAccessTokenResult> {
   try {
     const { data } = await apiClient<{ accessToken: string }>("/api/auth/refresh", {
       method: "POST",
@@ -56,9 +61,12 @@ export async function refreshAccessTokenApi(): Promise<string | null> {
     if (token) {
       useAuthStore.getState().setAccessToken(token)
     }
-    return token
-  } catch {
-    return null
+    return { token }
+  } catch (err) {
+    if (err instanceof ApiError) {
+      return { token: null, errorCode: err.code }
+    }
+    return { token: null }
   }
 }
 

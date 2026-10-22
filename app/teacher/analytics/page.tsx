@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { parseAsString, parseAsStringLiteral, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatCard } from "@/components/shared/stat-card"
@@ -264,7 +265,7 @@ function StudentProgressSheet({
                   labels={progress.points.map((p) =>
                     new Date(p.submittedAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })
                   )}
-                  target={progress.targetBand}
+                  target={progress.targetBand ?? undefined}
                   series={[
                     { name: "Overall", colorVar: "var(--chart-4)", points: progress.points.map((p) => p.overall ?? null) },
                     { name: "Listening", colorVar: "var(--chart-1)", points: progress.points.map((p) => p.listening ?? null) },
@@ -275,6 +276,12 @@ function StudentProgressSheet({
               </CardContent>
             </Card>
           )}
+
+          <Button asChild className="w-full font-semibold">
+            <Link href={`/teacher/students/${student?.id}/progress`}>
+              Mở trang tiến độ đầy đủ
+            </Link>
+          </Button>
         </div>
       </SheetContent>
     </Sheet>
@@ -392,7 +399,14 @@ function ClassView({
                     <TableCell className="text-center"><BandBadge value={s.overall} size="sm" /></TableCell>
                     <TableCell className="text-center font-mono text-xs text-muted-foreground">{formatBand(s.targetBand)}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" className="h-7 text-xs">Xem tiến độ</Button>
+                      <Button variant="ghost" size="sm" asChild className="h-7 text-xs">
+                        <Link
+                          href={`/teacher/students/${s.id}/progress`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          Xem tiến độ
+                        </Link>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))

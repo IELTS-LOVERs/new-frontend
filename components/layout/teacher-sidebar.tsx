@@ -75,6 +75,9 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
   const { user } = useAuthStore()
   const { isCollapsed, toggleSidebar, setCollapsed } = useSidebarStore()
   const logoutMutation = useLogout()
+  const isAdminUsersActive =
+    pathname.startsWith("/admin/users") ||
+    pathname.startsWith("/admin/students")
 
   // On mobile sheet, always render in expanded mode
   const collapsed = !isMobile && isCollapsed
@@ -205,7 +208,7 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
                     onClick={onNavigate}
                     className={cn(
                       "flex size-9 mx-auto items-center justify-center rounded-xl text-xs font-medium transition-colors",
-                      pathname.startsWith("/admin/users")
+                      isAdminUsersActive
                         ? "bg-secondary text-foreground font-semibold"
                         : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     )}
@@ -221,7 +224,7 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
                 onClick={onNavigate}
                 className={cn(
                   "group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-                  pathname.startsWith("/admin/users")
+                  isAdminUsersActive
                     ? "bg-secondary text-foreground font-semibold"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground"
                 )}
@@ -248,7 +251,10 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
               const isActive =
                 item.href === "/teacher"
                   ? pathname === "/teacher"
-                  : pathname.startsWith(item.href)
+                  : item.href === "/teacher/classes"
+                    ? pathname.startsWith("/teacher/classes") ||
+                      pathname.startsWith("/teacher/students")
+                    : pathname.startsWith(item.href)
 
               if (collapsed) {
                 return (

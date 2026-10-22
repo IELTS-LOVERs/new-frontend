@@ -43,6 +43,8 @@ const POPOVER_ATTR = "data-hl-popover"
 
 export interface HighlightApi {
   sectionIndex: number
+  /** True when the exam disables text selection / highlighting. */
+  disabled: boolean
   /** Highlights belonging to the current section (all targets). */
   sectionItems: ExamHighlightItem[]
   /** Highlights that carry a non-empty note in the current section. */
@@ -134,12 +136,14 @@ export function HighlightLayer({
   sectionIndex,
   items: propItems,
   onItemsChange,
+  disabled = false,
   children,
   className,
 }: {
   sectionIndex: number
   items?: ExamHighlightItem[]
   onItemsChange?: (items: ExamHighlightItem[]) => void
+  disabled?: boolean
   children: React.ReactNode
   className?: string
 }) {
@@ -263,6 +267,7 @@ export function HighlightLayer({
   // ─── Selection → floating tooltip ─────────────────────────────────────────
   React.useEffect(() => {
     const onMouseUp = (event: MouseEvent) => {
+      if (disabled) return
       const container = containerRef.current
       const target = event.target as Node | null
       if (!container || !target || !container.contains(target)) return
@@ -309,10 +314,11 @@ export function HighlightLayer({
       document.removeEventListener("mousedown", onMouseDown)
       document.removeEventListener("selectionchange", onSelectionChange)
     }
-  }, [])
+  }, [disabled])
 
   // ─── Click an existing mark → open the note editor ────────────────────────
   const onContainerClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (disabled) return
     const mark = (event.target as HTMLElement).closest?.(
       `[${HL_ITEM_ATTR}]`
     ) as HTMLElement | null
@@ -360,6 +366,7 @@ export function HighlightLayer({
 
   const api: HighlightApi = {
     sectionIndex,
+    disabled,
     sectionItems,
     sectionNotes,
     itemsFor,
@@ -692,11 +699,6 @@ export function SelectableHighlightedText({
   const api = useHighlights()
   const items = api ? api.itemsFor(targetId) : EMPTY_ITEMS
 
-  // Walk the formatted tree while keeping a running offset over the *visible*
-  // text (formatting markers are not part of the DOM). Highlights are stored
-  // against those visible offsets, so they keep working inside bold/italic runs.
-  let visibleCursor = 0
-
   const renderHighlightedLeaf = (value: string, start: number): React.ReactNode => {
     const leafEnd = start + value.length
     const relevant = items
@@ -752,39 +754,61 @@ export function SelectableHighlightedText({
     del: "line-through",
   }
 
-  const renderNodes = (nodes: RichTextNode[], keyPrefix: string): React.ReactNode[] =>
-    nodes.map((node, index) => {
-      const key = `${keyPrefix}-${index}`
-      if (node.type === "text") {
-        const start = visibleCursor
-        visibleCursor += node.value.length
-        return (
-          <React.Fragment key={key}>
-            {renderHighlightedLeaf(node.value, start)}
-          </React.Fragment>
-        )
-      }
+  // Walk the formatted tree while keeping a running offset over the *visible*
+  // text (formatting markers are not part of the DOM). The offset is threaded
+  // through the reduce accumulator so rendering stays side-effect free.
+  const renderNodes = (
+    nodes: RichTextNode[],
+    keyPrefix: string,
+    startOffset: number
+  ): { nodes: React.ReactNode[]; offset: number } =>
+    nodes.reduce(
+      (acc, node, index) => {
+        const key = `${keyPrefix}-${index}`
+        if (node.type === "text") {
+          const start = acc.offset
+          return {
+            offset: acc.offset + node.value.length,
+            nodes: [
+              ...acc.nodes,
+              <React.Fragment key={key}>
+                {renderHighlightedLeaf(node.value, start)}
+              </React.Fragment>,
+            ],
+          }
+        }
 
-      const children = renderNodes(node.children, key)
-      if (node.type === "strong") {
-        return (
-          <strong key={key} className={markClass.strong}>
-            {children}
-          </strong>
-        )
-      }
-      if (node.type === "em") {
-        return <em key={key} className={markClass.em}>{children}</em>
-      }
-      if (node.type === "mark") {
-        return <mark key={key} className={markClass.mark}>{children}</mark>
-      }
-      return <del key={key} className={markClass.del}>{children}</del>
-    })
+        const child = renderNodes(node.children, key, acc.offset)
+        const rendered =
+          node.type === "strong" ? (
+            <strong key={key} className={markClass.strong}>
+              {child.nodes}
+            </strong>
+          ) : node.type === "em" ? (
+            <em key={key} className={markClass.em}>
+              {child.nodes}
+            </em>
+          ) : node.type === "mark" ? (
+            <mark key={key} className={markClass.mark}>
+              {child.nodes}
+            </mark>
+          ) : (
+            <del key={key} className={markClass.del}>
+              {child.nodes}
+            </del>
+          )
+
+        return {
+          offset: child.offset,
+          nodes: [...acc.nodes, rendered],
+        }
+      },
+      { nodes: [] as React.ReactNode[], offset: startOffset }
+    )
 
   return (
     <span {...{ [HL_TARGET_ATTR]: targetId }} className={className}>
-      {renderNodes(parseRichText(text), targetId)}
+      {renderNodes(parseRichText(text), targetId, 0).nodes}
     </span>
   )
 }
@@ -792,7 +816,7 @@ export function SelectableHighlightedText({
 /** Header controls: "Ghi chú (n)" tab button + "Xóa highlight (n)" button. */
 export function HighlightControls({ className }: { className?: string }) {
   const api = useHighlights()
-  if (!api) return null
+  if (!api || api.disabled) return null
 
   const totalHighlights = api.sectionItems.length
   const totalNotes = api.sectionNotes.length

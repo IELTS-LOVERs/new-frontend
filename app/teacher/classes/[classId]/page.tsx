@@ -56,6 +56,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
   Analytics01Icon,
+  ArrowRight01Icon,
   CheckmarkCircle02Icon,
   Copy01Icon,
   Download04Icon,
@@ -453,7 +454,12 @@ export default function ClassDetailPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => setProgressStudent(student)}>
-                              <HugeiconsIcon icon={Analytics01Icon} size={14} /> Xem tiến độ
+                              <HugeiconsIcon icon={Analytics01Icon} size={14} /> Xem nhanh
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/teacher/students/${student.id}/progress`}>
+                                <HugeiconsIcon icon={Analytics01Icon} size={14} /> Xem tiến độ
+                              </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => {
@@ -790,6 +796,13 @@ function StudentProgressSheet({
               )}
             </div>
           </div>
+
+          <Button asChild className="w-full gap-1.5 font-semibold">
+            <Link href={`/teacher/students/${student?.id}/progress`}>
+              Mở trang tiến độ đầy đủ
+              <HugeiconsIcon icon={ArrowRight01Icon} size={15} />
+            </Link>
+          </Button>
         </div>
       </SheetContent>
     </Sheet>

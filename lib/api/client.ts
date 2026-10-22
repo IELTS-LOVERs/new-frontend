@@ -1,4 +1,5 @@
 import { useAuthStore } from "@/stores/auth.store"
+import { forceLogout, type ForcedLogoutReason } from "@/lib/auth-session"
 
 export class ApiError extends Error {
   constructor(
@@ -12,9 +13,14 @@ export class ApiError extends Error {
   }
 }
 
-let refreshPromise: Promise<string | null> | null = null
+interface RefreshAttempt {
+  token: string | null
+  errorCode?: string
+}
 
-async function refreshAccessToken(): Promise<string | null> {
+let refreshPromise: Promise<RefreshAttempt> | null = null
+
+async function refreshAccessToken(): Promise<RefreshAttempt> {
   if (refreshPromise) return refreshPromise
 
   refreshPromise = (async () => {
@@ -25,26 +31,45 @@ async function refreshAccessToken(): Promise<string | null> {
         credentials: "include",
       })
       if (!res.ok) {
-        useAuthStore.getState().logout()
-        return null
+        let errorCode: string | undefined
+        try {
+          const json = await res.json()
+          errorCode = json?.error?.code
+        } catch {
+          // Body không phải JSON — dùng lỗi chung.
+        }
+        return { token: null, errorCode }
       }
       const json = await res.json()
       if (json.success && json.data?.accessToken) {
         const newToken = json.data.accessToken as string
         useAuthStore.getState().setAccessToken(newToken)
-        return newToken
+        return { token: newToken }
       }
-      useAuthStore.getState().logout()
-      return null
+      return { token: null }
     } catch {
-      useAuthStore.getState().logout()
-      return null
+      return { token: null }
     } finally {
       refreshPromise = null
     }
   })()
 
   return refreshPromise
+}
+
+function toForcedLogoutReason(...codes: Array<string | undefined>): ForcedLogoutReason {
+  if (codes.includes("SESSION_REPLACED")) return "session_replaced"
+  if (codes.includes("TOKEN_REVOKED")) return "token_revoked"
+  return "session_expired"
+}
+
+async function readErrorCode(res: Response): Promise<string | undefined> {
+  try {
+    const json = await res.clone().json()
+    return json?.error?.code as string | undefined
+  } catch {
+    return undefined
+  }
 }
 
 interface RequestOptions extends RequestInit {
@@ -89,17 +114,26 @@ export async function apiClient<T = any>(
       credentials: "include",
     })
 
-    // If 401, attempt single-flight token refresh
+    // If 401, attempt single-flight token refresh. Same-browser tabs share the
+    // refresh cookie, so a tab holding an older access token recovers silently.
     if (res.status === 401 && !skipAuth && !path.includes("/auth/")) {
-      const newToken = await refreshAccessToken()
-      if (newToken) {
-        reqHeaders["Authorization"] = `Bearer ${newToken}`
+      const originalCode = await readErrorCode(res)
+      const attempt = await refreshAccessToken()
+      if (attempt.token) {
+        reqHeaders["Authorization"] = `Bearer ${attempt.token}`
         res = await fetch(normalizedUrl, {
           ...rest,
           headers: reqHeaders,
           signal: controller.signal,
           credentials: "include",
         })
+      } else {
+        forceLogout(toForcedLogoutReason(attempt.errorCode, originalCode))
+        throw new ApiError(
+          401,
+          attempt.errorCode ?? originalCode ?? "UNAUTHORIZED",
+          "Phiên đăng nhập đã kết thúc. Vui lòng đăng nhập lại."
+        )
       }
     }
 

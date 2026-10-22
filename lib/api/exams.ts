@@ -81,6 +81,7 @@ export interface CreateExamPayload {
   kind?: ExamKind
   scoringMode?: ExamScoringMode
   bandConversion?: BandConversion
+  disableTextSelection?: boolean
   curriculum?: IExamCurriculum
   postSubmissionResources?: IExamPostSubmissionResources
 }
@@ -113,6 +114,7 @@ export interface UpdateExamMetadataPayload {
   title?: string
   description?: string
   bannerUrl?: string | null
+  disableTextSelection?: boolean
   openAt?: string | null
   closeAt?: string | null
 }
@@ -214,6 +216,7 @@ export interface TeacherExamDetail {
   kind?: ExamKind
   scoringMode?: ExamScoringMode
   bandConversion?: BandConversion
+  disableTextSelection?: boolean
   bandConversionDefaults?: {
     listening: BandThreshold[]
     readingAcademic: BandThreshold[]

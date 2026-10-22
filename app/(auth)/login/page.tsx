@@ -25,6 +25,7 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter()
   const [next] = useQueryState("next", parseAsString)
+  const [reason] = useQueryState("reason", parseAsString)
   const loginMutation = useLoginMutation()
 
   const [email, setEmail] = React.useState("")
@@ -78,6 +79,21 @@ function LoginForm() {
 
       <form onSubmit={handleLogin}>
         <CardContent className="space-y-4">
+          {(reason === "session_replaced" || reason === "token_revoked") && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs text-foreground">
+              <p className="font-medium">
+                {reason === "session_replaced"
+                  ? "Phiên đăng nhập trước đã kết thúc vì tài khoản được đăng nhập trên thiết bị khác."
+                  : "Phiên đăng nhập đã bị thu hồi. Vui lòng đăng nhập lại."}
+              </p>
+              {next?.startsWith("/exam") && (
+                <p className="mt-1 text-muted-foreground">
+                  Bài làm đã được lưu tạm trên thiết bị này. Đăng nhập lại để tiếp tục.
+                </p>
+              )}
+            </div>
+          )}
+
           {formError && (
             <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive font-medium">
               {formError}

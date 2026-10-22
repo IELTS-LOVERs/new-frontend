@@ -270,6 +270,7 @@ export interface CandidateExam {
   kind?: ExamKind
   scoringMode?: ExamScoringMode
   bandConversion?: BandConversion
+  disableTextSelection?: boolean
   curriculum?: IExamCurriculum
   sections: CandidateSection[]
 }
@@ -569,14 +570,19 @@ export interface ExamAnalytics {
 
 export interface StudentProgressAnalytics {
   studentId: string
-  targetBand: number
+  student: {
+    id: string
+    fullName: string
+    email: string
+  }
+  targetBand: number | null
   latest: {
     listening?: number | null
     reading?: number | null
     writing?: number | null
     overall?: number | null
   }
-  deltaFromTarget: number
+  deltaFromTarget: number | null
   points: Array<{
     attemptId: string
     examId: string
