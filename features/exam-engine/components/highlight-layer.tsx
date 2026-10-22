@@ -29,10 +29,14 @@ import {
   getRangeRect,
   getSelectionOffsets,
   isOverlapping,
-  splitTextByHighlights,
   type ExamHighlightItem,
   type RectLike,
 } from "@/features/exam-engine/lib/highlight"
+import {
+  parseRichText,
+  type RichTextMark,
+  type RichTextNode,
+} from "@/features/exam-engine/lib/rich-text"
 
 /** Marks a floating popover so outside-clicks / re-selection can ignore it. */
 const POPOVER_ATTR = "data-hl-popover"
@@ -687,38 +691,100 @@ export function SelectableHighlightedText({
 }) {
   const api = useHighlights()
   const items = api ? api.itemsFor(targetId) : EMPTY_ITEMS
-  const segments = splitTextByHighlights(text, items)
+
+  // Walk the formatted tree while keeping a running offset over the *visible*
+  // text (formatting markers are not part of the DOM). Highlights are stored
+  // against those visible offsets, so they keep working inside bold/italic runs.
+  let visibleCursor = 0
+
+  const renderHighlightedLeaf = (value: string, start: number): React.ReactNode => {
+    const leafEnd = start + value.length
+    const relevant = items
+      .filter((item) => item.start < leafEnd && item.end > start)
+      .slice()
+      .sort((a, b) => a.start - b.start || a.end - b.end)
+
+    if (relevant.length === 0) return value
+
+    const nodes: React.ReactNode[] = []
+    let cursor = 0
+
+    for (const item of relevant) {
+      const from = Math.max(0, item.start - start)
+      const to = Math.min(value.length, item.end - start)
+      if (to <= cursor) continue
+      if (from > cursor) nodes.push(value.slice(cursor, from))
+      nodes.push(
+        <mark
+          key={`${item.id}-${start}-${from}`}
+          {...{ [HL_ITEM_ATTR]: item.id }}
+          title={item.note ? `Ghi chú: ${item.note}` : "Bấm để thêm ghi chú"}
+          className={cn(
+            "cursor-pointer rounded bg-amber-200 px-0.5 font-medium text-stone-900 transition-colors",
+            "hover:bg-amber-300 dark:bg-amber-400/70 dark:text-stone-950 dark:hover:bg-amber-400/90",
+            item.note &&
+              "underline decoration-amber-600 decoration-dotted underline-offset-2"
+          )}
+        >
+          {value.slice(Math.max(cursor, from), to)}
+          {item.note && (
+            <span
+              className="ml-1 inline-flex items-center gap-0.5 rounded bg-amber-400/40 px-1 py-0.2 text-[10px] font-bold text-amber-950 align-baseline select-none dark:bg-amber-300/30 dark:text-amber-100"
+              title={`Ghi chú: ${item.note}`}
+            >
+              <HugeiconsIcon icon={Note01Icon} size={10} className="inline" />
+              <span>Note</span>
+            </span>
+          )}
+        </mark>
+      )
+      cursor = to
+    }
+
+    if (cursor < value.length) nodes.push(value.slice(cursor))
+    return <React.Fragment key={`leaf-${start}`}>{nodes}</React.Fragment>
+  }
+
+  const markClass: Record<RichTextMark, string> = {
+    strong: "font-semibold",
+    em: "italic",
+    mark: "rounded bg-amber-200/80 px-0.5 text-inherit dark:bg-amber-400/30",
+    del: "line-through",
+  }
+
+  const renderNodes = (nodes: RichTextNode[], keyPrefix: string): React.ReactNode[] =>
+    nodes.map((node, index) => {
+      const key = `${keyPrefix}-${index}`
+      if (node.type === "text") {
+        const start = visibleCursor
+        visibleCursor += node.value.length
+        return (
+          <React.Fragment key={key}>
+            {renderHighlightedLeaf(node.value, start)}
+          </React.Fragment>
+        )
+      }
+
+      const children = renderNodes(node.children, key)
+      if (node.type === "strong") {
+        return (
+          <strong key={key} className={markClass.strong}>
+            {children}
+          </strong>
+        )
+      }
+      if (node.type === "em") {
+        return <em key={key} className={markClass.em}>{children}</em>
+      }
+      if (node.type === "mark") {
+        return <mark key={key} className={markClass.mark}>{children}</mark>
+      }
+      return <del key={key} className={markClass.del}>{children}</del>
+    })
 
   return (
     <span {...{ [HL_TARGET_ATTR]: targetId }} className={className}>
-      {segments.map((segment, i) =>
-        segment.item ? (
-          <mark
-            key={i}
-            {...{ [HL_ITEM_ATTR]: segment.item.id }}
-            title={segment.item.note ? `Ghi chú: ${segment.item.note}` : "Bấm để thêm ghi chú"}
-            className={cn(
-              "cursor-pointer rounded bg-amber-200 px-0.5 font-medium text-stone-900 transition-colors",
-              "hover:bg-amber-300 dark:bg-amber-400/70 dark:text-stone-950 dark:hover:bg-amber-400/90",
-              segment.item.note &&
-                "underline decoration-amber-600 decoration-dotted underline-offset-2"
-            )}
-          >
-            {segment.text}
-            {segment.item.note && (
-              <span
-                className="ml-1 inline-flex items-center gap-0.5 rounded bg-amber-400/40 px-1 py-0.2 text-[10px] font-bold text-amber-950 align-baseline select-none dark:bg-amber-300/30 dark:text-amber-100"
-                title={`Ghi chú: ${segment.item.note}`}
-              >
-                <HugeiconsIcon icon={Note01Icon} size={10} className="inline" />
-                <span>Note</span>
-              </span>
-            )}
-          </mark>
-        ) : (
-          <React.Fragment key={i}>{segment.text}</React.Fragment>
-        )
-      )}
+      {renderNodes(parseRichText(text), targetId)}
     </span>
   )
 }

@@ -40,6 +40,7 @@ import { ApiError } from "@/lib/api/client"
 import { useTeacherExamDetailQuery } from "@/hooks/use-exams"
 import { useTeacherAssignmentsQuery } from "@/hooks/use-assignments"
 import { useExamAnalyticsQuery } from "@/hooks/use-analytics"
+import { RichText } from "@/features/exam-engine/components/rich-text"
 import { SKILL_LABEL, formatDate, formatBand } from "@/lib/format"
 import type { SkillType } from "@/lib/api/types"
 import type { TeacherExamSection } from "@/lib/api/exams"
@@ -463,7 +464,7 @@ export default function TeacherExamDetailPage() {
                             </TableCell>
                             <TableCell className="max-w-md">
                               <p className="line-clamp-2 text-xs font-medium text-foreground">
-                                {q.prompt}
+                                <RichText text={q.prompt} />
                               </p>
                               <span className="font-mono text-[10px] text-muted-foreground">ID: {q.questionId}</span>
                             </TableCell>

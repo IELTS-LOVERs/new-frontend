@@ -36,6 +36,7 @@ import {
   usePendingGradingQuery,
 } from "@/hooks/use-grading"
 import { useAttemptEventsQuery } from "@/hooks/use-attempts"
+import { RichText } from "@/features/exam-engine/components/rich-text"
 import { formatBand } from "@/lib/format"
 
 // Lưới band 0-9, bước 0.5 (khớp validate backend)
@@ -394,7 +395,7 @@ export default function TeacherWritingGradingPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-4 pt-0 text-xs leading-relaxed text-foreground/90 whitespace-pre-line font-medium">
-                      {task1Data.prompt}
+                      <RichText text={task1Data.prompt} />
                     </CardContent>
                   </Card>
 
@@ -443,7 +444,7 @@ export default function TeacherWritingGradingPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-4 pt-0 text-xs leading-relaxed text-foreground/90 whitespace-pre-line font-medium">
-                      {task2Data.prompt}
+                      <RichText text={task2Data.prompt} />
                     </CardContent>
                   </Card>
 

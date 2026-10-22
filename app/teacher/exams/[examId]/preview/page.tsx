@@ -21,6 +21,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { BrandLogo } from "@/components/layout/brand-logo"
+import { RichText } from "@/features/exam-engine/components/rich-text"
 import { ApiError } from "@/lib/api/client"
 import { useTeacherExamDetailQuery } from "@/hooks/use-exams"
 import type { MediaItem, SkillType } from "@/lib/api/types"
@@ -242,7 +243,7 @@ export default function ExamPreviewPage() {
           <div className="rounded-2xl border border-border bg-card p-6">
             <Badge variant="outline" className="mb-3 text-primary">{current.title}</Badge>
             <div className="prose prose-sm max-w-none whitespace-pre-line font-serif text-sm leading-[1.8] text-foreground/90">
-              {current.passageText}
+              <RichText text={current.passageText} />
             </div>
           </div>
         )}
@@ -251,7 +252,7 @@ export default function ExamPreviewPage() {
           <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
             <p className="text-xs font-semibold uppercase tracking-wider text-primary">Đề bài</p>
             <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">
-              {current.questions[0].prompt}
+              <RichText text={current.questions[0].prompt} />
             </p>
           </div>
         )}
@@ -293,7 +294,7 @@ export default function ExamPreviewPage() {
               Questions 1–{current.questions.length}
             </h3>
             {current.instructions && (
-              <p className="text-xs text-muted-foreground">{current.instructions}</p>
+              <p className="text-xs text-muted-foreground"><RichText text={current.instructions} /></p>
             )}
           </div>
 
@@ -309,7 +310,7 @@ export default function ExamPreviewPage() {
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
                     {idx + 1}
                   </span>
-                  <span className="text-sm font-semibold text-foreground">{q.prompt}</span>
+                  <span className="text-sm font-semibold text-foreground"><RichText text={q.prompt} /></span>
                 </div>
 
                 {options.length > 0 ? (
@@ -329,7 +330,7 @@ export default function ExamPreviewPage() {
                           <span className={cn("flex size-5 items-center justify-center rounded-full border font-mono text-[11px] font-bold", isAnswer ? "border-primary bg-primary text-primary-foreground" : "border-border")}>
                             {opt.id}
                           </span>
-                          <span>{opt.text}</span>
+                          <span><RichText text={opt.text} /></span>
                           {isAnswer && <Badge variant="default" className="ml-auto text-[10px]">Đáp án</Badge>}
                         </div>
                       )

@@ -219,6 +219,7 @@
 @theme inline {
     --font-sans: var(--font-sans);
     --font-heading: var(--font-heading);
+    --font-serif: var(--font-sans);
     --font-mono: var(--font-mono);
 
     --color-primary: var(--primary);
@@ -371,6 +372,14 @@
 [data-panel] {
     touch-action: pan-y !important;
     -webkit-overflow-scrolling: touch;
+}
+
+/* react-resizable-panels v3 tạo một div cuộn bên trong [data-panel] và đặt
+   touch-action: pan-x cho nhóm dọc — lớp CSS này đảm bảo vuốt dọc luôn cuộn. */
+[data-panel] > div {
+    touch-action: pan-y !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
 }
 
 [data-slot="resizable-handle"],

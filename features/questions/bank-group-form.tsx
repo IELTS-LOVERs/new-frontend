@@ -23,6 +23,7 @@ import {
 } from "@/lib/format"
 import { QuestionGroupEditor } from "./question-group-editor"
 import { QuestionTypePickerDialog } from "./question-type-picker-dialog"
+import { RichTextFormatBar } from "@/features/exam-engine/components/rich-text-format-bar"
 import type {
   BankQuestionGroup,
   CandidateSection,
@@ -93,6 +94,7 @@ export function BankGroupForm({
     initial ? toEditorGroup(initial) : null
   )
   const [pickerOpen, setPickerOpen] = React.useState(false)
+  const formRef = React.useRef<HTMLDivElement | null>(null)
 
   const numbering = React.useMemo(() => {
     const map = new Map<string, number>()
@@ -138,7 +140,7 @@ export function BankGroupForm({
   } as CandidateSection
 
   return (
-    <div className="space-y-4">
+    <div ref={formRef} className="space-y-4">
       {/* Skill & Part */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -212,7 +214,11 @@ export function BankGroupForm({
 
       {/* Editor */}
       {group && (
-        <QuestionGroupEditor
+        <>
+          <div className="flex justify-end">
+            <RichTextFormatBar containerRef={formRef} />
+          </div>
+          <QuestionGroupEditor
           group={group}
           examReadonly={false}
           numbering={numbering}
@@ -253,6 +259,7 @@ export function BankGroupForm({
             )
           }
         />
+        </>
       )}
 
       {/* Footer */}

@@ -105,6 +105,8 @@ import { QuestionGroupEditor } from "@/features/questions/question-group-editor"
 import { QuestionTypePickerDialog } from "@/features/questions/question-type-picker-dialog"
 import { ExamCurriculumDialog } from "@/features/exams/components/exam-curriculum-dialog"
 import { ExamResourcesDialog } from "@/features/exams/components/exam-resources-dialog"
+import { RichTextFormatBar } from "@/features/exam-engine/components/rich-text-format-bar"
+import { RichText } from "@/features/exam-engine/components/rich-text"
 import { MediaPicker } from "@/components/shared/media-picker"
 import { AssignDialog } from "@/components/shared/assign-dialog"
 
@@ -408,6 +410,7 @@ export default function ExamBuilderPage() {
   const [resources, setResources] = React.useState<IExamPostSubmissionResources | undefined>(undefined)
 
   const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const workspaceRef = React.useRef<HTMLDivElement | null>(null)
   // Always points at the most recent builder snapshot. `doSave` reads from here
   // instead of closing over `exam`, which otherwise makes the debounced autosave
   // persist data that is one edit behind (the last keystroke is dropped).
@@ -1415,7 +1418,7 @@ export default function ExamBuilderPage() {
         </Card>
 
         {/* Workspace */}
-        <div className="min-w-0 space-y-4">
+        <div ref={workspaceRef} className="min-w-0 space-y-4">
           {!active ? (
             <Card className="border-dashed border-border shadow-none">
               <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
@@ -1428,22 +1431,28 @@ export default function ExamBuilderPage() {
           ) : (
             <>
               <Card className="border-border shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between border-b border-border pb-3">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
                   <div className="flex items-center gap-2">
                     <HugeiconsIcon icon={SKILL_ICON[active.skill]} size={16} className="text-primary" />
                     <CardTitle className="font-heading text-sm font-bold">
                       {SKILL_LABEL[active.skill]} · {active.title}
                     </CardTitle>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={examReadonly}
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => requestRemoveSection(activeIndex)}
-                  >
-                    <HugeiconsIcon icon={Delete02Icon} size={15} />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <RichTextFormatBar
+                      containerRef={workspaceRef}
+                      disabled={examReadonly}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={examReadonly}
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => requestRemoveSection(activeIndex)}
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} size={15} />
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4 p-4">
                   <div className="space-y-1.5">
@@ -1530,7 +1539,7 @@ export default function ExamBuilderPage() {
                         <div className="prose prose-sm max-w-none rounded-xl border border-border bg-card p-4 leading-relaxed">
                           {(active.passageText ?? "").split(/\n{2,}/).map((para, i) => (
                             <p key={i} className="whitespace-pre-line text-sm">
-                              {para}
+                              <RichText text={para} />
                             </p>
                           ))}
                         </div>
@@ -1610,7 +1619,7 @@ export default function ExamBuilderPage() {
 
               {/* Question Groups */}
               <Card className="border-border shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between border-b border-border pb-3">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
                   <CardTitle className="font-heading text-sm font-bold">
                     Nhóm câu hỏi ({(active.questionGroups ?? []).reduce(
                       (acc, g) => acc + g.questions.length,
@@ -1618,7 +1627,12 @@ export default function ExamBuilderPage() {
                     )}{" "}
                     câu trong {(active.questionGroups ?? []).length} nhóm)
                   </CardTitle>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2">
+                    <RichTextFormatBar
+                      containerRef={workspaceRef}
+                      disabled={examReadonly}
+                      enableShortcuts={false}
+                    />
                     <Button
                       variant="outline"
                       size="sm"

@@ -61,6 +61,7 @@ import {
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@/lib/api/client"
+import { RichText } from "@/features/exam-engine/components/rich-text"
 import {
   useQuestionsQuery,
   useCreateQuestionMutation,
@@ -111,7 +112,7 @@ function GroupPreview({ group }: { group: BankQuestionGroup }) {
       </Badge>
       {group.instructions && (
         <p className="whitespace-pre-line rounded-lg border border-border bg-muted/20 p-3 text-sm leading-relaxed">
-          {group.instructions}
+          <RichText text={group.instructions} />
         </p>
       )}
       <div className="space-y-2">

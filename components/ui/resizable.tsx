@@ -19,8 +19,17 @@ function ResizablePanelGroup({
   )
 }
 
-function ResizablePanel({ ...props }: ResizablePrimitive.PanelProps) {
-  return <ResizablePrimitive.Panel data-slot="resizable-panel" {...props} />
+function ResizablePanel({ style, ...props }: ResizablePrimitive.PanelProps) {
+  return (
+    <ResizablePrimitive.Panel
+      data-slot="resizable-panel"
+      // The library sets `touch-action: pan-x` on the inner scroll area for
+      // vertical groups, which blocks vertical swipes on mobile. Our panels
+      // are document readers, so always allow vertical panning.
+      style={{ touchAction: "pan-y", ...style }}
+      {...props}
+    />
+  )
 }
 
 function ResizableHandle({

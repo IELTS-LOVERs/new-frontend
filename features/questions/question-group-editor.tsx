@@ -1527,6 +1527,10 @@ export function QuestionGroupEditor({
                               className="h-8 font-mono text-xs font-medium text-emerald-700 dark:text-emerald-400"
                               placeholder="VD: China, Republic of China"
                             />
+                            <p className="text-[10px] text-muted-foreground">
+                              Phân biệt hoa/thường: “shoe” và “Shoe” là hai đáp án
+                              khác nhau. Thêm cả hai nếu muốn chấp nhận cả hai.
+                            </p>
                           </div>
                         )}
 
@@ -1631,7 +1635,7 @@ function CompletionAnswerTable({
             <code className="rounded bg-muted px-1 font-mono font-bold text-primary">
               [X]
             </code>{" "}
-            trong template.
+            trong template. Đáp án phân biệt chữ hoa/thường.
           </p>
         </div>
         <Badge

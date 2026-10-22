@@ -54,6 +54,11 @@ import {
   HighlightLayer,
   SelectableHighlightedText,
 } from "@/features/exam-engine/components/highlight-layer"
+import {
+  RichText,
+  renderRichTextNodes,
+} from "@/features/exam-engine/components/rich-text"
+import { parseRichText } from "@/features/exam-engine/lib/rich-text"
 import { scrollToQuestion } from "@/features/exam-engine/lib/question-nav"
 import { toast } from "sonner"
 import { BrandLogo } from "@/components/layout/brand-logo"
@@ -289,7 +294,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   return (
     <div
       className={cn(
-        "flex h-screen flex-col overflow-hidden transition-colors duration-200",
+        "flex h-dvh flex-col overflow-hidden transition-colors duration-200",
         ui.theme === "cream"
           ? "bg-[#FAF8F5] text-[#2D2A26]"
           : "bg-background text-foreground"
@@ -445,9 +450,11 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
       </header>
 
       {/* BODY */}
+      {/* Tailwind dùng đơn vị rem cho text-*, nên font-size % trên <main>
+          không làm chữ to lên. `zoom` scale toàn bộ nội dung bài thi. */}
       <main
-        className="flex-1 overflow-hidden"
-        style={{ fontSize: `${ui.fontScale * 100}%` }}
+        className="min-h-0 flex-1 overflow-hidden"
+        style={{ zoom: ui.fontScale }}
       >
         {currentSection.skill === "listening" && (
           <ListeningSection
@@ -719,7 +726,7 @@ function ListeningSection({
             {section.title}
           </h3>
           <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-            {section.instructions}
+            <RichText text={section.instructions} />
           </p>
         </div>
 
@@ -813,7 +820,7 @@ function ReadingSection({
                 {section.title}
               </h3>
               <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                {section.instructions}
+                <RichText text={section.instructions} />
               </p>
             </div>
 
@@ -899,8 +906,13 @@ function WritingSection({
                     : "Task 2 Instructions"}
                 </h3>
                 <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
-                  {currentQ.prompt}
-                  {currentQ.content ? `\n\n${currentQ.content}` : ""}
+                  <RichText text={currentQ.prompt} />
+                  {currentQ.content ? (
+                    <>
+                      {"\n\n"}
+                      <RichText text={currentQ.content} />
+                    </>
+                  ) : null}
                 </p>
               </div>
               {currentQ.media?.map((m) =>
@@ -1056,7 +1068,7 @@ function InlineBlank({
   )
 }
 
-function renderInlineBlanks(
+function renderPlainTextBlanks(
   text: string,
   ctx: BlankRenderContext,
   keyPrefix: string,
@@ -1104,6 +1116,19 @@ function renderInlineBlanks(
   return nodes
 }
 
+function renderInlineBlanks(
+  text: string,
+  ctx: BlankRenderContext,
+  keyPrefix: string,
+  compact = false
+): React.ReactNode[] {
+  return renderRichTextNodes(
+    parseRichText(text),
+    keyPrefix,
+    (value, key) => renderPlainTextBlanks(value, ctx, key, compact)
+  )
+}
+
 function UnplacedQuestionsList({
   questions,
   answers,
@@ -1133,7 +1158,7 @@ function UnplacedQuestionsList({
             <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
               {q.questionNumber}
             </span>
-            <span className="flex-1 text-xs text-foreground">{q.prompt}</span>
+            <span className="flex-1 text-xs text-foreground"><RichText text={q.prompt} /></span>
             <Input
               value={answer}
               onChange={(e) => onAnswer(q.id, e.target.value)}
@@ -1394,7 +1419,7 @@ function MatchingFeaturesRenderer({
         Questions {first}–{last}
       </p>
       <p className="text-sm font-medium whitespace-pre-line text-foreground">
-        {group.instructions}
+        <RichText text={group.instructions} />
       </p>
       {allowReuse && (
         <p className="text-xs font-semibold text-primary">
@@ -1431,7 +1456,7 @@ function MatchingFeaturesRenderer({
                           className="max-w-16 truncate text-[9px] font-normal text-muted-foreground"
                           title={f.text}
                         >
-                          {f.text}
+                          <RichText text={f.text} />
                         </span>
                       )}
                     </div>
@@ -1531,7 +1556,7 @@ function MatchingFeaturesRenderer({
               <span className="w-5 shrink-0 font-mono font-bold text-primary">
                 {f.id}
               </span>
-              <span className="text-foreground">{f.text}</span>
+              <span className="text-foreground"><RichText text={f.text} /></span>
             </div>
           ))}
         </div>
@@ -1594,7 +1619,7 @@ function MatchingFeaturesRenderer({
                 })}
                 {selected && (
                   <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                    {selected.text}
+                    <RichText text={selected.text} />
                   </span>
                 )}
               </div>
@@ -1700,7 +1725,7 @@ function GroupRendererBody({
             {group.questions[group.questions.length - 1]?.questionNumber}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
-            {group.instructions}
+            <RichText text={group.instructions} />
           </p>
         </div>
 
@@ -1714,7 +1739,7 @@ function GroupRendererBody({
 
           {group.questions[0]?.prompt && (
             <p className="text-sm sm:text-base font-semibold text-foreground leading-relaxed">
-              {group.questions[0].prompt}
+              <RichText text={group.questions[0].prompt} />
             </p>
           )}
 
@@ -1743,7 +1768,7 @@ function GroupRendererBody({
                   >
                     {opt.id}
                   </div>
-                  <span className="flex-1">{opt.text || opt.id}</span>
+                  <span className="flex-1"><RichText text={opt.text || opt.id} /></span>
                 </button>
               )
             })}
@@ -1805,7 +1830,7 @@ function GroupRendererBody({
             {group.questions[group.questions.length - 1]?.questionNumber}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
-            {group.instructions}
+            <RichText text={group.instructions} />
           </p>
           {allowReuse && (
             <p className="text-xs font-semibold text-primary">
@@ -1943,7 +1968,7 @@ function GroupRendererBody({
             {group.questions[group.questions.length - 1]?.questionNumber}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
-            {group.instructions}
+            <RichText text={group.instructions} />
           </p>
           {wordLimitText && (
             <p className="text-xs font-semibold text-primary">
@@ -1977,7 +2002,7 @@ function GroupRendererBody({
             {group.questions[group.questions.length - 1]?.questionNumber}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
-            {group.instructions}
+            <RichText text={group.instructions} />
           </p>
           {wordLimitText && (
             <p className="text-xs font-semibold text-primary">
@@ -2011,7 +2036,7 @@ function GroupRendererBody({
             {group.questions[group.questions.length - 1]?.questionNumber}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
-            {group.instructions}
+            <RichText text={group.instructions} />
           </p>
           {wordLimitText && (
             <p className="text-xs font-semibold text-primary">
@@ -2032,7 +2057,7 @@ function GroupRendererBody({
                   className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1 text-xs"
                 >
                   <span className="font-bold text-primary">{item.id}</span>
-                  <span className="text-foreground">{item.text}</span>
+                  <span className="text-foreground"><RichText text={item.text} /></span>
                 </div>
               ))}
             </div>
@@ -2062,7 +2087,7 @@ function GroupRendererBody({
           {group.questions[group.questions.length - 1]?.questionNumber}
         </p>
         <p className="text-sm sm:text-base font-semibold whitespace-pre-line text-foreground leading-relaxed">
-          {group.instructions}
+          <RichText text={group.instructions} />
         </p>
         {wordLimitText && (
           <p className="text-xs sm:text-sm font-bold text-primary">{wordLimitText}</p>
@@ -2074,7 +2099,7 @@ function GroupRendererBody({
           {matchPool.map((item) => (
             <div key={item.id} className="flex gap-2 text-xs sm:text-sm">
               <span className="w-6 font-bold text-primary">{item.id}</span>
-              <span className="text-foreground">{item.text}</span>
+              <span className="text-foreground"><RichText text={item.text} /></span>
             </div>
           ))}
         </div>
@@ -2092,7 +2117,7 @@ function GroupRendererBody({
                 className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-xs sm:text-sm"
               >
                 <span className="font-bold text-primary">{item.id}</span>
-                <span className="text-foreground">{item.text}</span>
+                <span className="text-foreground"><RichText text={item.text} /></span>
               </div>
             ))}
           </div>

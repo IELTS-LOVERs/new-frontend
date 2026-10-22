@@ -231,8 +231,10 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
 
       setLocalUploaded((prev) => [newAsset, ...prev])
       setSelectedId(presign.mediaId)
-      await queryClient.invalidateQueries({ queryKey: ["media"] })
-      await mediaQuery.refetch()
+      // The confirm mutation already invalidates the media query in the
+      // background. Do not block the "upload complete" state on refetching the
+      // whole library (which signs up to 100 preview URLs).
+      void queryClient.invalidateQueries({ queryKey: ["media"] })
       toast.success(`Đã tải lên tệp: ${file.name}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Tải lên thất bại"

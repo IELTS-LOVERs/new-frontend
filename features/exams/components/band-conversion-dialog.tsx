@@ -154,8 +154,11 @@ export function BandConversionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-3xl">
-        <DialogHeader>
+      <DialogContent
+        className="max-h-[90dvh] flex-col gap-4 overflow-hidden sm:max-w-3xl"
+        style={{ display: "flex" }}
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Bảng quy đổi band tùy chỉnh</DialogTitle>
           <DialogDescription>
             Mỗi dòng là mốc điểm raw tối thiểu để đạt band tương ứng. App sẽ lấy
@@ -163,7 +166,7 @@ export function BandConversionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Button
             type="button"
             size="sm"
@@ -192,7 +195,7 @@ export function BandConversionDialog({
           </Button>
         </div>
 
-        <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-border">
+        <div className="min-h-0 flex-auto overflow-y-auto rounded-xl border border-border">
           <div className="grid grid-cols-[1fr_1fr_40px] gap-2 border-b border-border bg-muted/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             <span>Band</span>
             <span>Điểm raw tối thiểu</span>
@@ -245,7 +248,7 @@ export function BandConversionDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex shrink-0 items-center justify-between gap-3">
           <Button type="button" variant="outline" size="sm" onClick={addRow}>
             + Thêm mốc
           </Button>
@@ -255,12 +258,12 @@ export function BandConversionDialog({
         </div>
 
         {error && (
-          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <p className="shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
             {error}
           </p>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border pt-4">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Hủy
           </Button>

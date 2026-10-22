@@ -24,6 +24,7 @@ import { formatBand, QUESTION_GROUP_TYPE_LABEL } from "@/lib/format"
 import { useAttemptResultQuery, useMyAttemptsQuery } from "@/hooks/use-attempts"
 import { useExamDetailQuery } from "@/hooks/use-exams"
 import { PostSubmissionResources } from "@/features/practice/components/post-submission-resources"
+import { RichText } from "@/features/exam-engine/components/rich-text"
 import type {
   AttemptResult,
   AttemptResultDetail,
@@ -654,13 +655,13 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
 
                   {row.groupInstructions && (
                     <p className="text-[11px] font-medium text-muted-foreground italic">
-                      {row.groupInstructions}
+                      <RichText text={row.groupInstructions} />
                     </p>
                   )}
 
                   {row.prompt && row.prompt !== row.questionId && (
                     <p className="text-xs sm:text-sm text-foreground leading-relaxed">
-                      {row.prompt}
+                      <RichText text={row.prompt} />
                     </p>
                   )}
 
