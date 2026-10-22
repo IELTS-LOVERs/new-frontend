@@ -57,7 +57,6 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { deadlineLabel, formatDateShort, isDeadlineSoon } from "@/lib/format"
 import { ApiError } from "@/lib/api/client"
-import { USE_MOCKS } from "@/lib/api/config"
 import { useClassesQuery } from "@/hooks/use-classes"
 import {
   useTeacherAssignmentsQuery,
@@ -66,7 +65,6 @@ import {
 } from "@/hooks/use-assignments"
 import { exportAssignmentCsvApi } from "@/lib/api/assignments"
 import type { AssignmentSummary } from "@/lib/api/types"
-import { DEMO_ASSIGNMENTS, DEMO_CLASSES } from "@/mocks/demo-data"
 
 const PAGE_SIZE = 20
 
@@ -84,21 +82,16 @@ export default function TeacherAssignmentsPage() {
   }, [])
 
   // ── Data sources ──────────────────────────────────────────────────────────
-  const classesQuery = useClassesQuery(!USE_MOCKS)
-  const assignmentsQuery = useTeacherAssignmentsQuery(
-    {
-      classId: classId === "all" ? undefined : classId,
-      page,
-      limit: PAGE_SIZE,
-    },
-    !USE_MOCKS
-  )
+  const classesQuery = useClassesQuery()
+  const assignmentsQuery = useTeacherAssignmentsQuery({
+    classId: classId === "all" ? undefined : classId,
+    page,
+    limit: PAGE_SIZE,
+  })
 
-  const classes = USE_MOCKS ? DEMO_CLASSES : (classesQuery.data ?? [])
-  const items: AssignmentSummary[] = USE_MOCKS
-    ? DEMO_ASSIGNMENTS
-    : (assignmentsQuery.data?.items ?? [])
-  const meta = USE_MOCKS ? undefined : assignmentsQuery.data?.meta
+  const classes = classesQuery.data ?? []
+  const items: AssignmentSummary[] = assignmentsQuery.data?.items ?? []
+  const meta = assignmentsQuery.data?.meta
 
   // Trạng thái lọc client (server không hỗ trợ filter status)
   const filtered = items.filter((a) => {
@@ -106,8 +99,8 @@ export default function TeacherAssignmentsPage() {
     return true
   })
 
-  const isLoading = !USE_MOCKS && assignmentsQuery.isLoading
-  const isError = !USE_MOCKS && assignmentsQuery.isError
+  const isLoading = assignmentsQuery.isLoading
+  const isError = assignmentsQuery.isError
 
   // ── Mutations & dialogs ───────────────────────────────────────────────────
   const updateMutation = useUpdateAssignmentMutation("")
@@ -119,10 +112,6 @@ export default function TeacherAssignmentsPage() {
   const [exportingId, setExportingId] = React.useState<string | null>(null)
 
   const exportCsv = async (a: AssignmentSummary) => {
-    if (USE_MOCKS) {
-      toast.success("Đã xuất file CSV tiến độ")
-      return
-    }
     setExportingId(a.id)
     try {
       await exportAssignmentCsvApi(a.id, `${a.examTitle}-progress.csv`)
@@ -137,10 +126,6 @@ export default function TeacherAssignmentsPage() {
 
   const toggleArchive = async (a: AssignmentSummary) => {
     const next = a.status === "active" ? "archived" : "active"
-    if (USE_MOCKS) {
-      toast.success(next === "archived" ? "Đã lưu trữ đợt giao bài" : "Đã mở lại đợt giao bài")
-      return
-    }
     try {
       await updateMutation.mutateAsync({ id: a.id, status: next })
       toast.success(next === "archived" ? "Đã lưu trữ đợt giao bài" : "Đã mở lại đợt giao bài")
@@ -163,11 +148,6 @@ export default function TeacherAssignmentsPage() {
   const handleExtend = async () => {
     if (!extendTarget || !extendDeadline) return
     const iso = new Date(extendDeadline).toISOString()
-    if (USE_MOCKS) {
-      toast.success("Đã gia hạn deadline")
-      setExtendTarget(null)
-      return
-    }
     try {
       await updateMutation.mutateAsync({ id: extendTarget.id, deadline: iso })
       toast.success("Đã gia hạn deadline")
@@ -180,11 +160,6 @@ export default function TeacherAssignmentsPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return
-    if (USE_MOCKS) {
-      toast.success(`Đã xóa đợt giao "${deleteTarget.examTitle}"`)
-      setDeleteTarget(null)
-      return
-    }
     try {
       await deleteMutation.mutateAsync(deleteTarget.id)
       toast.success(`Đã xóa đợt giao "${deleteTarget.examTitle}"`)
@@ -416,7 +391,7 @@ export default function TeacherAssignmentsPage() {
       )}
 
       {/* Server-side pagination */}
-      {!USE_MOCKS && meta && meta.totalPages > 1 && (
+      {meta && meta.totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground font-mono">
             Trang {meta.page}/{meta.totalPages} · {meta.total} đợt giao

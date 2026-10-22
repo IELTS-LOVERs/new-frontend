@@ -1,6 +1,45 @@
 export type UserRole = "student" | "teacher" | "admin"
 export type UserStatus = "active" | "inactive" | "suspended"
 
+export type ExamKind = "practice" | "mock"
+export type ExamScoringMode = "band" | "raw"
+export type BandConversionMode = "auto" | "custom"
+export type ReadingTrainingType = "academic" | "general"
+
+export interface BandThreshold {
+  minRaw: number
+  band: number
+}
+
+export interface BandConversion {
+  mode: BandConversionMode
+  readingType: ReadingTrainingType
+  listeningThresholds?: BandThreshold[]
+  readingThresholds?: BandThreshold[]
+}
+
+export interface IExamCurriculum {
+  collectionName?: string | null
+  testNumber?: number | null
+  part?: number | null
+  orderIndex?: number | null
+}
+
+export interface IExamVocabularyItem {
+  _id?: string
+  word: string
+  phonetic?: string
+  meaning: string
+  contextSentence?: string
+}
+
+export interface IExamPostSubmissionResources {
+  solutionVideoUrl?: string | null
+  solutionDocumentUrl?: string | null
+  solutionNotes?: string | null
+  vocabularyItems?: IExamVocabularyItem[]
+}
+
 export interface User {
   id: string
   email: string
@@ -226,17 +265,27 @@ export interface CandidateExam {
   id: string
   title: string
   description?: string | null
+  bannerUrl?: string | null
   durationMinutes: number
+  kind?: ExamKind
+  scoringMode?: ExamScoringMode
+  bandConversion?: BandConversion
+  curriculum?: IExamCurriculum
   sections: CandidateSection[]
 }
 
 export interface ExamListItem {
   id: string
   title: string
+  bannerUrl?: string | null
   durationMinutes: number
   status: "draft" | "published" | "closed"
   createdAt: string
   sectionsCount?: number
+  kind?: ExamKind
+  scoringMode?: ExamScoringMode
+  bandConversion?: BandConversion
+  curriculum?: IExamCurriculum
 }
 
 export type SubmissionStatus = "not_started" | "in_progress" | "submitted" | "expired"
@@ -253,6 +302,7 @@ export interface MyAssignment {
   className: string | null
   attemptId: string | null
   scores: AttemptScores | null
+  examKind?: ExamKind
 }
 
 export interface AttemptScores {
@@ -320,6 +370,16 @@ export interface AttemptResult {
   scores: AttemptScores
   writingReview?: WritingReview | null
   details: AttemptResultDetail[]
+  examKind?: ExamKind
+  scoreMode?: ExamScoringMode
+  questionCount?: number
+  totalPoints?: number
+  rawScore?: number
+  percentage?: number
+  correctCount?: number
+  wrongCount?: number
+  blankCount?: number
+  postSubmissionResources?: IExamPostSubmissionResources | null
 }
 
 export interface AntiCheatEvent {
@@ -345,10 +405,19 @@ export interface StudentDashboardStats {
   averageBand: number
   recentAttempts: Array<{
     id: string
-    examTitle: string
-    submittedAt: string
+    examTitle?: string
+    exam?: { id?: string; title?: string; kind?: "practice" | "mock" }
+    submittedAt: string | null
     scores: AttemptScores
     status: SubmissionStatus
+    examKind?: "practice" | "mock"
+    scoringMode?: "band" | "raw"
+    totalPoints?: number
+    rawScore?: number
+    percentage?: number
+    correctCount?: number
+    wrongCount?: number
+    blankCount?: number
   }>
   upcomingAssignments: MyAssignment[]
 }
@@ -519,3 +588,109 @@ export interface StudentProgressAnalytics {
     overall?: number | null
   }>
 }
+
+// === Practice & Heatmap & Weekly Reports (v2) ===
+
+export type PracticeProgressStatus = "not_started" | "in_progress" | "completed"
+
+export interface PracticeCatalogProgress {
+  status: PracticeProgressStatus
+  attemptId?: string
+  lastSubmittedAt?: string
+  rawScore?: number
+  totalPoints?: number
+  percentage?: number
+  correctCount?: number
+  wrongCount?: number
+  blankCount?: number
+}
+
+export interface PracticeCatalogItem {
+  examId: string
+  title: string
+  bannerUrl?: string
+  durationMinutes: number
+  questionCount: number
+  totalPoints?: number
+  kind: "practice"
+  curriculum?: IExamCurriculum
+  skills: SkillType[]
+  parts?: number[]
+  sections?: Array<{
+    skill: SkillType
+    part: number
+    title?: string
+  }>
+  questionTypes?: string[]
+  progress: PracticeCatalogProgress
+}
+
+export interface PracticeCatalogResponse {
+  items: PracticeCatalogItem[]
+}
+
+export type DailyPracticeStatus = "both" | "listening_only" | "reading_only" | "none"
+
+export interface PracticeHeatmapDay {
+  date: string
+  status: DailyPracticeStatus
+  listening: number
+  reading: number
+}
+
+export interface PracticeHeatmapResponse {
+  range: {
+    from: string
+    to: string
+    timezone: string
+  }
+  days: PracticeHeatmapDay[]
+  streak: {
+    current: number
+    longest: number
+  }
+}
+
+export interface WeeklyReportDayCell {
+  date: string
+  status: DailyPracticeStatus
+  listening: number
+  reading: number
+  practiceCount: number
+  mockCount: number
+}
+
+export interface WeeklyReportStudentItem {
+  student: {
+    id: string
+    fullName: string
+  }
+  days: WeeklyReportDayCell[]
+  assignmentsDue: number
+  assignmentsCompleted: number
+  completionRate: number | null
+  practiceAttempts: number
+  practiceAccuracy: number | null
+  mockAverageBand: number | null
+}
+
+export interface WeeklyReportResponse {
+  class: {
+    id: string
+    name: string
+    code: string
+  }
+  week: {
+    from: string
+    to: string
+    timezone: string
+  }
+  students: WeeklyReportStudentItem[]
+  totals: {
+    students: number
+    assignmentsDue: number
+    assignmentsCompleted: number
+    completionRate: number | null
+  }
+}
+

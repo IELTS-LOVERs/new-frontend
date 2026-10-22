@@ -26,8 +26,6 @@ import {
   SchoolIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons"
-import { DEMO_STUDENT, DEMO_STUDENT_DASHBOARD, DEMO_STUDENT_CLASSES, DEMO_STUDENT_ANALYTICS } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useStudentDashboardQuery } from "@/hooks/use-dashboard"
 import { useStudentProgressQuery } from "@/hooks/use-analytics"
@@ -88,29 +86,26 @@ function DashboardSkeleton() {
 
 export default function StudentDashboardPage() {
   const authUser = useAuthStore((s) => s.user)
-  const currentUser = authUser ?? DEMO_STUDENT
 
-  const dashboardQuery = useStudentDashboardQuery(!USE_MOCKS)
-  const progressQuery = useStudentProgressQuery(undefined, !USE_MOCKS)
-  const classesQuery = useClassesQuery(!USE_MOCKS)
+  const dashboardQuery = useStudentDashboardQuery()
+  const progressQuery = useStudentProgressQuery()
+  const classesQuery = useClassesQuery()
 
-  if (!USE_MOCKS) {
-    if (dashboardQuery.isLoading || progressQuery.isLoading || classesQuery.isLoading) {
-      return <DashboardSkeleton />
-    }
-    if (dashboardQuery.isError) {
-      return (
-        <div className="mx-auto max-w-6xl space-y-6">
-          <DashboardError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
-        </div>
-      )
-    }
+  if (dashboardQuery.isLoading || progressQuery.isLoading || classesQuery.isLoading) {
+    return <DashboardSkeleton />
+  }
+  if (dashboardQuery.isError) {
+    return (
+      <div className="mx-auto max-w-6xl space-y-6">
+        <DashboardError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
+      </div>
+    )
   }
 
-  const dashboard = USE_MOCKS ? DEMO_STUDENT_DASHBOARD : dashboardQuery.data
-  const progress = USE_MOCKS ? DEMO_STUDENT_ANALYTICS : progressQuery.data
-  const classes = USE_MOCKS ? DEMO_STUDENT_CLASSES : (classesQuery.data ?? [])
-  const targetBand = progress?.targetBand ?? currentUser.targetBand
+  const dashboard = dashboardQuery.data
+  const progress = progressQuery.data
+  const classes = classesQuery.data ?? []
+  const targetBand = progress?.targetBand ?? authUser?.targetBand
 
   const upcoming = (dashboard?.upcomingAssignments ?? []).slice(0, 5)
   const recentAttempts = dashboard?.recentAttempts ?? []
@@ -128,14 +123,14 @@ export default function StudentDashboardPage() {
     })
   const nextTodo = notStartedSorted[0]
 
-  const hasNoClasses = !USE_MOCKS && classesQuery.isSuccess && classes.length === 0
+  const hasNoClasses = classesQuery.isSuccess && classes.length === 0
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {/* Greeting */}
       <div className="space-y-1">
         <h1 className="font-heading text-xl sm:text-2xl font-semibold text-foreground tracking-tight">
-          {greeting()}, {currentUser.fullName}
+          {greeting()}, {authUser?.fullName ?? "bạn"}
         </h1>
         <p className="text-xs sm:text-sm text-muted-foreground">
           Đây là tổng quan tiến độ học tập của bạn.
@@ -286,7 +281,7 @@ export default function StudentDashboardPage() {
             </p>
           </div>
           <Button variant="ghost" size="sm" asChild className="text-xs font-medium h-8">
-            <Link href="/student/assignments" className="flex items-center gap-1">
+            <Link href="/student/exams" className="flex items-center gap-1">
               <span>Xem tất cả</span>
               <HugeiconsIcon icon={ArrowRight01Icon} size={14} />
             </Link>
@@ -448,10 +443,19 @@ export default function StudentDashboardPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                recentAttempts.map((item) => (
+                recentAttempts.map((item) => {
+                  const isPracticeAttempt =
+                    item.examKind === "practice" || item.exam?.kind === "practice"
+                  const isRawAttempt =
+                    isPracticeAttempt || item.scoringMode === "raw"
+                  const countTotal =
+                    (item.correctCount ?? 0) +
+                    (item.wrongCount ?? 0) +
+                    (item.blankCount ?? 0)
+                  return (
                   <TableRow key={item.id} className="hover:bg-muted/30">
                     <TableCell className="font-medium text-xs sm:text-sm text-foreground">
-                      {item.examTitle}
+                      {item.examTitle ?? item.exam?.title ?? "Bài thi"}
                     </TableCell>
                     <TableCell className="text-center font-mono text-xs font-medium">
                       {formatBand(item.scores?.listeningBand)}
@@ -463,7 +467,19 @@ export default function StudentDashboardPage() {
                       {formatBand(item.scores?.writingBand)}
                     </TableCell>
                     <TableCell className="text-center font-mono text-xs font-semibold text-primary">
-                      {formatBand(item.scores?.overallBand)}
+                      {isRawAttempt
+                        ? item.correctCount !== undefined
+                          ? `${item.correctCount}/${countTotal || item.totalPoints || 0}${
+                              countTotal > 0
+                                ? ` (${Math.round((item.correctCount / countTotal) * 100)}%)`
+                                : ""
+                            }`
+                          : item.rawScore !== undefined
+                            ? `${item.rawScore}/${item.totalPoints ?? 0}${
+                                item.percentage !== undefined ? ` (${item.percentage}%)` : ""
+                              }`
+                            : "—"
+                        : formatBand(item.scores?.overallBand)}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground hidden sm:table-cell">
                       {formatDateShort(item.submittedAt)}
@@ -474,7 +490,8 @@ export default function StudentDashboardPage() {
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))
+                  )
+                })
               )}
             </TableBody>
           </Table>

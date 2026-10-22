@@ -11,11 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { toast } from "sonner"
-import { useAuthStore } from "@/stores/auth.store"
 import { useRegisterMutation } from "@/hooks/use-auth"
 import { ApiError } from "@/lib/api/client"
-import { USE_MOCKS } from "@/lib/api/config"
-import { DEMO_STUDENT } from "@/mocks/demo-data"
 
 export default function RegisterPage() {
   return (
@@ -28,7 +25,6 @@ export default function RegisterPage() {
 function RegisterForm() {
   const router = useRouter()
   const [inviteCode] = useQueryState("code", parseAsString)
-  const { setAuth } = useAuthStore()
   const registerMutation = useRegisterMutation()
 
   const [fullName, setFullName] = React.useState("")
@@ -47,15 +43,6 @@ function RegisterForm() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError(null)
-
-    if (USE_MOCKS) {
-      setAuth({ ...DEMO_STUDENT, fullName: fullName || "Học viên mới", email }, "mock-new-token")
-      toast.success("Đăng ký tài khoản thành công!", {
-        description: classCode ? `Đã tự động tham gia lớp học mã ${classCode}` : "Chào mừng bạn đến với IELTS LOVERs",
-      })
-      router.push("/student")
-      return
-    }
 
     try {
       await registerMutation.mutateAsync({

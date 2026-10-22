@@ -6,11 +6,18 @@ import type {
   QuestionGroupType,
   QuestionGroupConfig,
   MediaItem,
+  ExamKind,
+  ExamScoringMode,
+  BandConversion,
+  BandThreshold,
+  IExamCurriculum,
+  IExamPostSubmissionResources,
 } from "./types"
 import type { PaginatedMeta } from "./assignments"
 
 export interface ListExamsParams {
   status?: "draft" | "published" | "closed"
+  kind?: "practice" | "mock"
   page?: number
   limit?: number
 }
@@ -23,6 +30,7 @@ export interface ListExamsResult {
 export async function getExamsApi(params: ListExamsParams = {}): Promise<ListExamsResult> {
   const search = new URLSearchParams()
   if (params.status) search.set("status", params.status)
+  if (params.kind) search.set("kind", params.kind)
   if (params.page) search.set("page", String(params.page))
   if (params.limit) search.set("limit", String(params.limit))
   const qs = search.toString()
@@ -65,10 +73,16 @@ export interface CreateExamSectionPayload {
 export interface CreateExamPayload {
   title: string
   description?: string
+  bannerUrl?: string | null
   durationMinutes?: number
   sections: CreateExamSectionPayload[]
   openAt?: string
   closeAt?: string
+  kind?: ExamKind
+  scoringMode?: ExamScoringMode
+  bandConversion?: BandConversion
+  curriculum?: IExamCurriculum
+  postSubmissionResources?: IExamPostSubmissionResources
 }
 
 export interface CreateExamResponse {
@@ -98,6 +112,7 @@ export async function updateExamApi(id: string, payload: Partial<CreateExamPaylo
 export interface UpdateExamMetadataPayload {
   title?: string
   description?: string
+  bannerUrl?: string | null
   openAt?: string | null
   closeAt?: string | null
 }
@@ -193,8 +208,19 @@ export interface TeacherExamDetail {
   id: string
   title: string
   description?: string | null
+  bannerUrl?: string | null
   durationMinutes: number
   status: "draft" | "published" | "closed"
+  kind?: ExamKind
+  scoringMode?: ExamScoringMode
+  bandConversion?: BandConversion
+  bandConversionDefaults?: {
+    listening: BandThreshold[]
+    readingAcademic: BandThreshold[]
+    readingGeneral: BandThreshold[]
+  }
+  curriculum?: IExamCurriculum
+  postSubmissionResources?: IExamPostSubmissionResources
   sections: TeacherExamSection[]
   openAt?: string | null
   closeAt?: string | null

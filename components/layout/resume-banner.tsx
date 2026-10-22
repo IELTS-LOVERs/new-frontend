@@ -6,23 +6,17 @@ import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { PlayIcon, Timer01Icon } from "@hugeicons/core-free-icons"
-import { DEMO_STUDENT_DASHBOARD } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { useStudentDashboardQuery } from "@/hooks/use-dashboard"
 
 export function ResumeBanner() {
   const pathname = usePathname()
   const isStudentPath = pathname.startsWith("/student")
 
-  const dashboardQuery = useStudentDashboardQuery(!USE_MOCKS && isStudentPath)
+  const dashboardQuery = useStudentDashboardQuery(isStudentPath)
 
-  const inProgress = USE_MOCKS
-    ? DEMO_STUDENT_DASHBOARD.upcomingAssignments.find(
-        (a) => a.submissionStatus === "in_progress"
-      )
-    : dashboardQuery.data?.upcomingAssignments.find(
-        (a) => a.submissionStatus === "in_progress" && a.attemptId
-      )
+  const inProgress = dashboardQuery.data?.upcomingAssignments.find(
+    (a) => a.submissionStatus === "in_progress" && a.attemptId
+  )
 
   if (!isStudentPath || !inProgress || !inProgress.attemptId) return null
 

@@ -27,10 +27,8 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
-import { USE_MOCKS } from "@/lib/api/config"
 import { useClassesQuery } from "@/hooks/use-classes"
 import { useExamsQuery } from "@/hooks/use-exams"
-import { DEMO_CLASSES, DEMO_EXAMS } from "@/mocks/demo-data"
 
 interface CommandItem {
   id: string
@@ -43,7 +41,9 @@ interface CommandItem {
 
 const STUDENT_PAGES: CommandItem[] = [
   { id: "s-home", label: "Tổng quan", group: "Điều hướng", href: "/student", icon: DashboardSquare01Icon },
-  { id: "s-assign", label: "Bài tập", group: "Điều hướng", href: "/student/assignments", icon: Book02Icon },
+  { id: "s-classes", label: "Lớp học", group: "Điều hướng", href: "/student/classes", icon: UserIcon },
+  { id: "s-practice", label: "Luyện tập", group: "Điều hướng", href: "/student/practice", icon: Book02Icon },
+  { id: "s-exams", label: "Đề thi", group: "Điều hướng", href: "/student/exams", icon: PencilEdit02Icon },
   { id: "s-results", label: "Kết quả", group: "Điều hướng", href: "/student/results", icon: Award01Icon },
   { id: "s-progress", label: "Tiến độ", group: "Điều hướng", href: "/student/progress", icon: Analytics01Icon },
   { id: "s-profile", label: "Hồ sơ", group: "Điều hướng", href: "/student/profile", icon: UserIcon },
@@ -54,6 +54,7 @@ const TEACHER_PAGES: CommandItem[] = [
   { id: "t-classes", label: "Lớp học", group: "Điều hướng", href: "/teacher/classes", icon: UserIcon },
   { id: "t-assign", label: "Đợt giao bài", group: "Điều hướng", href: "/teacher/assignments", icon: Book02Icon },
   { id: "t-submissions", label: "Bài nộp & Chấm điểm", group: "Điều hướng", href: "/teacher/submissions", icon: Award01Icon },
+  { id: "t-practice", label: "Bài luyện tập", group: "Điều hướng", href: "/teacher/practices", icon: Book02Icon },
   { id: "t-exams", label: "Đề thi", group: "Điều hướng", href: "/teacher/exams", icon: PencilEdit02Icon },
   { id: "t-questions", label: "Ngân hàng câu hỏi", group: "Điều hướng", href: "/teacher/questions", icon: Folder02Icon },
   { id: "t-media", label: "Thư viện Media", group: "Điều hướng", href: "/teacher/media", icon: Folder02Icon },
@@ -69,7 +70,7 @@ const QUICK_ACTIONS: CommandItem[] = [
   { id: "a-exam", label: "Tạo đề thi mới", group: "Hành động nhanh", href: "/teacher/exams/new", icon: Add01Icon },
   { id: "a-question", label: "Tạo câu hỏi mới", group: "Hành động nhanh", href: "/teacher/questions?open=new", icon: SparklesIcon },
   { id: "a-assign", label: "Giao bài", group: "Hành động nhanh", href: "/teacher/assignments?action=assign", icon: Task01Icon },
-  { id: "a-grade", label: "Chấm bài tiếp theo", group: "Hành động nhanh", href: "/teacher/grading/att-grade-01", icon: FileEditIcon },
+  { id: "a-grade", label: "Chấm bài tiếp theo", group: "Hành động nhanh", href: "/teacher/submissions", icon: FileEditIcon },
 ]
 
 function removeAccents(str: string): string {
@@ -97,12 +98,11 @@ export function CommandPalette({
 
   const isAdmin = pathname.startsWith("/admin")
 
-  // Load real data when USE_MOCKS is false; fallback to DEMO_* ONLY when USE_MOCKS is true
-  const classesQuery = useClassesQuery(!USE_MOCKS && open && isTeacher)
-  const examsQuery = useExamsQuery({ limit: 50 }, !USE_MOCKS && open && isTeacher)
+  const classesQuery = useClassesQuery(open && isTeacher)
+  const examsQuery = useExamsQuery({ limit: 50 }, open && isTeacher)
 
-  const realClasses = USE_MOCKS ? DEMO_CLASSES : (classesQuery.data ?? [])
-  const realExams = USE_MOCKS ? DEMO_EXAMS : (examsQuery.data?.items ?? [])
+  const realClasses = React.useMemo(() => classesQuery.data ?? [], [classesQuery.data])
+  const realExams = React.useMemo(() => examsQuery.data?.items ?? [], [examsQuery.data])
 
   const classItems: CommandItem[] = React.useMemo(
     () =>

@@ -36,7 +36,6 @@ import {
   Task01Icon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useTeacherExamDetailQuery } from "@/hooks/use-exams"
 import { useTeacherAssignmentsQuery } from "@/hooks/use-assignments"
@@ -44,23 +43,11 @@ import { useExamAnalyticsQuery } from "@/hooks/use-analytics"
 import { SKILL_LABEL, formatDate, formatBand } from "@/lib/format"
 import type { SkillType } from "@/lib/api/types"
 import type { TeacherExamSection } from "@/lib/api/exams"
-import {
-  DEMO_ASSIGNMENTS,
-  DEMO_EXAM_ANALYTICS,
-  DEMO_EXAM_BUILDER,
-  DEMO_EXAM_MOCK_01,
-  DEMO_EXAMS,
-} from "@/mocks/demo-data"
 
 const SKILL_ICON: Record<SkillType, React.ComponentProps<typeof HugeiconsIcon>["icon"]> = {
   listening: HeadphonesIcon,
   reading: Book02Icon,
   writing: PenTool01Icon,
-}
-
-function mockSectionsFor(examId: string) {
-  if (examId === "exam-writing-02") return DEMO_EXAM_BUILDER.sections
-  return DEMO_EXAM_MOCK_01.sections
 }
 
 export default function TeacherExamDetailPage() {
@@ -69,41 +56,23 @@ export default function TeacherExamDetailPage() {
   const [tab, setTab] = useQueryState("tab", parseAsString.withDefault("overview"))
   const [assignOpen, setAssignOpen] = React.useState(false)
 
-  const examQuery = useTeacherExamDetailQuery(examId, !USE_MOCKS)
+  const examQuery = useTeacherExamDetailQuery(examId)
   // TODO(G3): GET /api/assignments chưa hỗ trợ filter examId — lấy tất cả rồi lọc client.
   // Gỡ fallback khi backend thêm filter examId.
-  const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 100 }, !USE_MOCKS)
-  const analyticsQuery = useExamAnalyticsQuery(examId, !USE_MOCKS && tab === "analytics")
-
-  // ----- Mock mode -----
-  const mockExam = DEMO_EXAMS.find((e) => e.id === examId) ?? DEMO_EXAMS[0]
-  const mockSections = mockSectionsFor(examId)
-  const mockAssignments = DEMO_ASSIGNMENTS.filter((a) => a.examId === examId)
+  const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 100 })
+  const analyticsQuery = useExamAnalyticsQuery(examId, tab === "analytics")
 
   // ----- Unified shapes -----
-  const exam = USE_MOCKS
+  const exam = examQuery.data
     ? {
-        id: mockExam.id,
-        title: mockExam.title,
-        status: mockExam.status,
-        durationMinutes: mockExam.durationMinutes,
-        openAt: mockExam.openAt ?? null,
-        closeAt: mockExam.closeAt ?? null,
-        sections: mockSections as unknown as TeacherExamSection[],
-        skills: mockExam.skills,
+        ...examQuery.data,
+        skills: Array.from(new Set(examQuery.data.sections.map((s) => s.skill))),
       }
-    : examQuery.data
-      ? {
-          ...examQuery.data,
-          skills: Array.from(new Set(examQuery.data.sections.map((s) => s.skill))),
-        }
-      : null
+    : null
 
-  const assignments = USE_MOCKS
-    ? mockAssignments
-    : (assignmentsQuery.data?.items ?? []).filter((a) => a.examId === examId)
+  const assignments = (assignmentsQuery.data?.items ?? []).filter((a) => a.examId === examId)
 
-  const analytics = USE_MOCKS ? DEMO_EXAM_ANALYTICS : analyticsQuery.data
+  const analytics = analyticsQuery.data
 
   const totalQuestions = exam
     ? exam.sections.reduce(
@@ -113,8 +82,8 @@ export default function TeacherExamDetailPage() {
       )
     : 0
 
-  const isLoading = !USE_MOCKS && examQuery.isLoading
-  const isError = !USE_MOCKS && examQuery.isError
+  const isLoading = examQuery.isLoading
+  const isError = examQuery.isError
 
   if (isLoading) {
     return (
@@ -195,6 +164,12 @@ export default function TeacherExamDetailPage() {
               <Button variant="default" size="sm" className="gap-1.5 font-semibold" asChild>
                 <Link href={`/teacher/exams/${examId}/edit`}>
                   <HugeiconsIcon icon={PencilEdit02Icon} size={15} /> Soạn tiếp
+                </Link>
+              </Button>
+            ) : exam.kind === "practice" ? (
+              <Button variant="outline" size="sm" className="gap-1.5 font-semibold" asChild>
+                <Link href={`/teacher/exams/${examId}/edit`}>
+                  <HugeiconsIcon icon={PencilEdit02Icon} size={15} /> Học liệu
                 </Link>
               </Button>
             ) : (
@@ -294,7 +269,7 @@ export default function TeacherExamDetailPage() {
         </TabsContent>
 
         <TabsContent value="assignments" className="space-y-3">
-          {!USE_MOCKS && assignmentsQuery.isLoading ? (
+          {assignmentsQuery.isLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 2 }).map((_, i) => (
                 <Skeleton key={i} className="h-20 w-full" />
@@ -348,13 +323,13 @@ export default function TeacherExamDetailPage() {
         </TabsContent>
 
         <TabsContent value="analytics" className="space-y-6">
-          {!USE_MOCKS && analyticsQuery.isLoading ? (
+          {analyticsQuery.isLoading ? (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <Skeleton key={i} className="h-24 w-full" />
               ))}
             </div>
-          ) : !analytics || (!USE_MOCKS && analytics.attemptCount === 0) ? (
+          ) : !analytics || analytics.attemptCount === 0 ? (
             <EmptyState
               icon={Task01Icon}
               title="Chưa có dữ liệu thống kê"

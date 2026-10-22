@@ -13,11 +13,6 @@ interface DecodedJwt {
 function decodeJwt(token: string): DecodedJwt | null {
   try {
     if (!token || typeof token !== "string") return null
-    // Support mock / demo token in development/test only (FIX-14: never in prod)
-    if (token.startsWith("mock-")) {
-      if (process.env.NODE_ENV === "production") return null
-      return { id: "mock-user", exp: Math.floor(Date.now() / 1000) + 86400 }
-    }
     const parts = token.split(".")
     if (parts.length !== 3) return null
     const base64Url = parts[1]

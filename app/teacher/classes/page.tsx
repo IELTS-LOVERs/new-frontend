@@ -54,7 +54,6 @@ import {
 import { toast } from "sonner"
 import type { ClassSummary } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { USE_MOCKS } from "@/lib/api/config"
 import {
   useClassesQuery,
   useCreateClassMutation,
@@ -62,7 +61,6 @@ import {
   useDeleteClassMutation,
 } from "@/hooks/use-classes"
 import { useTeacherAssignmentsQuery } from "@/hooks/use-assignments"
-import { DEMO_CLASSES, DEMO_ASSIGNMENTS } from "@/mocks/demo-data"
 
 export default function TeacherClassesPage() {
   const router = useRouter()
@@ -70,9 +68,9 @@ export default function TeacherClassesPage() {
   const [copiedCode, setCopiedCode] = React.useState<string | null>(null)
 
   // Data sources
-  const classesQuery = useClassesQuery(!USE_MOCKS)
+  const classesQuery = useClassesQuery()
   // G3: GET /assignments không có filter examId/stats đầy đủ — chỉ dùng để đếm số đợt giao
-  const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 100 }, !USE_MOCKS)
+  const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 100 })
 
   const createMutation = useCreateClassMutation()
 
@@ -92,13 +90,11 @@ export default function TeacherClassesPage() {
   const [deleteBlocked, setDeleteBlocked] = React.useState<ClassSummary | null>(null)
   const deleteMutation = useDeleteClassMutation()
 
-  const classes: ClassSummary[] = USE_MOCKS ? DEMO_CLASSES : (classesQuery.data ?? [])
-  const allAssignments = USE_MOCKS
-    ? DEMO_ASSIGNMENTS
-    : (assignmentsQuery.data?.items ?? [])
+  const classes: ClassSummary[] = classesQuery.data ?? []
+  const allAssignments = assignmentsQuery.data?.items ?? []
 
-  const isLoading = !USE_MOCKS && classesQuery.isLoading
-  const isError = !USE_MOCKS && classesQuery.isError
+  const isLoading = classesQuery.isLoading
+  const isError = classesQuery.isError
 
   // Copy code to clipboard with visual feedback
   const copyCode = (classCode: string) => {
@@ -114,14 +110,6 @@ export default function TeacherClassesPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-
-    if (USE_MOCKS) {
-      toast.success("Tạo lớp học mới thành công!")
-      setIsCreateOpen(false)
-      setName("")
-      setDesc("")
-      return
-    }
 
     try {
       const created = await createMutation.mutateAsync({
@@ -155,12 +143,6 @@ export default function TeacherClassesPage() {
     e.preventDefault()
     if (!editingClass || !editName.trim()) return
 
-    if (USE_MOCKS) {
-      toast.success(`Đã cập nhật thông tin lớp "${editName}"`)
-      setEditingClass(null)
-      return
-    }
-
     try {
       await editMutation.mutateAsync({
         name: editName.trim(),
@@ -180,11 +162,6 @@ export default function TeacherClassesPage() {
   // Delete class handler
   const handleConfirmDelete = async () => {
     if (!deletingClass) return
-    if (USE_MOCKS) {
-      toast.success(`Đã xóa lớp học "${deletingClass.name}"`)
-      setDeletingClass(null)
-      return
-    }
     try {
       await deleteMutation.mutateAsync(deletingClass.id)
       toast.success(`Đã xóa lớp học "${deletingClass.name}"`)

@@ -49,44 +49,14 @@ import { formatDate } from "@/lib/format"
 import { useClassDetailQuery, useLeaveClassMutation } from "@/hooks/use-classes"
 import { useMyAssignmentsQuery } from "@/hooks/use-assignments"
 import { useAuthStore } from "@/stores/auth.store"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
-import {
-  DEMO_STUDENT_CLASSES,
-  DEMO_STUDENT_ALL_ASSIGNMENTS,
-} from "@/mocks/demo-data"
 import type { ClassDetail, MyAssignment } from "@/lib/api/types"
 
 export default function StudentClassDetailPage() {
   const params = useParams<{ classId: string }>()
   const classId = params.classId
 
-  if (USE_MOCKS) {
-    return <MockClassDetail classId={classId} />
-  }
   return <RealClassDetail classId={classId} />
-}
-
-// ─── MOCK ────────────────────────────────────────────────────────────────────
-function MockClassDetail({ classId }: { classId: string }) {
-  const currentClass =
-    DEMO_STUDENT_CLASSES.find((c) => c.id === classId) || DEMO_STUDENT_CLASSES[0]
-
-  const classDetail: ClassDetail = {
-    id: currentClass.id,
-    name: currentClass.name,
-    code: currentClass.code,
-    description: currentClass.description,
-    studentsCount: currentClass.studentsCount,
-    teacher: { id: currentClass.teacher.id, fullName: currentClass.teacher.fullName },
-    students: currentClass.students,
-  }
-
-  const classAssignments = DEMO_STUDENT_ALL_ASSIGNMENTS.filter(
-    (a) => a.classId === currentClass.id || a.className === currentClass.name
-  )
-
-  return <ClassDetailView classDetail={classDetail} classAssignments={classAssignments} />
 }
 
 // ─── REAL ────────────────────────────────────────────────────────────────────

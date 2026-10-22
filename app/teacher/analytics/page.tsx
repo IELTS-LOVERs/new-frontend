@@ -46,15 +46,6 @@ import {
 import { cn } from "@/lib/utils"
 import { SKILL_LABEL, formatBand } from "@/lib/format"
 import type { ClassAnalytics, ClassRosterStudent, ExamAnalytics } from "@/lib/api/types"
-import {
-  DEMO_CLASSES,
-  DEMO_CLASS_ANALYTICS,
-  DEMO_CLASS_ROSTERS,
-  DEMO_EXAMS,
-  DEMO_EXAM_ANALYTICS,
-  DEMO_STUDENT_ANALYTICS,
-} from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useClassesQuery, useClassDetailQuery } from "@/hooks/use-classes"
 import { useExamsQuery } from "@/hooks/use-exams"
@@ -120,13 +111,13 @@ export default function TeacherAnalyticsPage() {
   const [id, setId] = useQueryState("id", parseAsString)
   const [progressStudent, setProgressStudent] = React.useState<ClassRosterStudent | null>(null)
 
-  const classesQuery = useClassesQuery(!USE_MOCKS)
-  const examsQuery = useExamsQuery({ limit: 50 }, !USE_MOCKS)
+  const classesQuery = useClassesQuery()
+  const examsQuery = useExamsQuery({ limit: 50 })
 
-  const classes = USE_MOCKS ? DEMO_CLASSES : (classesQuery.data ?? [])
-  const exams: Array<{ id: string; title: string }> = USE_MOCKS
-    ? DEMO_EXAMS
-    : ((examsQuery.data?.items ?? []) as ExamListItem[]).map((e) => ({ id: e.id, title: e.title }))
+  const classes = classesQuery.data ?? []
+  const exams: Array<{ id: string; title: string }> = (
+    (examsQuery.data?.items ?? []) as ExamListItem[]
+  ).map((e) => ({ id: e.id, title: e.title }))
 
   // Đồng bộ id hợp lệ khi danh sách tải xong / đổi view
   React.useEffect(() => {
@@ -142,9 +133,9 @@ export default function TeacherAnalyticsPage() {
   const selectedClassId = view === "class" ? (id ?? classes[0]?.id ?? "") : ""
   const selectedExamId = view === "exam" ? (id ?? exams[0]?.id ?? "") : ""
 
-  const classAnalyticsQuery = useClassAnalyticsQuery(selectedClassId, !USE_MOCKS && view === "class")
-  const classDetailQuery = useClassDetailQuery(selectedClassId, !USE_MOCKS && view === "class")
-  const examAnalyticsQuery = useExamAnalyticsQuery(selectedExamId, !USE_MOCKS && view === "exam")
+  const classAnalyticsQuery = useClassAnalyticsQuery(selectedClassId, view === "class")
+  const classDetailQuery = useClassDetailQuery(selectedClassId, view === "class")
+  const examAnalyticsQuery = useExamAnalyticsQuery(selectedExamId, view === "exam")
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -198,15 +189,7 @@ export default function TeacherAnalyticsPage() {
       />
 
       {view === "class" ? (
-        USE_MOCKS ? (
-          <ClassView
-            analytics={DEMO_CLASS_ANALYTICS[id ?? "c-1"] ?? DEMO_CLASS_ANALYTICS["c-1"]}
-            ranking={[...(DEMO_CLASS_ROSTERS[id ?? "c-1"] ?? DEMO_CLASS_ROSTERS["c-1"])].sort(
-              (a, b) => (b.overall ?? 0) - (a.overall ?? 0)
-            )}
-            onOpenStudent={setProgressStudent}
-          />
-        ) : classesQuery.isLoading || classAnalyticsQuery.isLoading || classDetailQuery.isLoading ? (
+        classesQuery.isLoading || classAnalyticsQuery.isLoading || classDetailQuery.isLoading ? (
           <AnalyticsSkeleton />
         ) : classAnalyticsQuery.isError ? (
           <QueryError error={classAnalyticsQuery.error} onRetry={() => classAnalyticsQuery.refetch()} />
@@ -225,15 +208,6 @@ export default function TeacherAnalyticsPage() {
             onOpenStudent={setProgressStudent}
           />
         )
-      ) : USE_MOCKS ? (
-        <ExamView
-          data={{
-            ...DEMO_EXAM_ANALYTICS,
-            examId: id ?? DEMO_EXAMS[0].id,
-            examTitle:
-              DEMO_EXAMS.find((e) => e.id === id)?.title ?? DEMO_EXAM_ANALYTICS.examTitle,
-          }}
-        />
       ) : examAnalyticsQuery.isLoading || examsQuery.isLoading ? (
         <AnalyticsSkeleton />
       ) : examAnalyticsQuery.isError ? (
@@ -260,10 +234,8 @@ function StudentProgressSheet({
   student: ClassRosterStudent | null
   onClose: () => void
 }) {
-  const progressQuery = useStudentProgressQuery(student?.id, !USE_MOCKS && !!student)
-  const progress = USE_MOCKS
-    ? DEMO_STUDENT_ANALYTICS
-    : progressQuery.data
+  const progressQuery = useStudentProgressQuery(student?.id, !!student)
+  const progress = progressQuery.data
 
   return (
     <Sheet open={!!student} onOpenChange={(v) => !v && onClose()}>
@@ -277,9 +249,9 @@ function StudentProgressSheet({
             <StatCard label="Overall" value={formatBand(student?.overall)} accent />
             <StatCard label="Target" value={formatBand(student?.targetBand)} />
           </div>
-          {!USE_MOCKS && progressQuery.isLoading ? (
+          {progressQuery.isLoading ? (
             <Skeleton className="h-64 w-full rounded-xl" />
-          ) : !USE_MOCKS && progressQuery.isError ? (
+          ) : progressQuery.isError ? (
             <QueryError error={progressQuery.error} onRetry={() => progressQuery.refetch()} />
           ) : !progress || progress.points.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">

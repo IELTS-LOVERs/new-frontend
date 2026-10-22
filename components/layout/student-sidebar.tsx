@@ -16,6 +16,7 @@ import {
   PanelLeftOpenIcon,
   MoreHorizontalIcon,
   Key01Icon,
+  PencilEdit02Icon,
 } from "@hugeicons/core-free-icons"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { cn } from "@/lib/utils"
@@ -38,35 +39,39 @@ import { useAuthStore } from "@/stores/auth.store"
 import { useSidebarStore } from "@/stores/sidebar.store"
 import { useLogout } from "@/hooks/use-logout"
 import { useMyAssignmentsQuery } from "@/hooks/use-assignments"
-import { USE_MOCKS } from "@/lib/api/config"
-import { DEMO_STUDENT } from "@/mocks/demo-data"
 
-export function StudentSidebar() {
+interface StudentSidebarContentProps {
+  onNavigate?: () => void
+  isMobile?: boolean
+}
+
+export function StudentSidebarContent({
+  onNavigate,
+  isMobile = false,
+}: StudentSidebarContentProps) {
   const pathname = usePathname()
   const { user } = useAuthStore()
   const { isCollapsed, toggleSidebar, setCollapsed } = useSidebarStore()
-  const currentUser = user || DEMO_STUDENT
   const logoutMutation = useLogout()
 
-  const assignmentsQuery = useMyAssignmentsQuery({}, !USE_MOCKS)
-  const pendingCount = USE_MOCKS
-    ? null
-    : (assignmentsQuery.data ?? []).filter(
-        (a) => a.submissionStatus === "not_started" || a.submissionStatus === "in_progress"
-      ).length
-  const assignmentsBadge = USE_MOCKS
-    ? "2"
-    : pendingCount && pendingCount > 0
-      ? String(pendingCount)
-      : undefined
+  const assignmentsQuery = useMyAssignmentsQuery({})
+  const pendingCount = (assignmentsQuery.data ?? []).filter(
+    (a) => a.submissionStatus === "not_started" || a.submissionStatus === "in_progress"
+  ).length
+  const assignmentsBadge =
+    pendingCount > 0 ? String(pendingCount) : undefined
 
   const navItems = [
     { label: "Tổng quan", href: "/student", icon: DashboardSquare01Icon },
     { label: "Lớp học", href: "/student/classes", icon: SchoolIcon },
-    { label: "Bài tập", href: "/student/assignments", icon: Book02Icon, badge: assignmentsBadge },
+    { label: "Luyện tập", href: "/student/practice", icon: Book02Icon },
+    { label: "Đề thi", href: "/student/exams", icon: PencilEdit02Icon, badge: assignmentsBadge },
     { label: "Kết quả", href: "/student/results", icon: Award01Icon },
     { label: "Tiến độ", href: "/student/progress", icon: Analytics01Icon },
   ]
+
+  // Trên mobile sheet luôn ở chế độ mở rộng
+  const collapsed = !isMobile && isCollapsed
 
   React.useEffect(() => {
     try {
@@ -78,38 +83,35 @@ export function StudentSidebar() {
   }, [setCollapsed])
 
   return (
-    <aside
-      className={cn(
-        "sticky top-0 hidden md:flex h-screen flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-in-out shrink-0",
-        isCollapsed ? "w-16" : "w-64"
-      )}
-    >
+    <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Top Header */}
       <div
         className={cn(
           "flex h-16 items-center border-b border-border transition-all",
-          isCollapsed ? "justify-center px-2" : "justify-between px-4 sm:px-5"
+          collapsed ? "justify-center px-2" : "justify-between px-4 sm:px-5"
         )}
       >
-        {!isCollapsed ? (
+        {!collapsed ? (
           <>
             <BrandLogo href="/student" />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={toggleSidebar}
-                  className="size-8 text-muted-foreground hover:text-foreground shrink-0 rounded-lg hover:bg-muted"
-                  aria-label="Thu gọn thanh điều hướng (Ctrl+B)"
-                >
-                  <HugeiconsIcon icon={PanelLeftCloseIcon} size={18} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                Thu gọn thanh điều hướng (Ctrl+B)
-              </TooltipContent>
-            </Tooltip>
+            {!isMobile && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={toggleSidebar}
+                    className="size-8 text-muted-foreground hover:text-foreground shrink-0 rounded-lg hover:bg-muted"
+                    aria-label="Thu gọn thanh điều hướng (Ctrl+B)"
+                  >
+                    <HugeiconsIcon icon={PanelLeftCloseIcon} size={18} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Thu gọn thanh điều hướng (Ctrl+B)
+                </TooltipContent>
+              </Tooltip>
+            )}
           </>
         ) : (
           <Tooltip>
@@ -132,8 +134,8 @@ export function StudentSidebar() {
       </div>
 
       {/* Navigation list */}
-      <div className={cn("flex-1 overflow-y-auto space-y-1", isCollapsed ? "px-2 py-3" : "px-3 py-4")}>
-        {!isCollapsed ? (
+      <div className={cn("flex-1 overflow-y-auto space-y-1", collapsed ? "px-2 py-3" : "px-3 py-4")}>
+        {!collapsed ? (
           <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Học tập
           </div>
@@ -146,12 +148,13 @@ export function StudentSidebar() {
               ? pathname === "/student"
               : pathname.startsWith(item.href)
 
-          if (isCollapsed) {
+          if (collapsed) {
             return (
               <Tooltip key={item.href}>
                 <TooltipTrigger asChild>
                   <Link
                     href={item.href}
+                    onClick={() => onNavigate?.()}
                     className={cn(
                       "flex size-9 mx-auto items-center justify-center rounded-xl text-xs font-medium transition-colors",
                       isActive
@@ -185,6 +188,7 @@ export function StudentSidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => onNavigate?.()}
               className={cn(
                 "group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-medium transition-colors",
                 isActive
@@ -217,8 +221,8 @@ export function StudentSidebar() {
       </div>
 
       {/* User profile footer */}
-      <div className={cn("border-t border-border", isCollapsed ? "p-2" : "p-3")}>
-        {isCollapsed ? (
+      <div className={cn("border-t border-border", collapsed ? "p-2" : "p-3")}>
+        {collapsed ? (
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -233,13 +237,13 @@ export function StudentSidebar() {
                     )}
                   >
                     <span className="font-bold text-xs">
-                      {currentUser.fullName.slice(0, 2).toUpperCase()}
+                      {(user?.fullName ?? "").slice(0, 2).toUpperCase()}
                     </span>
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="right">
-                <p className="font-medium text-xs">{currentUser.fullName}</p>
+                <p className="font-medium text-xs">{(user?.fullName ?? "")}</p>
                 <p className="text-[10px] text-muted-foreground">Bấm để mở menu hồ sơ</p>
               </TooltipContent>
             </Tooltip>
@@ -250,20 +254,20 @@ export function StudentSidebar() {
             >
               <div className="flex items-center gap-2.5 p-2 border-b border-border mb-1">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
-                  {currentUser.fullName.slice(0, 2).toUpperCase()}
+                  {(user?.fullName ?? "").slice(0, 2).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1 leading-tight">
-                  <p className="text-xs font-semibold truncate text-foreground">{currentUser.fullName}</p>
-                  <p className="text-[10px] text-muted-foreground truncate font-mono mt-0.5">{currentUser.email}</p>
+                  <p className="text-xs font-semibold truncate text-foreground">{(user?.fullName ?? "")}</p>
+                  <p className="text-[10px] text-muted-foreground truncate font-mono mt-0.5">{(user?.email ?? "")}</p>
                 </div>
               </div>
-              <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs">
+              <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs" onClick={() => onNavigate?.()}>
                 <Link href="/student/profile">
                   <HugeiconsIcon icon={UserIcon} size={15} />
                   <span>Hồ sơ của tôi</span>
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs">
+              <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs" onClick={() => onNavigate?.()}>
                 <Link href="/student/profile#password">
                   <HugeiconsIcon icon={Key01Icon} size={15} />
                   <span>Đổi mật khẩu</span>
@@ -271,7 +275,10 @@ export function StudentSidebar() {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => logoutMutation.mutate()}
+                onClick={() => {
+                  onNavigate?.()
+                  logoutMutation.mutate()
+                }}
                 disabled={logoutMutation.isPending}
                 className="gap-2 cursor-pointer text-xs text-destructive focus:text-destructive focus:bg-destructive/10"
               >
@@ -294,14 +301,14 @@ export function StudentSidebar() {
               >
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
-                    {currentUser.fullName.slice(0, 2).toUpperCase()}
+                    {(user?.fullName ?? "").slice(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium truncate leading-tight text-foreground group-hover:text-primary transition-colors">
-                      {currentUser.fullName}
+                      {(user?.fullName ?? "")}
                     </p>
                     <p className="text-[11px] text-muted-foreground truncate leading-tight mt-0.5">
-                      Target Band {currentUser.targetBand || 6.5}
+                      Target Band {user?.targetBand || 6.5}
                     </p>
                   </div>
                 </div>
@@ -320,26 +327,26 @@ export function StudentSidebar() {
               {/* Header profile info */}
               <div className="flex items-center gap-2.5 p-2 border-b border-border mb-1">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
-                  {currentUser.fullName.slice(0, 2).toUpperCase()}
+                  {(user?.fullName ?? "").slice(0, 2).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1 leading-tight">
                   <p className="text-xs font-semibold truncate text-foreground">
-                    {currentUser.fullName}
+                    {(user?.fullName ?? "")}
                   </p>
                   <p className="text-[10px] text-muted-foreground truncate font-mono mt-0.5">
-                    {currentUser.email}
+                    {(user?.email ?? "")}
                   </p>
                 </div>
               </div>
 
-              <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs">
+              <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs" onClick={() => onNavigate?.()}>
                 <Link href="/student/profile">
                   <HugeiconsIcon icon={UserIcon} size={15} />
                   <span>Hồ sơ của tôi</span>
                 </Link>
               </DropdownMenuItem>
 
-              <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs">
+              <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs" onClick={() => onNavigate?.()}>
                 <Link href="/student/profile#password">
                   <HugeiconsIcon icon={Key01Icon} size={15} />
                   <span>Đổi mật khẩu</span>
@@ -349,7 +356,10 @@ export function StudentSidebar() {
               <DropdownMenuSeparator />
 
               <DropdownMenuItem
-                onClick={() => logoutMutation.mutate()}
+                onClick={() => {
+                  onNavigate?.()
+                  logoutMutation.mutate()
+                }}
                 disabled={logoutMutation.isPending}
                 className="gap-2 cursor-pointer text-xs text-destructive focus:text-destructive focus:bg-destructive/10"
               >
@@ -360,6 +370,21 @@ export function StudentSidebar() {
           </DropdownMenu>
         )}
       </div>
+    </div>
+  )
+}
+
+export function StudentSidebar() {
+  const { isCollapsed } = useSidebarStore()
+
+  return (
+    <aside
+      className={cn(
+        "sticky top-0 hidden md:flex h-screen flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-in-out shrink-0",
+        isCollapsed ? "w-16" : "w-64"
+      )}
+    >
+      <StudentSidebarContent />
     </aside>
   )
 }

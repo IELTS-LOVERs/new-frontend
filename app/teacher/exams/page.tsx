@@ -60,7 +60,6 @@ import {
 } from "@hugeicons/core-free-icons"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
 import {
@@ -78,7 +77,6 @@ import {
 } from "@/lib/api/exams"
 import { formatDateShort } from "@/lib/format"
 import type { ExamSummary } from "@/lib/api/types"
-import { DEMO_EXAMS } from "@/mocks/demo-data"
 
 const STATUS_TABS = [
   { value: "all", label: "Tất cả" },
@@ -130,24 +128,19 @@ export default function TeacherExamsPage() {
   const queryParams = React.useMemo(
     () => ({
       status: status !== "all" ? (status as "draft" | "published" | "closed") : undefined,
+      kind: "mock" as const,
       page,
       limit: PAGE_SIZE,
     }),
     [status, page]
   )
 
-  const examsQuery = useExamsQuery(queryParams, !USE_MOCKS)
+  const examsQuery = useExamsQuery(queryParams)
   const deleteMutation = useDeleteExamMutation()
   const cloneMutation = useCloneExamMutation()
 
-  // Với USE_MOCKS, lọc client theo status
-  const mockFiltered = React.useMemo(() => {
-    if (!USE_MOCKS) return []
-    return DEMO_EXAMS.filter((e) => (status === "all" ? true : e.status === status))
-  }, [status])
-
-  const items = USE_MOCKS ? mockFiltered : (examsQuery.data?.items ?? [])
-  const meta = USE_MOCKS ? undefined : examsQuery.data?.meta
+  const items = React.useMemo(() => examsQuery.data?.items ?? [], [examsQuery.data])
+  const meta = examsQuery.data?.meta
   const totalPages = meta?.totalPages ?? 1
 
   // Selection calculations
@@ -188,10 +181,6 @@ export default function TeacherExamsPage() {
   )
 
   const handleDelete = async (id: string) => {
-    if (USE_MOCKS) {
-      toast.success("Đã xoá đề thi (demo)")
-      return
-    }
     try {
       await deleteMutation.mutateAsync(id)
       setSelectedIds((prev) => {
@@ -210,10 +199,6 @@ export default function TeacherExamsPage() {
   }
 
   const handleClone = async (id: string) => {
-    if (USE_MOCKS) {
-      toast.success("Đã nhân bản đề thi (demo)")
-      return
-    }
     try {
       await cloneMutation.mutateAsync(id)
       toast.success("Đã nhân bản đề thi")
@@ -231,13 +216,6 @@ export default function TeacherExamsPage() {
     }
 
     setIsBulkBusy(true)
-    if (USE_MOCKS) {
-      toast.success(`Đã xoá ${selectedDrafts.length} đề thi (demo)`)
-      setSelectedIds(new Set())
-      setIsBulkBusy(false)
-      setBulkDeleteDialogOpen(false)
-      return
-    }
 
     try {
       const results = await Promise.allSettled(
@@ -285,13 +263,6 @@ export default function TeacherExamsPage() {
     if (selectedItems.length === 0) return
     setIsBulkBusy(true)
 
-    if (USE_MOCKS) {
-      toast.success(`Đã nhân bản ${selectedItems.length} đề thi (demo)`)
-      setSelectedIds(new Set())
-      setIsBulkBusy(false)
-      return
-    }
-
     try {
       const results = await Promise.allSettled(
         selectedItems.map((ex) => cloneExamApi(ex.id))
@@ -316,13 +287,6 @@ export default function TeacherExamsPage() {
       return
     }
     setIsBulkBusy(true)
-
-    if (USE_MOCKS) {
-      toast.success(`Đã đóng ${selectedPublished.length} đề thi (demo)`)
-      setSelectedIds(new Set())
-      setIsBulkBusy(false)
-      return
-    }
 
     try {
       const results = await Promise.allSettled(
@@ -349,13 +313,6 @@ export default function TeacherExamsPage() {
     }
     setIsBulkBusy(true)
 
-    if (USE_MOCKS) {
-      toast.success(`Đã huỷ xuất bản ${selectedPublished.length} đề thi (demo)`)
-      setSelectedIds(new Set())
-      setIsBulkBusy(false)
-      return
-    }
-
     try {
       const results = await Promise.allSettled(
         selectedPublished.map((ex) => unpublishExamApi(ex.id))
@@ -381,8 +338,8 @@ export default function TeacherExamsPage() {
     }
   }
 
-  const isLoading = !USE_MOCKS && examsQuery.isLoading
-  const isError = !USE_MOCKS && examsQuery.isError
+  const isLoading = examsQuery.isLoading
+  const isError = examsQuery.isError
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 pb-20">
@@ -499,7 +456,7 @@ export default function TeacherExamsPage() {
         </Card>
       )}
 
-      {!USE_MOCKS && meta && totalPages > 1 && (
+      {meta && totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
             Trang {meta.page}/{totalPages} · {meta.total} đề thi
@@ -660,10 +617,6 @@ function ExamRow({
   const closeMutation = useCloseExamMutation(exam.id)
 
   const handleUnpublish = async () => {
-    if (USE_MOCKS) {
-      toast.success("Đã hủy xuất bản (demo)")
-      return
-    }
     try {
       await unpublishMutation.mutateAsync()
       toast.success("Đã hủy xuất bản, đề chuyển về nháp")
@@ -677,10 +630,6 @@ function ExamRow({
   }
 
   const handleClose = async () => {
-    if (USE_MOCKS) {
-      toast.success("Đã đóng đề (demo)")
-      return
-    }
     try {
       await closeMutation.mutateAsync()
       toast.success("Đã đóng đề thi")

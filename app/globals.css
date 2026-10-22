@@ -97,6 +97,17 @@
     --sidebar-border: #f0f0f3;
     --sidebar-ring: var(--ring-focus);
 
+    /* ===== MÀU SẮC BỔ SUNG CHO LUYỆN TẬP & HEATMAP (YOU-PASS STYLE) ===== */
+    --brand-green: #059669;
+    --brand-green-hover: #047857;
+    --brand-green-light: #ecfdf5;
+    --brand-green-border: #a7f3d0;
+    --brand-orange: #ea580c;
+    --brand-orange-hover: #c2410c;
+    --brand-orange-light: #fff7ed;
+    --brand-purple: #7c3aed;
+    --brand-purple-light: #f5f3ff;
+
     /* ===== BO GÓC MẶC ĐỊNH (F1: 12px) ===== */
     --radius: 0.75rem;
 }
@@ -104,6 +115,17 @@
 .dark,
 .force-dark {
     color-scheme: dark;
+
+    /* ===== MÀU SẮC BỔ SUNG NỀN TỐI ===== */
+    --brand-green: #10b981;
+    --brand-green-hover: #059669;
+    --brand-green-light: rgba(16, 185, 129, 0.15);
+    --brand-green-border: rgba(16, 185, 129, 0.3);
+    --brand-orange: #f97316;
+    --brand-orange-hover: #ea580c;
+    --brand-orange-light: rgba(249, 115, 22, 0.15);
+    --brand-purple: #a855f7;
+    --brand-purple-light: rgba(168, 85, 247, 0.15);
 
     /* ===== MÀU NHẤN NỀN TỐI: VIOLET SÁNG HƠN ===== */
     --primary: oklch(0.68 0.24 292.759);
@@ -340,4 +362,18 @@
     input, textarea, select {
         font-size: 16px !important;
     }
+}
+
+/* Sửa lỗi react-resizable-panels chặn vuốt cuộn dọc trên điện thoại/màn hình cảm ứng */
+[data-slot="resizable-panel-group"],
+[data-slot="resizable-panel"],
+[data-panel-group],
+[data-panel] {
+    touch-action: pan-y !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+[data-slot="resizable-handle"],
+[data-panel-resize-handle] {
+    touch-action: none !important;
 }

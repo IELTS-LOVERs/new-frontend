@@ -67,19 +67,23 @@ export function useExamRecovery(attemptId: string | null) {
           }
         }
 
-        // Reload / Interruption event
-        const navEntries = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[]
-        const navType = navEntries?.[0]?.type
-        const sessionMarker = sessionStorage.getItem(`exam-session:${attemptId}`)
-        if (navType === "reload") {
-          void recordAntiCheatEventApi({ attemptId: attemptId!, type: "RELOAD" }).catch(() => {})
-        } else if (!sessionMarker) {
-          void recordAntiCheatEventApi({ attemptId: attemptId!, type: "INTERRUPTION" }).catch(() => {})
+        const isPractice = server.exam?.kind === "practice"
+
+        // Reload / Interruption event (chỉ kích hoạt với đề thi mock)
+        if (!isPractice) {
+          const navEntries = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[]
+          const navType = navEntries?.[0]?.type
+          const sessionMarker = sessionStorage.getItem(`exam-session:${attemptId}`)
+          if (navType === "reload") {
+            void recordAntiCheatEventApi({ attemptId: attemptId!, type: "RELOAD" }).catch(() => {})
+          } else if (!sessionMarker) {
+            void recordAntiCheatEventApi({ attemptId: attemptId!, type: "INTERRUPTION" }).catch(() => {})
+          }
         }
         sessionStorage.setItem(`exam-session:${attemptId}`, "1")
 
-        // Fullscreen cần user gesture sau F5
-        if (!document.fullscreenElement) {
+        // Fullscreen cần user gesture sau F5 (chỉ kích hoạt với đề thi mock; practice không khóa fullscreen)
+        if (!isPractice && !document.fullscreenElement) {
           setNeedsGesture(true)
           setPhase("resumeGate")
         } else {
@@ -101,7 +105,8 @@ export function useExamRecovery(attemptId: string | null) {
   }, [attemptId, init, setPhase, setAnswer, setActiveSectionIndex])
 
   const confirmResume = React.useCallback(() => {
-    if (document.documentElement.requestFullscreen) {
+    const isPractice = useExamSessionStore.getState().exam?.kind === "practice"
+    if (!isPractice && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => {})
     }
     setNeedsGesture(false)

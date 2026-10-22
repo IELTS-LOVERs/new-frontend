@@ -36,28 +36,13 @@ import { initials } from "@/lib/format"
 import { useAuthStore } from "@/stores/auth.store"
 import { useMeQuery, useUpdateMeMutation, useChangePasswordMutation } from "@/hooks/use-auth"
 import { useClassesQuery, useJoinClassMutation } from "@/hooks/use-classes"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
-import { DEMO_CLASSES, DEMO_STUDENT } from "@/mocks/demo-data"
 import type { ClassSummary, User } from "@/lib/api/types"
 
 const BANDS = ["4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0", "7.5", "8.0", "8.5", "9.0"]
 
 export default function StudentProfilePage() {
-  return <>{USE_MOCKS ? <MockProfile /> : <RealProfile />}</>
-}
-
-// ─── MOCK ────────────────────────────────────────────────────────────────────
-function MockProfile() {
-  return (
-    <ProfileView
-      user={DEMO_STUDENT}
-      classes={DEMO_CLASSES.slice(0, 2)}
-      isLoadingClasses={false}
-      isClassesError={false}
-      refetchClasses={() => {}}
-    />
-  )
+  return <RealProfile />
 }
 
 // ─── REAL ────────────────────────────────────────────────────────────────────
@@ -175,11 +160,6 @@ function ProfileView({
     e.preventDefault()
     setProfileFieldError({})
 
-    if (USE_MOCKS) {
-      toast.success("Đã cập nhật hồ sơ", { description: "(Mock) Thông tin đã được lưu." })
-      return
-    }
-
     try {
       await updateMeMutation.mutateAsync({
         fullName: fullName.trim(),
@@ -217,18 +197,6 @@ function ProfileView({
       return
     }
 
-    if (USE_MOCKS) {
-      const existed = classes.some((c) => c.code.toUpperCase() === cleanCode)
-      if (existed) {
-        setJoinError("Bạn đã ở trong lớp này.")
-        return
-      }
-      toast.success(`(Mock) Đã tham gia lớp với mã ${cleanCode}`)
-      setJoinOpen(false)
-      setCode("")
-      return
-    }
-
     try {
       const res = await joinMutation.mutateAsync(cleanCode)
       toast.success(`Đã tham gia lớp ${res.name}`)
@@ -257,15 +225,6 @@ function ProfileView({
 
     if (newPassword.length < 8) {
       toast.error("Mật khẩu mới cần tối thiểu 8 ký tự")
-      return
-    }
-
-    if (USE_MOCKS) {
-      toast.success("(Mock) Đã đổi mật khẩu", {
-        description: "Bạn sẽ cần đăng nhập lại trên các thiết bị khác.",
-      })
-      setCurrentPassword("")
-      setNewPassword("")
       return
     }
 

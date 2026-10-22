@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
+import { parseAsString, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -17,7 +18,6 @@ import {
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useCreateExamMutation } from "@/hooks/use-exams"
 import type { CreateExamSectionPayload } from "@/lib/api/exams"
@@ -64,7 +64,7 @@ function writingSection(part: number): CreateExamSectionPayload {
   }
 }
 
-const TEMPLATES: ExamTemplate[] = [
+const MOCK_TEMPLATES: ExamTemplate[] = [
   {
     id: "full",
     name: "Full IELTS (L + R + W)",
@@ -116,30 +116,89 @@ const TEMPLATES: ExamTemplate[] = [
   },
 ]
 
+const PRACTICE_TEMPLATES: ExamTemplate[] = [
+  {
+    id: "practice_reading_full",
+    name: "Reading (Full 3 Passages)",
+    description: "Bộ đề luyện tập đầy đủ 3 bài đọc (Passage 1–3) với 40 câu hỏi, thời gian 60 phút.",
+    duration: 60,
+    sections: "3 phần Reading",
+    icon: Book02Icon,
+    buildSections: () => [1, 2, 3].map(readingSection),
+  },
+  {
+    id: "practice_reading",
+    name: "Reading Passage lẻ (1 phần)",
+    description: "Luyện 1 bài đọc (Passage) với 13-14 câu hỏi kèm thời gian 20 phút.",
+    duration: 20,
+    sections: "1 phần Reading",
+    icon: Book02Icon,
+    buildSections: () => [readingSection(1)],
+  },
+  {
+    id: "practice_listening_full",
+    name: "Listening (Full 4 Parts)",
+    description: "Bộ đề luyện tập đầy đủ 4 phần nghe (Part 1–4) với 40 câu hỏi, thời gian 30 phút.",
+    duration: 30,
+    sections: "4 phần Listening",
+    icon: HeadphonesIcon,
+    buildSections: () => [1, 2, 3, 4].map(listeningSection),
+  },
+  {
+    id: "practice_listening",
+    name: "Listening Part lẻ (1 phần)",
+    description: "Luyện 1 phần nghe (Part) với 10 câu hỏi kèm audio độc lập.",
+    duration: 10,
+    sections: "1 phần Listening",
+    icon: HeadphonesIcon,
+    buildSections: () => [listeningSection(1)],
+  },
+  {
+    id: "practice_custom",
+    name: "Tuỳ chỉnh nhiều phần",
+    description: "Tạo bài luyện tập trống, cho phép tự do thêm nhiều Part/Passage tuỳ ý.",
+    duration: 30,
+    sections: "Đa phần tuỳ chọn",
+    icon: SparklesIcon,
+    buildSections: () => [readingSection(1)],
+  },
+]
+
 export default function NewExamPage() {
   const router = useRouter()
-  const [selected, setSelected] = React.useState("full")
+  const [kindParam] = useQueryState("kind", parseAsString.withDefault("mock"))
+  const isPractice = kindParam === "practice"
+
+  const templates = isPractice ? PRACTICE_TEMPLATES : MOCK_TEMPLATES
+  const [selected, setSelected] = React.useState(isPractice ? "practice_reading" : "full")
+  const effectiveSelected = templates.some((t) => t.id === selected)
+    ? selected
+    : templates[0].id
+
   const createMutation = useCreateExamMutation()
 
   const handleCreate = async () => {
-    const tpl = TEMPLATES.find((t) => t.id === selected) ?? TEMPLATES[0]
-
-    if (USE_MOCKS) {
-      toast.success("Đã tạo bản nháp đề thi", {
-        description: `Mẫu: ${tpl.name}`,
-      })
-      router.push("/teacher/exams/exam-writing-02/edit")
-      return
-    }
+    const tpl = templates.find((t) => t.id === effectiveSelected) ?? templates[0]
 
     try {
       const created = await createMutation.mutateAsync({
-        title: tpl.id === "custom" ? "Đề thi mới" : `Đề thi ${tpl.name}`,
+        title: isPractice
+          ? `Bài luyện tập ${tpl.name}`
+          : tpl.id === "custom"
+            ? "Đề thi mới"
+            : `Đề thi ${tpl.name}`,
         description: tpl.description,
         durationMinutes: tpl.duration,
+        kind: isPractice ? "practice" : "mock",
+        scoringMode: isPractice ? "raw" : "band",
+        curriculum: isPractice
+          ? {
+              part: 1,
+            }
+          : undefined,
         sections: tpl.buildSections(),
       })
-      toast.success("Đã tạo bản nháp đề thi", {
+      toast.success(isPractice ? "Đã tạo bản nháp bài luyện tập" : "Đã tạo bản nháp đề thi", {
         description: `Mẫu: ${tpl.name}`,
       })
       router.replace(`/teacher/exams/${created.id}/edit`)
@@ -152,21 +211,33 @@ export default function NewExamPage() {
     }
   }
 
+  const breadcrumbs = isPractice
+    ? [
+        { label: "Tổng quan", href: "/teacher" },
+        { label: "Bài luyện tập", href: "/teacher/practices" },
+        { label: "Tạo bài mới" },
+      ]
+    : [
+        { label: "Tổng quan", href: "/teacher" },
+        { label: "Đề thi", href: "/teacher/exams" },
+        { label: "Tạo đề mới" },
+      ]
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
-        breadcrumbs={[
-          { label: "Tổng quan", href: "/teacher" },
-          { label: "Đề thi", href: "/teacher/exams" },
-          { label: "Tạo đề mới" },
-        ]}
-        title="Tạo đề thi mới"
-        description="Chọn mẫu để khởi tạo bản nháp. Bạn có thể thêm/xoá phần và câu hỏi sau trong trình soạn đề."
+        breadcrumbs={breadcrumbs}
+        title={isPractice ? "Tạo bài luyện tập mới (Practice)" : "Tạo đề thi mới (Mock Exam)"}
+        description={
+          isPractice
+            ? "Bài luyện tập gồm đúng 1 section (Passage hoặc Part) để học sinh tự do ôn luyện từng kỹ năng."
+            : "Chọn mẫu để khởi tạo bản nháp đề thi chính thức. Bạn có thể thêm/xoá phần và câu hỏi trong trình soạn đề."
+        }
       />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {TEMPLATES.map((tpl) => {
-          const active = selected === tpl.id
+        {templates.map((tpl) => {
+          const active = effectiveSelected === tpl.id
           return (
             <button
               key={tpl.id}
@@ -207,9 +278,11 @@ export default function NewExamPage() {
       <Card className="border-border shadow-xs">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="font-heading text-base font-bold">Sẵn sàng soạn đề?</CardTitle>
+            <CardTitle className="font-heading text-base font-bold">
+              {isPractice ? "Sẵn sàng soạn bài luyện tập?" : "Sẵn sàng soạn đề thi?"}
+            </CardTitle>
             <CardDescription className="text-xs">
-              Đề sẽ được tạo ở trạng thái Nháp và tự động lưu trong quá trình soạn.
+              Bản nháp sẽ được tạo và tự động lưu. Bạn có thể cập nhật học liệu (video, từ vựng) bất cứ lúc nào.
             </CardDescription>
           </div>
           <Button
@@ -217,9 +290,13 @@ export default function NewExamPage() {
             size="sm"
             className="gap-2 font-semibold"
             onClick={handleCreate}
-            disabled={!USE_MOCKS && createMutation.isPending}
+            disabled={createMutation.isPending}
           >
-            {createMutation.isPending && !USE_MOCKS ? "Đang tạo…" : "Tạo đề thi"}
+            {createMutation.isPending
+              ? "Đang tạo…"
+              : isPractice
+                ? "Tạo bài luyện tập"
+                : "Tạo đề thi"}
             <HugeiconsIcon icon={ArrowRight01Icon} size={16} />
           </Button>
         </CardHeader>

@@ -11,11 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { toast } from "sonner"
-import { useAuthStore } from "@/stores/auth.store"
 import { useLoginMutation } from "@/hooks/use-auth"
 import { ApiError } from "@/lib/api/client"
-import { IS_DEMO_MODE, USE_MOCKS } from "@/lib/api/config"
-import { DEMO_STUDENT, DEMO_TEACHER } from "@/mocks/demo-data"
 
 export default function LoginPage() {
   return (
@@ -28,23 +25,15 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter()
   const [next] = useQueryState("next", parseAsString)
-  const { setAuth } = useAuthStore()
   const loginMutation = useLoginMutation()
 
-  const [email, setEmail] = React.useState("long.student@ieltslovers.com")
-  const [password, setPassword] = React.useState("matkhau123")
+  const [email, setEmail] = React.useState("")
+  const [password, setPassword] = React.useState("")
   const [formError, setFormError] = React.useState<string | null>(null)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError(null)
-
-    if (USE_MOCKS) {
-      setAuth(DEMO_STUDENT, "mock-student-jwt-token")
-      toast.success("Đăng nhập thành công!", { description: `Chào mừng ${DEMO_STUDENT.fullName}` })
-      router.push("/student")
-      return
-    }
 
     try {
       const result = await loginMutation.mutateAsync({ email, password })
@@ -76,20 +65,6 @@ function LoginForm() {
     }
   }
 
-  const loginAsRole = (role: "student" | "teacher") => {
-    if (role === "student") {
-      setAuth(DEMO_STUDENT, "mock-student-jwt-token")
-      toast.success("Đăng nhập thành công (Demo Học sinh)!")
-      router.push("/student")
-    } else {
-      setAuth(DEMO_TEACHER, "mock-teacher-jwt-token")
-      toast.success("Đăng nhập thành công (Demo Giáo viên)!")
-      router.push("/teacher")
-    }
-  }
-
-  const showDemoButtons = IS_DEMO_MODE || USE_MOCKS
-
   return (
     <Card className="border-border bg-card">
       <CardHeader className="space-y-1 text-center">
@@ -103,35 +78,6 @@ function LoginForm() {
 
       <form onSubmit={handleLogin}>
         <CardContent className="space-y-4">
-          {/* Quick Demo Switcher */}
-          {showDemoButtons && (
-            <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2 text-center">
-              <span className="text-[11px] font-medium text-muted-foreground block">
-                1-Click Đăng nhập thử nghiệm Demo:
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => loginAsRole("student")}
-                  className="text-xs h-8 bg-background font-medium"
-                >
-                  Học sinh
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => loginAsRole("teacher")}
-                  className="text-xs h-8 bg-background font-medium"
-                >
-                  Giáo viên
-                </Button>
-              </div>
-            </div>
-          )}
-
           {formError && (
             <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive font-medium">
               {formError}

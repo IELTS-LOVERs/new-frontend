@@ -21,15 +21,9 @@ import {
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { BrandLogo } from "@/components/layout/brand-logo"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useTeacherExamDetailQuery } from "@/hooks/use-exams"
 import type { MediaItem, SkillType } from "@/lib/api/types"
-import { DEMO_EXAM_MOCK_01, DEMO_QUESTION_BANK } from "@/mocks/demo-data"
-
-const MOCK_ANSWER_MAP = new Map(
-  DEMO_QUESTION_BANK.map((q) => [q.id, q.acceptedAnswers ?? []])
-)
 
 interface PreviewQuestion {
   id: string
@@ -75,29 +69,21 @@ export default function ExamPreviewPage() {
   const params = useParams<{ examId: string }>()
   const examId = params.examId
 
-  const examQuery = useTeacherExamDetailQuery(examId, !USE_MOCKS)
+  const examQuery = useTeacherExamDetailQuery(examId)
 
   const [activeSectionIndex, setActiveSectionIndex] = React.useState(0)
   const [showAnswers, setShowAnswers] = React.useState(false)
 
   // Normalize exam data
-  const exam: { title: string; sections: PreviewSection[] } | null = USE_MOCKS
+  const exam: { title: string; sections: PreviewSection[] } | null = examQuery.data
     ? {
-        title: DEMO_EXAM_MOCK_01.title,
-        sections: DEMO_EXAM_MOCK_01.sections.map((s) => ({
+        title: examQuery.data.title,
+        sections: examQuery.data.sections.map((s) => ({
           ...s,
           questions: flattenGroupsToPreviewQuestions(s),
-        })) as unknown as PreviewSection[],
+        })),
       }
-    : examQuery.data
-      ? {
-          title: examQuery.data.title,
-          sections: examQuery.data.sections.map((s) => ({
-            ...s,
-            questions: flattenGroupsToPreviewQuestions(s),
-          })),
-        }
-      : null
+    : null
 
   const current = exam?.sections[activeSectionIndex]
 
@@ -106,7 +92,7 @@ export default function ExamPreviewPage() {
     .flatMap((g) => g.media ?? [])
     .filter((m) => m.type === "image")
 
-  if (!USE_MOCKS && examQuery.isLoading) {
+  if (examQuery.isLoading) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
         <div className="flex items-center justify-center gap-2 bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground">
@@ -127,7 +113,7 @@ export default function ExamPreviewPage() {
     )
   }
 
-  if ((!USE_MOCKS && examQuery.isError) || !exam || !current) {
+  if (examQuery.isError || !exam || !current) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
         <div className="flex items-center justify-center gap-2 bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground">
@@ -312,9 +298,7 @@ export default function ExamPreviewPage() {
           </div>
 
           {current.questions.map((q, idx) => {
-            const answers = USE_MOCKS
-              ? (MOCK_ANSWER_MAP.get(q.id) ?? [])
-              : (q.acceptedAnswers ?? [])
+            const answers = q.acceptedAnswers ?? []
             const options =
               (q.data?.options as Array<{ id: string; text: string }>) ??
               (q.data?.headings as Array<{ id: string; text: string }>) ??

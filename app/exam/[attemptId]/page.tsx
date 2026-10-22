@@ -45,7 +45,6 @@ import {
   computeSectionReviews,
   countWords,
   findWritingQuestion,
-  flattenSectionQuestions,
   getGroupViewMeta,
   parseInlineToken,
   resolveInlineBlankQuestion,
@@ -68,8 +67,6 @@ import { useSubmitAttemptMutation } from "@/hooks/use-attempts"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { clearAttemptSnapshot } from "@/features/exam-engine/lib/idb"
 import { formatDuration } from "@/lib/format"
-import { DEMO_EXAM_MOCK_01 } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import type {
   CandidateSection,
   CandidateQuestionGroup,
@@ -80,11 +77,6 @@ import type {
 export default function ExamEnginePage() {
   const params = useParams<{ attemptId: string }>()
   const attemptId = params.attemptId
-
-  // ─── Mock shortcut (demo mode) ─────────────────────────────
-  if (USE_MOCKS) {
-    return <MockExamEngine attemptId={attemptId} />
-  }
 
   return <RealExamEngine attemptId={attemptId} />
 }
@@ -107,7 +99,9 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const setAnswer = useExamSessionStore((s) => s.setAnswer)
   const toggleFlag = useExamSessionStore((s) => s.toggleFlag)
   const setPhase = useExamSessionStore((s) => s.setPhase)
-  const setUIFontScale = useExamSessionStore((s) => s.setUIFontScale)
+  const increaseFontScale = useExamSessionStore((s) => s.increaseFontScale)
+  const decreaseFontScale = useExamSessionStore((s) => s.decreaseFontScale)
+  const resetFontScale = useExamSessionStore((s) => s.resetFontScale)
   const setUITheme = useExamSessionStore((s) => s.setUITheme)
 
   const [isSubmitOpen, setIsSubmitOpen] = React.useState(false)
@@ -142,7 +136,8 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
     // submit flow (which redirects to /submitted) instead of hanging.
     onFatal: () => void handleSubmitRef.current(true),
   })
-  useAntiCheat(attemptId, phase === "active" || phase === "offline")
+  const isMock = exam?.kind === "mock"
+  useAntiCheat(attemptId, isMock && (phase === "active" || phase === "offline"))
 
   // ─── Submit ────────────────────────────────────────────────
   const handleSubmit = async (auto = false) => {
@@ -252,7 +247,9 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
         </h1>
         <p className="text-sm text-muted-foreground">{recoveryError}</p>
         <Button asChild variant="outline">
-          <Link href="/student/assignments">Về danh sách bài tập</Link>
+          <Link href={exam?.kind === "practice" ? "/student/practice" : "/student/exams"}>
+            {exam?.kind === "practice" ? "Về danh mục luyện tập" : "Về danh sách đề thi"}
+          </Link>
         </Button>
       </div>
     )
@@ -405,22 +402,36 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             </button>
           </div>
 
-          {/* Font scale */}
-          <div className="hidden items-center rounded-xl border border-border p-0.5 text-xs sm:flex">
-            {([1, 1.125, 1.25] as const).map((scale, i) => (
-              <button
-                key={scale}
-                onClick={() => setUIFontScale(scale)}
-                className={cn(
-                  "rounded-lg px-2 py-0.5 font-mono text-[11px]",
-                  ui.fontScale === scale
-                    ? "bg-muted font-bold text-foreground"
-                    : "text-muted-foreground"
-                )}
-              >
-                {["A", "A+", "A++"][i]}
-              </button>
-            ))}
+          {/* Điều chỉnh cỡ chữ to/nhỏ */}
+          <div className="flex items-center rounded-xl border border-border bg-muted/20 p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={decreaseFontScale}
+              disabled={ui.fontScale <= 0.85}
+              className="flex size-6 items-center justify-center rounded-lg text-xs font-bold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+              title="Giảm cỡ chữ"
+              aria-label="Giảm cỡ chữ"
+            >
+              -
+            </button>
+            <button
+              type="button"
+              onClick={resetFontScale}
+              className="px-1.5 font-mono text-[11px] font-semibold text-foreground hover:underline"
+              title="Đặt lại cỡ chữ mặc định (100%)"
+            >
+              {Math.round(ui.fontScale * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={increaseFontScale}
+              disabled={ui.fontScale >= 1.4}
+              className="flex size-6 items-center justify-center rounded-lg text-xs font-bold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+              title="Tăng cỡ chữ"
+              aria-label="Tăng cỡ chữ"
+            >
+              +
+            </button>
           </div>
 
           <Button
@@ -775,14 +786,14 @@ function ReadingSection({
                 <HighlightControls />
               </div>
             </div>
+            <MediaImages media={section.media} className="mb-4" />
+
             <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
               <SelectableHighlightedText
                 targetId="passage"
                 text={section.passageText ?? ""}
               />
             </div>
-
-            <MediaImages media={section.media} />
           </div>
         </ResizablePanel>
 
@@ -2354,682 +2365,3 @@ function SubmitReviewDialog({
   )
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Mock exam engine (giữ nguyên bản demo cũ)
-// ═══════════════════════════════════════════════════════════════
-function MockExamEngine({ attemptId }: { attemptId: string }) {
-  const router = useRouter()
-  const isMobile = useIsMobile()
-  const exam = DEMO_EXAM_MOCK_01
-  const [activeSectionIndex, setActiveSectionIndex] = React.useState<number>(0)
-  const currentSection = exam.sections[activeSectionIndex] || exam.sections[0]
-  const [answers, setAnswers] = React.useState<Record<string, string>>({
-    "q-l1": "Sarah Jenkins",
-    "q-l2": "42 Bridge",
-    "q-r1": "TRUE",
-  })
-  const [flagged, setFlagged] = React.useState<Record<string, boolean>>({
-    "q-l3": true,
-  })
-  const [writingTask, setWritingTask] = React.useState<"task1" | "task2">(
-    "task1"
-  )
-  const [writing1, setWriting1] = React.useState<string>(
-    "The chart illustrates the proportion of renewable energy consumption in four European countries between 2010 and 2024..."
-  )
-  const [writing2, setWriting2] = React.useState<string>("")
-  const [secondsLeft, setSecondsLeft] = React.useState<number>(48 * 60 + 32)
-  const [saveStatus, setSaveStatus] = React.useState<"saved" | "saving">(
-    "saved"
-  )
-  const [isSubmitOpen, setIsSubmitOpen] = React.useState<boolean>(false)
-  const [fontScale, setFontScale] = React.useState<number>(1)
-  const [colorTheme, setColorTheme] = React.useState<"white" | "cream">("white")
-
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1))
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  React.useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden) {
-        toast.warning("Nhắc nhở làm bài", {
-          description:
-            "Vui lòng tập trung làm bài ở chế độ toàn màn hình và không chuyển đổi tab.",
-        })
-      }
-    }
-    document.addEventListener("visibilitychange", handleVisibility)
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibility)
-  }, [])
-
-  const formatTimer = (totalSeconds: number) => {
-    const m = Math.floor(totalSeconds / 60)
-    const s = totalSeconds % 60
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
-  }
-
-  const handleAnswerChange = (questionId: string, val: string) => {
-    setSaveStatus("saving")
-    setAnswers((prev) => ({ ...prev, [questionId]: val }))
-    setTimeout(() => setSaveStatus("saved"), 600)
-  }
-
-  const handleSubmit = () => {
-    setIsSubmitOpen(false)
-    if (typeof document !== "undefined" && document.fullscreenElement) {
-      document.exitFullscreen?.().catch(() => {})
-    }
-    toast.success("Đã nộp bài thi thành công!")
-    router.push(`/exam/${attemptId}/submitted`)
-  }
-
-  const allQuestions = exam.sections.flatMap((s, sIdx) =>
-    flattenSectionQuestions(s).map((q, qIdx) => ({
-      ...q,
-      sectionIndex: sIdx,
-      displayNumber: qIdx + 1,
-    }))
-  )
-  const answeredCount = Object.keys(answers).filter((k) =>
-    answers[k]?.trim()
-  ).length
-  const totalQuestions = allQuestions.length
-
-  return (
-    <div
-      className={cn(
-        "flex h-screen flex-col overflow-hidden transition-colors duration-200",
-        colorTheme === "cream"
-          ? "bg-[#FAF8F5] text-[#2D2A26]"
-          : "bg-background text-foreground"
-      )}
-    >
-      <header
-        className={cn(
-          "z-30 flex h-14 shrink-0 items-center justify-between border-b px-6 select-none",
-          colorTheme === "cream"
-            ? "border-[#E8E4DD] bg-[#FAF8F5]"
-            : "border-border bg-background"
-        )}
-      >
-        <div className="flex items-center gap-6">
-          <BrandLogo href="/student" compact />
-          <div className="hidden h-4 w-px bg-border sm:block" />
-          <span className="max-w-[260px] truncate font-heading text-sm font-semibold text-foreground">
-            {exam.title}
-          </span>
-        </div>
-        <div className="hidden items-center gap-1 rounded-xl bg-muted/50 p-1 md:flex">
-          {exam.sections.map((sec, idx) => (
-            <button
-              key={sec.skill}
-              onClick={() => setActiveSectionIndex(idx)}
-              className={cn(
-                "rounded-lg px-3 py-1 text-xs font-medium capitalize transition-colors",
-                idx === activeSectionIndex
-                  ? "bg-background text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {sec.skill}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
-            {saveStatus === "saving" ? (
-              <span className="animate-pulse">Đang lưu...</span>
-            ) : (
-              <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
-                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
-                Đã lưu
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-1 font-mono text-xs font-semibold sm:text-sm">
-            <HugeiconsIcon
-              icon={Timer01Icon}
-              size={15}
-              className="text-primary"
-            />
-            <span
-              className={
-                secondsLeft < 300
-                  ? "animate-pulse font-bold text-destructive"
-                  : "text-foreground"
-              }
-            >
-              {formatTimer(secondsLeft)}
-            </span>
-          </div>
-          <div className="hidden items-center rounded-xl border border-border p-0.5 text-xs sm:flex">
-            <button
-              onClick={() => setColorTheme("white")}
-              className={cn(
-                "rounded-lg px-2 py-0.5 text-[11px] font-medium transition-colors",
-                colorTheme === "white"
-                  ? "bg-muted font-semibold text-foreground"
-                  : "text-muted-foreground"
-              )}
-            >
-              Trắng
-            </button>
-            <button
-              onClick={() => setColorTheme("cream")}
-              className={cn(
-                "rounded-lg px-2 py-0.5 text-[11px] font-medium transition-colors",
-                colorTheme === "cream"
-                  ? "bg-[#EFECE6] font-semibold text-[#2D2A26]"
-                  : "text-muted-foreground"
-              )}
-            >
-              Ngà
-            </button>
-          </div>
-          <div className="hidden items-center rounded-xl border border-border p-0.5 text-xs sm:flex">
-            {[1, 1.15, 1.25].map((scale, i) => (
-              <button
-                key={scale}
-                onClick={() => setFontScale(scale)}
-                className={cn(
-                  "rounded-lg px-2 py-0.5 font-mono text-[11px]",
-                  fontScale === scale
-                    ? "bg-muted font-bold text-foreground"
-                    : "text-muted-foreground"
-                )}
-              >
-                {["A", "A+", "A++"][i]}
-              </button>
-            ))}
-          </div>
-          <Button
-            size="sm"
-            onClick={() => setIsSubmitOpen(true)}
-            className="h-8 px-3 text-xs font-medium"
-          >
-            Nộp bài
-          </Button>
-        </div>
-      </header>
-
-      <main
-        className="flex-1 overflow-hidden"
-        style={{ fontSize: `${fontScale * 100}%` }}
-      >
-        {currentSection.skill === "listening" && (
-          <div className="flex h-full flex-col overflow-y-auto">
-            <div
-              className={cn(
-                "sticky top-0 z-20 flex items-center justify-between border-b px-8 py-3",
-                colorTheme === "cream"
-                  ? "border-[#E8E4DD] bg-[#FAF8F5]/95"
-                  : "border-border bg-card/95"
-              )}
-            >
-              <div className="flex max-w-2xl flex-1 items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="flex size-2.5 animate-pulse rounded-full bg-emerald-500" />
-                  <span className="text-xs font-medium text-foreground">
-                    Audio đang phát (Tự động)
-                  </span>
-                </div>
-                <div className="flex-1 space-y-1">
-                  <div className="flex justify-between font-mono text-[11px] text-muted-foreground">
-                    <span>Part 1 Listening Track (Chuẩn thi máy)</span>
-                    <span>02:15 / 06:40</span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full bg-primary"
-                      style={{ width: "34%" }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mx-auto w-full max-w-4xl space-y-8 p-4 sm:p-6 md:p-8">
-              <div className="space-y-1.5 rounded-xl border border-border bg-card p-4 sm:p-5">
-                <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
-                  {currentSection.title}
-                </h3>
-                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                  {currentSection.instructions}
-                </p>
-              </div>
-
-              <div className="space-y-6">
-                {flattenSectionQuestions(currentSection).map((q, idx) => (
-                  <div
-                    key={q.id}
-                    className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
-                          {idx + 1}
-                        </span>
-                        <span className="text-sm font-semibold text-foreground">
-                          {q.prompt}
-                        </span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "size-7",
-                          flagged[q.id]
-                            ? "bg-amber-500/10 text-amber-600"
-                            : "text-muted-foreground"
-                        )}
-                        onClick={() =>
-                          setFlagged((p) => ({ ...p, [q.id]: !p[q.id] }))
-                        }
-                      >
-                        <HugeiconsIcon icon={Flag01Icon} size={14} />
-                      </Button>
-                    </div>
-                    {q.type === "form_completion" && (
-                      <div className="pt-1">
-                        <Input
-                          value={answers[q.id] || ""}
-                          onChange={(e) =>
-                            handleAnswerChange(q.id, e.target.value)
-                          }
-                          placeholder="Nhập câu trả lời của bạn..."
-                          className="h-10 max-w-md text-sm font-medium"
-                        />
-                      </div>
-                    )}
-                    {q.type === "multiple_choice" && q.data?.options != null && (
-                      <div className="space-y-2 pt-1">
-                        {(
-                          q.data.options as Array<{ id: string; text: string }>
-                        ).map((opt) => (
-                          <label
-                            key={opt.id}
-                            onClick={() => handleAnswerChange(q.id, opt.id)}
-                            className={cn(
-                              "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-xs font-medium transition-colors",
-                              answers[q.id] === opt.id
-                                ? "border-primary bg-primary/5 font-semibold text-primary"
-                                : "border-border text-foreground hover:bg-muted/30"
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "flex size-5 items-center justify-center rounded-full border font-mono text-[11px] font-bold",
-                                answers[q.id] === opt.id
-                                  ? "border-primary bg-primary text-primary-foreground"
-                                  : "border-border"
-                              )}
-                            >
-                              {opt.id}
-                            </span>
-                            <span>{opt.text}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {currentSection.skill === "reading" && (
-          <ResizablePanelGroup
-            key={isMobile ? "vertical" : "horizontal"}
-            orientation={isMobile ? "vertical" : "horizontal"}
-            className="h-full w-full"
-          >
-            <ResizablePanel
-              defaultSize={50}
-              minSize={25}
-              className="overflow-y-auto border-b md:border-b-0 md:border-r border-border bg-card"
-            >
-              <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
-                <div className="border-b border-border pb-4">
-                  <Badge
-                    variant="outline"
-                    className="mb-2 text-xs sm:text-sm font-semibold text-primary"
-                  >
-                    {currentSection.title}
-                  </Badge>
-                  <h2 className="font-heading text-xl sm:text-2xl leading-tight font-extrabold text-foreground">
-                    The Evolutionary Marvel of Cetacean Acoustic Biology
-                  </h2>
-                </div>
-                <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
-                  {currentSection.passageText}
-                </div>
-              </div>
-            </ResizablePanel>
-            <ResizableHandle
-              withHandle
-              className="touch-none bg-border/80 hover:bg-primary/50 transition-colors aria-[orientation=horizontal]:h-2 aria-[orientation=horizontal]:after:h-6 aria-[orientation=vertical]:w-2 aria-[orientation=vertical]:after:w-6"
-            />
-            <ResizablePanel
-              defaultSize={50}
-              minSize={25}
-              className="overflow-y-auto bg-muted/10"
-            >
-              <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
-                <div className="space-y-1.5 rounded-xl border border-border bg-card p-4 sm:p-5">
-                  <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
-                    Questions 1–3
-                  </h3>
-                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                    {currentSection.instructions}
-                  </p>
-                </div>
-                <div className="space-y-6 sm:space-y-8">
-                  {flattenSectionQuestions(currentSection).map((q, idx) => (
-                    <div
-                      key={q.id}
-                      className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
-                            {idx + 1}
-                          </span>
-                          <span className="text-sm font-semibold text-foreground">
-                            {q.prompt}
-                          </span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "size-7",
-                            flagged[q.id]
-                              ? "bg-amber-500/10 text-amber-600"
-                              : "text-muted-foreground"
-                          )}
-                          onClick={() =>
-                            setFlagged((p) => ({ ...p, [q.id]: !p[q.id] }))
-                          }
-                        >
-                          <HugeiconsIcon icon={Flag01Icon} size={14} />
-                        </Button>
-                      </div>
-                      {q.type === "true_false_not_given" && (
-                        <div className="flex flex-wrap gap-2 pt-1 font-mono">
-                          {["TRUE", "FALSE", "NOT GIVEN"].map((val) => (
-                            <button
-                              key={val}
-                              type="button"
-                              onClick={() => handleAnswerChange(q.id, val)}
-                              className={cn(
-                                "h-9 rounded-lg px-4 text-xs font-bold transition-colors",
-                                answers[q.id] === val
-                                  ? "bg-primary text-primary-foreground shadow-xs"
-                                  : "border border-border bg-card text-foreground hover:bg-muted"
-                              )}
-                            >
-                              {val}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {q.type === "matching_headings" && q.data?.headings != null && (
-                        <div className="space-y-2 pt-1">
-                          {(
-                            q.data.headings as Array<{
-                              id: string
-                              text: string
-                            }>
-                          ).map((h) => (
-                            <label
-                              key={h.id}
-                              onClick={() => handleAnswerChange(q.id, h.id)}
-                              className={cn(
-                                "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-xs font-medium transition-colors",
-                                answers[q.id] === h.id
-                                  ? "border-primary bg-primary/5 font-semibold text-primary"
-                                  : "border-border text-foreground hover:bg-muted/30"
-                              )}
-                            >
-                              <span
-                                className={cn(
-                                  "flex size-5 items-center justify-center rounded-full border font-mono text-[11px] font-bold",
-                                  answers[q.id] === h.id
-                                    ? "border-primary bg-primary text-primary-foreground"
-                                    : "border-border"
-                                )}
-                              >
-                                {h.id}
-                              </span>
-                              <span>{h.text}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
-
-        {currentSection.skill === "writing" && (
-          <div className="flex h-full flex-col overflow-hidden">
-            <div className="flex h-full divide-x divide-border">
-              <div className="w-1/2 space-y-6 overflow-y-auto bg-card p-8">
-                <div className="flex gap-2 border-b border-border pb-3">
-                  <button
-                    onClick={() => setWritingTask("task1")}
-                    className={cn(
-                      "rounded-lg px-4 py-2 text-xs font-bold transition-colors",
-                      writingTask === "task1"
-                        ? "bg-primary text-primary-foreground shadow-xs"
-                        : "border border-border bg-muted/20 text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Writing Task 1 (Report)
-                  </button>
-                  <button
-                    onClick={() => setWritingTask("task2")}
-                    className={cn(
-                      "rounded-lg px-4 py-2 text-xs font-bold transition-colors",
-                      writingTask === "task2"
-                        ? "bg-primary text-primary-foreground shadow-xs"
-                        : "border border-border bg-muted/20 text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Writing Task 2 (Essay)
-                  </button>
-                </div>
-                {writingTask === "task1" ? (
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-border bg-muted/20 p-4">
-                      <h3 className="mb-1 font-heading text-sm font-bold text-foreground">
-                        Task 1 Instructions
-                      </h3>
-                      <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
-                        The chart below illustrates the proportion of renewable
-                        energy consumption in four European countries from 2010
-                        to 2024.
-                        {"\n\n"}Summarise the information by selecting and
-                        reporting the main features. Write at least 150 words.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-border bg-muted/20 p-4">
-                      <h3 className="mb-1 font-heading text-sm font-bold text-foreground">
-                        Task 2 Instructions
-                      </h3>
-                      <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
-                        Some people believe that artificial intelligence will
-                        soon replace human teachers in education.
-                        {"\n\n"}Discuss both views and give your own opinion.
-                        Write at least 250 words.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="flex w-1/2 flex-col bg-background">
-                <div className="flex items-center justify-between border-b border-border bg-muted/20 px-6 py-3">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-sm font-bold text-foreground">
-                      {writingTask === "task1"
-                        ? countWords(writing1)
-                        : countWords(writing2)}{" "}
-                      words
-                    </span>
-                    <Badge variant="outline" className="font-mono text-[11px]">
-                      {writingTask === "task1"
-                        ? "Tối thiểu 150 từ"
-                        : "Tối thiểu 250 từ"}
-                    </Badge>
-                  </div>
-                  <span className="text-xs font-medium text-emerald-600">
-                    ✓ Đã tự động lưu
-                  </span>
-                </div>
-                <div className="flex-1 p-6">
-                  <Textarea
-                    value={writingTask === "task1" ? writing1 : writing2}
-                    onChange={(e) =>
-                      writingTask === "task1"
-                        ? setWriting1(e.target.value)
-                        : setWriting2(e.target.value)
-                    }
-                    placeholder="Bắt đầu gõ bài viết của bạn tại đây..."
-                    className="h-full w-full resize-none border-0 font-serif text-sm leading-[1.8] select-text focus-visible:ring-0"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-
-      <footer className="z-30 flex h-14 shrink-0 items-center justify-between border-t border-border bg-background px-6 select-none">
-        <div className="flex items-center gap-4">
-          <span className="hidden text-xs font-semibold text-muted-foreground sm:inline">
-            Tiến độ:{" "}
-            <strong className="font-mono text-foreground">
-              {answeredCount}/{totalQuestions}
-            </strong>{" "}
-            câu
-          </span>
-          <div className="hidden h-4 w-px bg-border sm:block" />
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-            {allQuestions.map((q, idx) => (
-              <button
-                key={q.id}
-                onClick={() => setActiveSectionIndex(q.sectionIndex)}
-                className={cn(
-                  "relative flex size-8 items-center justify-center rounded-lg font-mono text-xs font-bold transition-all",
-                  answers[q.id]?.trim()
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "border border-border bg-card text-foreground hover:bg-muted",
-                  q.sectionIndex === activeSectionIndex
-                    ? "ring-2 ring-primary ring-offset-1"
-                    : "opacity-80"
-                )}
-              >
-                {idx + 1}
-                {flagged[q.id] && (
-                  <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-amber-500 ring-1 ring-background" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={activeSectionIndex === 0}
-            onClick={() => setActiveSectionIndex((p) => Math.max(0, p - 1))}
-            className="h-8 gap-1 text-xs"
-          >
-            <HugeiconsIcon icon={ArrowLeft01Icon} size={14} />
-            <span className="hidden sm:inline">Phần trước</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={activeSectionIndex === exam.sections.length - 1}
-            onClick={() =>
-              setActiveSectionIndex((p) =>
-                Math.min(exam.sections.length - 1, p + 1)
-              )
-            }
-            className="h-8 gap-1 text-xs"
-          >
-            <span className="hidden sm:inline">Phần tiếp theo</span>
-            <HugeiconsIcon icon={ArrowRight01Icon} size={14} />
-          </Button>
-        </div>
-      </footer>
-
-      <Dialog open={isSubmitOpen} onOpenChange={setIsSubmitOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-heading text-lg font-bold">
-              Xác nhận nộp bài thi
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Vui lòng rà soát lại tiến độ làm bài trước khi gửi kết quả cuối
-              cùng.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2 text-xs">
-            <div className="space-y-1.5 rounded-xl border border-border bg-muted/20 p-3">
-              <div className="flex justify-between font-medium">
-                <span>Listening (4 câu)</span>
-                <span className="font-mono text-emerald-600">4 / 4 đã làm</span>
-              </div>
-              <div className="flex justify-between font-medium">
-                <span>Reading (3 câu)</span>
-                <span className="font-mono text-emerald-600">3 / 3 đã làm</span>
-              </div>
-              <div className="flex justify-between font-medium">
-                <span>Writing Task 1</span>
-                <span className="font-mono">
-                  {countWords(writing1)} từ (≥ 150)
-                </span>
-              </div>
-              <div className="flex justify-between font-medium">
-                <span>Writing Task 2</span>
-                <span className="font-mono text-amber-600">
-                  {countWords(writing2)} từ (Dưới 250)
-                </span>
-              </div>
-            </div>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Sau khi xác nhận nộp bài, hệ thống sẽ tự động chấm điểm Listening
-              & Reading.
-            </p>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsSubmitOpen(false)}
-            >
-              Quay lại làm tiếp
-            </Button>
-            <Button size="sm" onClick={handleSubmit} className="font-bold">
-              Nộp bài ngay
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}

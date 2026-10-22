@@ -43,7 +43,6 @@ import {
 } from "@hugeicons/core-free-icons"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import {
   useMediaQuery,
@@ -52,10 +51,9 @@ import {
   useDeleteMediaMutation,
 } from "@/hooks/use-media"
 import { formatDateShort } from "@/lib/format"
+import { detectMediaFile } from "@/lib/media-file"
 import type { MediaAsset } from "@/lib/api/types"
-import { DEMO_MEDIA } from "@/mocks/demo-data"
 
-const ALLOWED_MIME = ["audio/mpeg", "audio/wav", "image/png", "image/jpeg"] as const
 const MAX_SIZE = 100 * 1024 * 1024 // 100MB
 const MAX_PARALLEL = 3
 const PAGE_SIZE = 20
@@ -76,11 +74,16 @@ function formatSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function uploadWithProgress(url: string, file: File, onProgress: (pct: number) => void): Promise<void> {
+function uploadWithProgress(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress: (pct: number) => void
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open("PUT", url)
-    xhr.setRequestHeader("Content-Type", file.type)
+    xhr.setRequestHeader("Content-Type", contentType)
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
     }
@@ -97,7 +100,6 @@ export default function TeacherMediaPage() {
   const [tab, setTab] = useQueryState("type", parseAsString.withDefault("audio"))
   const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1))
   const [query, setQuery] = React.useState("")
-  const [mockAssets, setMockAssets] = React.useState<MediaAsset[]>(DEMO_MEDIA)
   const [playingId, setPlayingId] = React.useState<string | null>(null)
   const [preview, setPreview] = React.useState<{
     id: string
@@ -113,15 +115,13 @@ export default function TeacherMediaPage() {
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const type = tab === "image" ? "image" : "audio"
-  const mediaQuery = useMediaQuery({ type, page, limit: PAGE_SIZE }, !USE_MOCKS)
+  const mediaQuery = useMediaQuery({ type, page, limit: PAGE_SIZE })
   const presignMutation = usePresignMediaMutation()
   const confirmMutation = useConfirmMediaMutation()
   const deleteMutation = useDeleteMediaMutation()
 
-  const items = USE_MOCKS
-    ? mockAssets.filter((a) => a.type === type)
-    : (mediaQuery.data?.items ?? [])
-  const meta = USE_MOCKS ? undefined : mediaQuery.data?.meta
+  const items = mediaQuery.data?.items ?? []
+  const meta = mediaQuery.data?.meta
   const totalPages = meta?.totalPages ?? 1
 
   const filtered = items.filter(
@@ -130,7 +130,7 @@ export default function TeacherMediaPage() {
 
   // Uploads đang dở (chỉ real mode)
   const uploadingForTab = uploading.filter(
-    (u) => (u.file.type.startsWith("audio") ? "audio" : "image") === type
+    (u) => detectMediaFile(u.file)?.type === type
   )
 
   const copyUrl = (asset: { url?: string; originalName?: string }) => {
@@ -140,18 +140,27 @@ export default function TeacherMediaPage() {
   }
 
   const runUpload = async (item: UploadingItem) => {
+    const detected = detectMediaFile(item.file)
+    if (!detected) {
+      toast.error(`Định dạng không hỗ trợ: ${item.file.name}`, {
+        description: "Chỉ chấp nhận MP3, WAV, PNG, JPG.",
+      })
+      return
+    }
     const patch = (p: Partial<UploadingItem>) =>
       setUploading((prev) => prev.map((u) => (u.localId === item.localId ? { ...u, ...p } : u)))
     try {
       patch({ status: "presigning" })
       const presign = await presignMutation.mutateAsync({
         filename: item.file.name,
-        mimeType: item.file.type as (typeof ALLOWED_MIME)[number],
-        type: item.file.type.startsWith("audio") ? "audio" : "image",
+        mimeType: detected.mimeType,
+        type: detected.type,
         size: item.file.size,
       })
       patch({ mediaId: presign.mediaId, status: "uploading" })
-      await uploadWithProgress(presign.uploadUrl, item.file, (pct) => patch({ progress: pct }))
+      await uploadWithProgress(presign.uploadUrl, item.file, detected.mimeType, (pct) =>
+        patch({ progress: pct })
+      )
       patch({ status: "confirming" })
       await confirmMutation.mutateAsync(presign.mediaId)
       setUploading((prev) => prev.filter((u) => u.localId !== item.localId))
@@ -168,34 +177,9 @@ export default function TeacherMediaPage() {
     if (!files || files.length === 0) return
     const list = Array.from(files)
 
-    if (USE_MOCKS) {
-      const pending: MediaAsset[] = list.map((file, i) => ({
-        id: `m-new-${Date.now()}-${i}`,
-        url: file.type.startsWith("image") ? URL.createObjectURL(file) : "",
-        type: file.type.startsWith("audio") ? "audio" : "image",
-        originalName: file.name,
-        mimeType: file.type,
-        sizeLabel: formatSize(file.size),
-        uploadedAt: new Date().toISOString(),
-        usageCount: 0,
-        status: "pending",
-      }))
-      setMockAssets((prev) => [...pending, ...prev])
-      setTab(pending[0].type === "audio" ? "audio" : "image")
-      pending.forEach((item, i) => {
-        const timer = setInterval(() => {
-          setMockAssets((prev) =>
-            prev.map((a) => (a.id === item.id ? { ...a, status: "ready" } : a))
-          )
-        }, 1200 + i * 300)
-        setTimeout(() => clearInterval(timer), 5000)
-      })
-      return
-    }
-
     const valid: File[] = []
     for (const file of list) {
-      if (!ALLOWED_MIME.includes(file.type as (typeof ALLOWED_MIME)[number])) {
+      if (!detectMediaFile(file)) {
         toast.error(`Định dạng không hỗ trợ: ${file.name}`, {
           description: "Chỉ chấp nhận MP3, WAV, PNG, JPG.",
         })
@@ -209,7 +193,8 @@ export default function TeacherMediaPage() {
     }
     if (valid.length === 0) return
 
-    setTab(valid[0].type.startsWith("audio") ? "audio" : "image")
+    const firstType = detectMediaFile(valid[0])?.type
+    setTab(firstType === "image" ? "image" : "audio")
 
     const queue = valid.map((file, i) => ({
       localId: `up-${Date.now()}-${i}`,
@@ -238,7 +223,7 @@ export default function TeacherMediaPage() {
   }
 
   const discardUpload = async (item: UploadingItem) => {
-    if (item.mediaId && !USE_MOCKS) {
+    if (item.mediaId) {
       try {
         await deleteMutation.mutateAsync(item.mediaId)
       } catch {
@@ -249,11 +234,6 @@ export default function TeacherMediaPage() {
   }
 
   const handleDelete = async (asset: MediaAsset | { id: string; originalName?: string }) => {
-    if (USE_MOCKS) {
-      setMockAssets((prev) => prev.filter((a) => a.id !== asset.id))
-      toast.success("Đã xoá tệp")
-      return
-    }
     try {
       await deleteMutation.mutateAsync(asset.id)
       toast.success("Đã xoá tệp")
@@ -283,8 +263,8 @@ export default function TeacherMediaPage() {
     }
   }
 
-  const isLoading = !USE_MOCKS && mediaQuery.isLoading
-  const isError = !USE_MOCKS && mediaQuery.isError
+  const isLoading = mediaQuery.isLoading
+  const isError = mediaQuery.isError
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -348,11 +328,11 @@ export default function TeacherMediaPage() {
           <TabsList className="bg-muted/50 p-1">
             <TabsTrigger value="audio" className="gap-1.5 text-xs">
               <HugeiconsIcon icon={MusicNote01Icon} size={14} />
-              <span>Audio{USE_MOCKS ? ` (${mockAssets.filter((a) => a.type === "audio").length})` : ""}</span>
+              <span>Audio</span>
             </TabsTrigger>
             <TabsTrigger value="image" className="gap-1.5 text-xs">
               <HugeiconsIcon icon={Image01Icon} size={14} />
-              <span>Hình ảnh{USE_MOCKS ? ` (${mockAssets.filter((a) => a.type === "image").length})` : ""}</span>
+              <span>Hình ảnh</span>
             </TabsTrigger>
           </TabsList>
 
@@ -514,13 +494,11 @@ export default function TeacherMediaPage() {
                     )
                   })}
 
-                  {/* Server/mock rows */}
+                  {/* Server rows */}
                   {filtered.map((asset) => {
                     const isAudio = asset.type === "audio"
                     const assetAny = asset as MediaAsset & { status?: string; uploadedAt?: string; createdAt?: string; size?: number; sizeLabel?: string; usageCount?: number }
-                    const isReady = USE_MOCKS
-                      ? assetAny.status === "ready"
-                      : assetAny.status !== "pending"
+                    const isReady = assetAny.status !== "pending"
                     const isPlaying = playingId === asset.id
                     const uploadedAt = assetAny.uploadedAt ?? assetAny.createdAt
                     const sizeLabel = assetAny.sizeLabel ?? formatSize(assetAny.size)
@@ -636,7 +614,7 @@ export default function TeacherMediaPage() {
                               size="icon-sm"
                               className="size-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                               onClick={() => handleDelete(asset)}
-                              disabled={!USE_MOCKS && deleteMutation.isPending}
+                              disabled={deleteMutation.isPending}
                               title="Xoá tệp khỏi thư viện"
                             >
                               <HugeiconsIcon icon={Delete02Icon} size={13} />
@@ -652,7 +630,7 @@ export default function TeacherMediaPage() {
           )}
 
           {/* Server-side pagination */}
-          {!USE_MOCKS && meta && totalPages > 1 && (
+          {meta && totalPages > 1 && (
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
                 Trang {meta.page}/{totalPages} · {meta.total} tệp

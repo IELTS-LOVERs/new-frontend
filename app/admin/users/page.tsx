@@ -59,8 +59,6 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { formatDateShort, initials } from "@/lib/format"
 import type { User, UserRole, UserStatus } from "@/lib/api/types"
-import { DEMO_ADMIN_USERS } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import {
   useUsersQuery,
@@ -146,40 +144,22 @@ export default function AdminUsersPage() {
       page,
       limit: PAGE_SIZE,
     },
-    !USE_MOCKS
   )
   const updateStatus = useUpdateUserStatusMutation()
   const resetPassword = useResetUserPasswordMutation()
 
-  const filtered = USE_MOCKS
-    ? DEMO_ADMIN_USERS.filter((u) => {
-        if (role !== "all" && u.role !== role) return false
-        if (status !== "all" && u.status !== status) return false
-        if (debouncedQuery) {
-          const q = debouncedQuery.toLowerCase()
-          if (!u.fullName.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false
-        }
-        return true
-      })
-    : (usersQuery.data?.items ?? [])
+  const filtered = usersQuery.data?.items ?? []
 
-  const meta = USE_MOCKS ? undefined : usersQuery.data?.meta
+  const meta = usersQuery.data?.meta
   const totalPages = meta?.totalPages ?? 1
-  const totalUsers = USE_MOCKS ? DEMO_ADMIN_USERS.length : (meta?.total ?? filtered.length)
+  const totalUsers = meta?.total ?? filtered.length
 
-  const counts = USE_MOCKS
-    ? {
-        total: DEMO_ADMIN_USERS.length,
-        teachers: DEMO_ADMIN_USERS.filter((u) => u.role === "teacher").length,
-        suspended: DEMO_ADMIN_USERS.filter((u) => u.status === "suspended").length,
-        admins: DEMO_ADMIN_USERS.filter((u) => u.role === "admin").length,
-      }
-    : {
-        total: totalUsers,
-        teachers: filtered.filter((u) => u.role === "teacher").length,
-        suspended: filtered.filter((u) => u.status === "suspended").length,
-        admins: filtered.filter((u) => u.role === "admin").length,
-      }
+  const counts = {
+    total: totalUsers,
+    teachers: filtered.filter((u) => u.role === "teacher").length,
+    suspended: filtered.filter((u) => u.status === "suspended").length,
+    admins: filtered.filter((u) => u.role === "admin").length,
+  }
 
   const handleReset = (user: User) => {
     setResetUser(user)
@@ -188,11 +168,6 @@ export default function AdminUsersPage() {
 
   const confirmReset = () => {
     if (!resetUser) return
-    if (USE_MOCKS) {
-      toast.success(`Đã đặt lại mật khẩu cho ${resetUser.fullName}`)
-      setResetUser(null)
-      return
-    }
     resetPassword.mutate(
       { id: resetUser.id, newPassword },
       {
@@ -208,11 +183,6 @@ export default function AdminUsersPage() {
 
   const confirmSuspend = () => {
     if (!suspendUser) return
-    if (USE_MOCKS) {
-      toast.success(`Đã khoá tài khoản ${suspendUser.fullName}`)
-      setSuspendUser(null)
-      return
-    }
     updateStatus.mutate(
       { id: suspendUser.id, status: "suspended" },
       {
@@ -227,10 +197,6 @@ export default function AdminUsersPage() {
   }
 
   const activateUser = (u: User) => {
-    if (USE_MOCKS) {
-      toast.success(`Đã kích hoạt lại ${u.fullName}`)
-      return
-    }
     updateStatus.mutate(
       { id: u.id, status: "active" },
       {
@@ -306,9 +272,9 @@ export default function AdminUsersPage() {
         </CardContent>
       </Card>
 
-      {!USE_MOCKS && usersQuery.isLoading ? (
+      {usersQuery.isLoading ? (
         <TableSkeleton />
-      ) : !USE_MOCKS && usersQuery.isError ? (
+      ) : usersQuery.isError ? (
         <QueryError error={usersQuery.error} onRetry={() => usersQuery.refetch()} />
       ) : filtered.length === 0 ? (
         <EmptyState
@@ -402,7 +368,7 @@ export default function AdminUsersPage() {
             </CardContent>
           </Card>
 
-          {!USE_MOCKS && totalPages > 1 && (
+          {totalPages > 1 && (
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
                 Trang <span className="font-mono font-semibold text-foreground">{page}</span>/
@@ -525,16 +491,6 @@ function CreateTeacherDialog({
     e.preventDefault()
     if (!fullName.trim() || !email.trim()) {
       toast.error("Vui lòng nhập họ tên và email")
-      return
-    }
-    if (USE_MOCKS) {
-      toast.success("Đã tạo tài khoản giáo viên", {
-        description: `Mật khẩu tạm thời đã được gửi tới ${email}`,
-      })
-      setFullName("")
-      setEmail("")
-      setPhone("")
-      onOpenChange(false)
       return
     }
     createUser.mutate(

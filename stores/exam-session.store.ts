@@ -19,7 +19,7 @@ export interface LocalAnswer {
 }
 
 interface ExamUIState {
-  fontScale: 1 | 1.125 | 1.25
+  fontScale: number
   theme: "white" | "cream"
   splitRatio: number
 }
@@ -67,7 +67,10 @@ interface ExamSessionState {
   setSaveStatus: (status: SaveStatus) => void
   resyncTimer: (serverRemainingSeconds: number) => void
   setAudioPosition: (sectionIndex: number, position: number) => void
-  setUIFontScale: (scale: ExamUIState["fontScale"]) => void
+  setUIFontScale: (scale: number) => void
+  increaseFontScale: () => void
+  decreaseFontScale: () => void
+  resetFontScale: () => void
   setUITheme: (theme: ExamUIState["theme"]) => void
   setSplitRatio: (ratio: number) => void
   reset: () => void
@@ -170,6 +173,22 @@ export const useExamSessionStore = create<ExamSessionState>()((set) => ({
 
   setUIFontScale: (fontScale) =>
     set((state) => ({ ui: { ...state.ui, fontScale } })),
+  increaseFontScale: () =>
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        fontScale: Math.min(1.4, Math.round((state.ui.fontScale + 0.1) * 100) / 100),
+      },
+    })),
+  decreaseFontScale: () =>
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        fontScale: Math.max(0.85, Math.round((state.ui.fontScale - 0.1) * 100) / 100),
+      },
+    })),
+  resetFontScale: () =>
+    set((state) => ({ ui: { ...state.ui, fontScale: 1 } })),
   setUITheme: (theme) => set((state) => ({ ui: { ...state.ui, theme } })),
   setSplitRatio: (splitRatio) => set((state) => ({ ui: { ...state.ui, splitRatio } })),
 

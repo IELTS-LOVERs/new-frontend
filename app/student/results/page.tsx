@@ -23,43 +23,15 @@ import {
   ArrowRight01Icon,
   Book02Icon,
 } from "@hugeicons/core-free-icons"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { formatBand, formatDate } from "@/lib/format"
 import { useMyAttemptsQuery } from "@/hooks/use-attempts"
 import type { MyAttemptItem } from "@/lib/api/attempts"
-import { DEMO_STUDENT_DASHBOARD } from "@/mocks/demo-data"
 
 const PAGE_LIMIT = 10
 
 export default function StudentResultsListPage() {
-  if (USE_MOCKS) {
-    return <MockResultsList />
-  }
   return <RealResultsList />
-}
-
-// ─── MOCK ────────────────────────────────────────────────────────────────────
-function MockResultsList() {
-  const mockItems: MyAttemptItem[] = DEMO_STUDENT_DASHBOARD.recentAttempts.map((att) => ({
-    id: att.id,
-    exam: { id: "exam-mock-01", title: att.examTitle, durationMinutes: 165 },
-    assignmentId: null,
-    startedAt: att.submittedAt,
-    expiresAt: att.submittedAt,
-    submittedAt: att.submittedAt,
-    status: att.status === "expired" ? "expired" : "submitted",
-    scores: att.scores,
-  }))
-  return (
-    <ResultsListView
-      items={mockItems}
-      isLoading={false}
-      error={null}
-      refetch={() => {}}
-      pagination={{ total: mockItems.length, page: 1, limit: PAGE_LIMIT, totalPages: 1 }}
-    />
-  )
 }
 
 // ─── REAL ────────────────────────────────────────────────────────────────────
@@ -181,7 +153,7 @@ function ResultsListView({
           description="Hoàn thành bài thi đầu tiên để xem điểm số và nhận xét chi tiết tại đây."
           action={
             <Button variant="default" size="sm" asChild className="font-semibold">
-              <Link href="/student/assignments">Xem danh sách bài tập</Link>
+              <Link href="/student/exams">Xem danh sách đề thi</Link>
             </Button>
           }
         />
@@ -224,15 +196,31 @@ function ResultsListView({
                 att.scores.writingTask1Band == null &&
                 att.scores.writingTask2Band == null
 
+              const isPracticeAttempt =
+                att.examKind === "practice" || att.exam?.kind === "practice"
+              const isRawAttempt =
+                isPracticeAttempt || att.scoringMode === "raw"
+              const countTotal =
+                (att.correctCount ?? 0) +
+                (att.wrongCount ?? 0) +
+                (att.blankCount ?? 0)
+
               return (
                 <TableRow key={att.id} className="hover:bg-muted/30">
                   <TableCell className="font-medium text-xs sm:text-sm text-foreground">
-                    <Link
-                      href={`/student/results/${att.id}`}
-                      className="hover:text-primary transition-colors"
-                    >
-                      {att.exam.title}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/student/results/${att.id}`}
+                        className="hover:text-primary transition-colors"
+                      >
+                        {att.exam.title}
+                      </Link>
+                      {isPracticeAttempt && (
+                        <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                          Luyện tập
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-center font-mono text-xs font-medium">
                     {formatBand(att.scores.listeningBand)}
@@ -244,7 +232,19 @@ function ResultsListView({
                     {formatBand(att.scores.writingBand)}
                   </TableCell>
                   <TableCell className="text-center font-mono text-xs font-semibold text-primary">
-                    {formatBand(att.scores.overallBand)}
+                    {isRawAttempt
+                      ? att.correctCount !== undefined
+                        ? `${att.correctCount}/${countTotal || att.totalPoints || 0}${
+                            countTotal > 0
+                              ? ` (${Math.round((att.correctCount / countTotal) * 100)}%)`
+                              : ""
+                          }`
+                        : att.rawScore !== undefined
+                          ? `${att.rawScore}/${att.totalPoints ?? 0}${
+                              att.percentage !== undefined ? ` (${att.percentage}%)` : ""
+                            }`
+                          : "—"
+                      : formatBand(att.scores.overallBand)}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground hidden sm:table-cell">
                     {formatDate(att.submittedAt)}

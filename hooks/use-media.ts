@@ -13,7 +13,7 @@ import {
 
 export function useMediaQuery(params: ListMediaParams = {}, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.media.list(params.type),
+    queryKey: queryKeys.media.list(params.type, params.page, params.limit),
     queryFn: () => getMediaApi(params),
     enabled,
     staleTime: 60_000,

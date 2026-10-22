@@ -54,6 +54,7 @@ import {
   DragDropVerticalIcon,
   EyeIcon,
   HeadphonesIcon,
+  Image01Icon,
   MusicNote01Icon,
   PenTool01Icon,
   RefreshIcon,
@@ -64,7 +65,8 @@ import {
 } from "@hugeicons/core-free-icons"
 import { cn, createClientId } from "@/lib/utils"
 import { toast } from "sonner"
-import { USE_MOCKS } from "@/lib/api/config"
+import { BandConversionDialog } from "@/features/exams/components/band-conversion-dialog"
+import type { BandThreshold } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import {
   useTeacherExamDetailQuery,
@@ -79,6 +81,7 @@ import { type CreateBankGroupPayload } from "@/lib/api/questions"
 import {
   type CreateExamSectionPayload,
   type QuestionItemPayload,
+  type TeacherExamDetail,
 } from "@/lib/api/exams"
 import {
   QUESTION_GROUP_TYPE_LABEL,
@@ -91,14 +94,17 @@ import type {
   CandidateExam,
   CandidateQuestionGroup,
   CandidateSection,
+  IExamCurriculum,
+  IExamPostSubmissionResources,
   MediaItem,
   QuestionGroupType,
   QuestionItem,
   SkillType,
 } from "@/lib/api/types"
-import { DEMO_BANK_GROUPS, DEMO_EXAM_BUILDER, DEMO_EXAM_MOCK_01, DEMO_EXAMS } from "@/mocks/demo-data"
 import { QuestionGroupEditor } from "@/features/questions/question-group-editor"
 import { QuestionTypePickerDialog } from "@/features/questions/question-type-picker-dialog"
+import { ExamCurriculumDialog } from "@/features/exams/components/exam-curriculum-dialog"
+import { ExamResourcesDialog } from "@/features/exams/components/exam-resources-dialog"
 import { MediaPicker } from "@/components/shared/media-picker"
 import { AssignDialog } from "@/components/shared/assign-dialog"
 
@@ -238,13 +244,6 @@ function firstDraftValidationIssue(exam: CandidateExam): string | null {
   return null
 }
 
-function mockExamFor(examId: string): CandidateExam {
-  if (examId === "exam-writing-02") return DEMO_EXAM_BUILDER
-  if (examId === "exam-mock-01") return DEMO_EXAM_MOCK_01
-  const base = DEMO_EXAM_MOCK_01
-  return { ...base, id: examId, title: "Đề thi mới", sections: [] }
-}
-
 interface Issue {
   level: "error" | "warning"
   message: string
@@ -252,46 +251,17 @@ interface Issue {
 }
 
 // Convert API TeacherExamDetail -> local CandidateExam (builder source of truth)
-function toLocalExam(detail: {
-  id: string
-  title: string
-  description?: string | null
-  durationMinutes: number
-  openAt?: string | null
-  closeAt?: string | null
-  sections: Array<{
-    id?: string
-    skill: SkillType
-    part: number
-    title: string
-    instructions?: string | null
-    passageText?: string | null
-    transcript?: string | null
-    mediaIds?: string[]
-    media?: MediaItem[]
-    questionGroups?: Array<{
-      id: string
-      groupType: QuestionGroupType
-      instructions: string
-      config: Record<string, unknown>
-      media?: MediaItem[]
-      questions: Array<{
-        id: string
-        questionNumber: number
-        prompt: string
-        acceptedAnswers?: string[]
-        points?: number
-        explanation?: string | null
-        mediaIds?: string[]
-      }>
-    }>
-  }>
-}): CandidateExam {
+function toLocalExam(detail: TeacherExamDetail): CandidateExam {
   return {
     id: detail.id,
     title: detail.title,
     description: detail.description ?? null,
+    bannerUrl: detail.bannerUrl ?? null,
     durationMinutes: detail.durationMinutes,
+    kind: detail.kind,
+    scoringMode: detail.scoringMode,
+    bandConversion: detail.bandConversion,
+    curriculum: detail.curriculum,
     sections: detail.sections
       // Defensive: ignore any legacy sections whose skill is no longer supported.
       .filter((s) => s.skill === "listening" || s.skill === "reading" || s.skill === "writing")
@@ -374,7 +344,12 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
   return {
     title: exam.title,
     description: exam.description ?? undefined,
+    bannerUrl: exam.bannerUrl ?? undefined,
     durationMinutes: exam.durationMinutes,
+    kind: exam.kind,
+    scoringMode: exam.scoringMode,
+    bandConversion: exam.bandConversion,
+    curriculum: exam.curriculum,
     sections,
     openAt: toIsoOrUndefined(openAt),
     closeAt: toIsoOrUndefined(closeAt),
@@ -393,18 +368,13 @@ export default function ExamBuilderPage() {
   const params = useParams<{ examId: string }>()
   const examId = params.examId
 
-  const examQuery = useTeacherExamDetailQuery(examId, !USE_MOCKS)
+  const examQuery = useTeacherExamDetailQuery(examId)
   const updateMutation = useUpdateExamMutation(examId)
   const updateMetadataMutation = useUpdateExamMetadataMutation(examId)
   const publishMutation = usePublishExamMutation(examId)
   const unpublishMutation = useUnpublishExamMutation(examId)
   const cloneMutation = useCloneExamMutation()
   const createQuestionMutation = useCreateQuestionMutation()
-
-  // ----- Mock source -----
-  const mockSource = DEMO_EXAMS.find((e) => e.id === examId)
-  const mockExam = React.useMemo(() => mockExamFor(examId), [examId])
-  const mockStatus: "draft" | "published" | "closed" = mockSource?.status ?? "draft"
 
   // ----- Local builder state (source of truth khi đang soạn) -----
   const [exam, setExam] = React.useState<CandidateExam | null>(null)
@@ -419,6 +389,7 @@ export default function ExamBuilderPage() {
   const [bankOpen, setBankOpen] = React.useState(false)
   const [mediaPickerOpen, setMediaPickerOpen] = React.useState(false)
   const [imagePickerOpen, setImagePickerOpen] = React.useState(false)
+  const [bannerPickerOpen, setBannerPickerOpen] = React.useState(false)
   const [publishConfirmOpen, setPublishConfirmOpen] = React.useState(false)
   const [errorsOpen, setErrorsOpen] = React.useState(false)
   const [successOpen, setSuccessOpen] = React.useState(false)
@@ -431,6 +402,10 @@ export default function ExamBuilderPage() {
   } | null>(null)
   const [deleteTargetIndex, setDeleteTargetIndex] = React.useState<number | null>(null)
   const [groupTypePickerOpen, setGroupTypePickerOpen] = React.useState(false)
+  const [curriculumOpen, setCurriculumOpen] = React.useState(false)
+  const [resourcesOpen, setResourcesOpen] = React.useState(false)
+  const [bandDialogOpen, setBandDialogOpen] = React.useState(false)
+  const [resources, setResources] = React.useState<IExamPostSubmissionResources | undefined>(undefined)
 
   const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   // Always points at the most recent builder snapshot. `doSave` reads from here
@@ -441,24 +416,15 @@ export default function ExamBuilderPage() {
   // Hydrate local state khi query về (chỉ lần đầu / khi id đổi)
   const hydratedFor = React.useRef<string | null>(null)
   React.useEffect(() => {
-    if (USE_MOCKS) {
-      if (hydratedFor.current !== examId) {
-        hydratedFor.current = examId
-        setExam(mockExam)
-        setStatus(mockStatus)
-        setOpenAt(toLocalInputValue(mockSource?.openAt))
-        setCloseAt(toLocalInputValue(mockSource?.closeAt))
-      }
-      return
-    }
     if (examQuery.data && hydratedFor.current !== examId) {
       hydratedFor.current = examId
       setExam(toLocalExam(examQuery.data))
+      setResources(examQuery.data.postSubmissionResources)
       setStatus(examQuery.data.status)
       setOpenAt(toLocalInputValue(examQuery.data.openAt))
       setCloseAt(toLocalInputValue(examQuery.data.closeAt))
     }
-  }, [examQuery.data, examId, mockExam, mockStatus, mockSource])
+  }, [examQuery.data, examId])
 
   // Keep the debounced autosave in sync with the latest state after every render.
   React.useEffect(() => {
@@ -480,17 +446,13 @@ export default function ExamBuilderPage() {
   const doSave = React.useCallback(async () => {
     const snapshot = latestRef.current
     if (!snapshot.exam) return
-    if (USE_MOCKS) {
-      setSaveStatus("saved")
-      setLastSavedAt(new Date())
-      return
-    }
     if (snapshot.status !== "draft") {
       // Đề đã xuất bản/đóng: chỉ metadata (tên, mô tả, thời gian) được sửa.
       try {
         await updateMetadataMutation.mutateAsync({
           title: snapshot.exam.title,
           description: snapshot.exam.description ?? undefined,
+          bannerUrl: snapshot.exam.bannerUrl ?? undefined,
           openAt: toIsoOrUndefined(snapshot.openAt),
           closeAt: toIsoOrUndefined(snapshot.closeAt),
         })
@@ -579,6 +541,36 @@ export default function ExamBuilderPage() {
     }
     if (exam.durationMinutes < 10 || exam.durationMinutes > 180) {
       list.push({ level: "error", message: "Thời lượng phải trong khoảng 10–180 phút." })
+    }
+    if (exam.kind === "practice") {
+      if (exam.sections.length === 0) {
+        list.push({
+          level: "error",
+          message: "Bài luyện tập phải có ít nhất 1 phần thi (section).",
+        })
+      } else {
+        exam.sections.forEach((sec, sIdx) => {
+          if (sec.skill !== "listening" && sec.skill !== "reading") {
+            list.push({
+              level: "error",
+              message: `${sec.title || `Phần ${sIdx + 1}`}: Bài luyện tập chỉ hỗ trợ kỹ năng Listening hoặc Reading.`,
+              sectionIndex: sIdx,
+            })
+          }
+        })
+        if (
+          exam.curriculum?.part !== undefined &&
+          exam.sections.length === 1 &&
+          exam.sections[0].part !== undefined &&
+          exam.curriculum.part !== exam.sections[0].part
+        ) {
+          list.push({
+            level: "error",
+            message: `Phần lộ trình (${exam.curriculum.part}) phải khớp với phần thi (${exam.sections[0].part}).`,
+            sectionIndex: 0,
+          })
+        }
+      }
     }
     exam.sections.forEach((section, index) => {
       const groups = section.questionGroups ?? []
@@ -696,10 +688,6 @@ export default function ExamBuilderPage() {
     if (!active) return
     if (group.questions.length === 0) {
       toast.error("Nhóm chưa có câu hỏi để lưu.")
-      return
-    }
-    if (USE_MOCKS) {
-      toast.success("Đã lưu nhóm vào ngân hàng (demo)")
       return
     }
     setSavingBankId(group.id)
@@ -1004,12 +992,6 @@ export default function ExamBuilderPage() {
   }
 
   const doPublish = async () => {
-    if (USE_MOCKS) {
-      setStatus("published")
-      setPublishConfirmOpen(false)
-      setSuccessOpen(true)
-      return
-    }
     try {
       await publishMutation.mutateAsync()
       setStatus("published")
@@ -1028,11 +1010,6 @@ export default function ExamBuilderPage() {
   }
 
   const handleUnpublish = async () => {
-    if (USE_MOCKS) {
-      setStatus("draft")
-      toast.success("Đã hủy xuất bản (demo)")
-      return
-    }
     try {
       await unpublishMutation.mutateAsync()
       setStatus("draft")
@@ -1053,10 +1030,6 @@ export default function ExamBuilderPage() {
   const router = useRouter()
 
   const handleClone = async () => {
-    if (USE_MOCKS) {
-      toast.success("Đã nhân bản đề thi (demo)")
-      return
-    }
     try {
       const cloned = await cloneMutation.mutateAsync(examId)
       toast.success("Đã nhân bản đề thi", { description: "Đang mở bản sao ở chế độ chỉnh sửa." })
@@ -1074,7 +1047,7 @@ export default function ExamBuilderPage() {
   })).filter((g) => g.sections.length > 0)
 
   // ----- Loading & error -----
-  if (!USE_MOCKS && examQuery.isLoading) {
+  if (examQuery.isLoading) {
     return (
       <div className="flex min-h-[calc(100vh-4rem)] flex-col">
         <div className="sticky top-16 z-10 -mx-8 -mt-8 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-8 py-3 backdrop-blur-md">
@@ -1090,7 +1063,7 @@ export default function ExamBuilderPage() {
     )
   }
 
-  if (!USE_MOCKS && (examQuery.isError || !exam)) {
+  if (examQuery.isError || !exam) {
     return (
       <div className="mx-auto max-w-2xl py-16">
         <Card className="border-border shadow-xs">
@@ -1112,7 +1085,9 @@ export default function ExamBuilderPage() {
                 <span>Thử lại</span>
               </Button>
               <Button variant="outline" size="sm" asChild>
-                <Link href="/teacher/exams">Quay lại danh sách</Link>
+                <Link href={examQuery.data?.kind === "practice" ? "/teacher/practices" : "/teacher/exams"}>
+                  Quay lại danh sách
+                </Link>
               </Button>
             </div>
           </CardContent>
@@ -1132,7 +1107,7 @@ export default function ExamBuilderPage() {
       <div className="sticky top-16 z-10 -mx-8 -mt-8 flex flex-col gap-3 border-b border-border bg-background/95 px-8 py-3 backdrop-blur-md lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="icon-sm" asChild>
-            <Link href="/teacher/exams">
+            <Link href={exam.kind === "practice" ? "/teacher/practices" : "/teacher/exams"}>
               <HugeiconsIcon icon={ArrowLeft01Icon} size={18} />
             </Link>
           </Button>
@@ -1140,10 +1115,13 @@ export default function ExamBuilderPage() {
             <Input
               value={exam.title}
               onChange={(e) => updateExam({ title: e.target.value })}
-              disabled={!USE_MOCKS && status === "closed"}
+              disabled={status === "closed"}
               className="h-8 max-w-sm border-transparent bg-transparent px-1 font-heading text-lg font-bold shadow-none hover:border-border focus-visible:border-border"
             />
             <div className="flex items-center gap-2 pl-1">
+              <Badge variant={exam.kind === "practice" ? "secondary" : "outline"} className="text-[10px]">
+                {exam.kind === "practice" ? "Luyện tập" : "Đề thi"}
+              </Badge>
               <Badge variant={status === "published" ? "default" : "outline"} className="text-[10px]">
                 {status === "published" ? "Đã xuất bản" : status === "closed" ? "Đã đóng" : "Nháp"}
               </Badge>
@@ -1174,6 +1152,37 @@ export default function ExamBuilderPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {exam.kind === "practice" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setCurriculumOpen(true)}
+            >
+              <HugeiconsIcon icon={Book02Icon} size={15} />
+              <span>Lộ trình</span>
+              {exam.curriculum?.collectionName && (
+                <Badge variant="secondary" className="ml-1 text-[10px] font-normal">
+                  {exam.curriculum.collectionName}
+                </Badge>
+              )}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setResourcesOpen(true)}
+          >
+            <HugeiconsIcon icon={SparklesIcon} size={15} />
+            <span>Học liệu sau nộp</span>
+            {((resources?.vocabularyItems?.length ?? 0) > 0 ||
+              Boolean(resources?.solutionVideoUrl) ||
+              Boolean(resources?.solutionDocumentUrl) ||
+              Boolean(resources?.solutionNotes)) && (
+              <span className="size-2 rounded-full bg-primary" />
+            )}
+          </Button>
           <Button variant="outline" size="sm" className="gap-1.5" asChild>
             <Link href={`/teacher/exams/${examId}/preview`}>
               <HugeiconsIcon icon={EyeIcon} size={15} /> Xem trước
@@ -1185,10 +1194,10 @@ export default function ExamBuilderPage() {
               size="sm"
               className="gap-1.5 font-semibold"
               onClick={handlePublish}
-              disabled={!USE_MOCKS && publishMutation.isPending}
+              disabled={publishMutation.isPending}
             >
               <HugeiconsIcon icon={Upload04Icon} size={15} />
-              {publishMutation.isPending && !USE_MOCKS ? "Đang xuất bản…" : "Xuất bản đề"}
+              {publishMutation.isPending ? "Đang xuất bản…" : "Xuất bản đề"}
             </Button>
           )}
         </div>
@@ -1226,19 +1235,19 @@ export default function ExamBuilderPage() {
                 variant="outline"
                 size="sm"
                 onClick={handleUnpublish}
-                disabled={!USE_MOCKS && unpublishMutation.isPending}
+                disabled={unpublishMutation.isPending}
               >
-                {unpublishMutation.isPending && !USE_MOCKS ? "Đang hủy…" : "Hủy xuất bản để sửa"}
+                {unpublishMutation.isPending ? "Đang hủy…" : "Hủy xuất bản để sửa"}
               </Button>
             )}
             <Button
               size="sm"
               className="gap-1.5"
               onClick={handleClone}
-              disabled={!USE_MOCKS && cloneMutation.isPending}
+              disabled={cloneMutation.isPending}
             >
               <HugeiconsIcon icon={Copy01Icon} size={14} />
-              {cloneMutation.isPending && !USE_MOCKS ? "Đang nhân bản…" : "Nhân bản"}
+              {cloneMutation.isPending ? "Đang nhân bản…" : "Nhân bản"}
             </Button>
           </div>
         </div>
@@ -1382,7 +1391,9 @@ export default function ExamBuilderPage() {
               <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Thêm phần
               </p>
-              {SKILL_ORDER.map((skill) => {
+              {SKILL_ORDER.filter(
+                (skill) => exam.kind !== "practice" || skill !== "writing"
+              ).map((skill) => {
                 const atMax = (exam.sections.filter((s) => s.skill === skill).length ?? 0) >= MAX_PARTS[skill]
                 return (
                   <Button
@@ -1688,6 +1699,104 @@ export default function ExamBuilderPage() {
                   className="h-9 font-mono text-sm"
                 />
               </div>
+              {exam.kind === "practice" ? (
+                <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                  Bài luyện tập luôn hiển thị số câu đúng / sai / bỏ trống và
+                  không quy đổi sang band IELTS.
+                </p>
+              ) : (
+                <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Cách hiển thị điểm</Label>
+                    <select
+                      value={exam.scoringMode ?? "band"}
+                      disabled={examReadonly}
+                      onChange={(e) => {
+                        const scoringMode = e.target.value as "band" | "raw"
+                        updateExam({
+                          scoringMode,
+                          bandConversion:
+                            scoringMode === "band"
+                              ? exam.bandConversion ?? {
+                                  mode: "auto",
+                                  readingType: "academic",
+                                }
+                              : undefined,
+                        })
+                      }}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="raw">Không convert — điểm thô</option>
+                      <option value="band">Convert sang band IELTS</option>
+                    </select>
+                  </div>
+
+                  {(exam.scoringMode ?? "band") === "band" && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Bảng quy đổi</Label>
+                        <select
+                          value={exam.bandConversion?.mode ?? "auto"}
+                          disabled={examReadonly}
+                          onChange={(e) => {
+                            const mode = e.target.value as "auto" | "custom"
+                            updateExam({
+                              bandConversion: {
+                                mode,
+                                readingType:
+                                  exam.bandConversion?.readingType ?? "academic",
+                                listeningThresholds:
+                                  exam.bandConversion?.listeningThresholds,
+                                readingThresholds:
+                                  exam.bandConversion?.readingThresholds,
+                              },
+                            })
+                          }}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="auto">Tự động — bảng chuẩn của app</option>
+                          <option value="custom">Tùy chỉnh — giáo viên tự nhập</option>
+                        </select>
+                      </div>
+
+                      {(exam.bandConversion?.mode ?? "auto") === "auto" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Reading conversion</Label>
+                          <select
+                            value={exam.bandConversion?.readingType ?? "academic"}
+                            disabled={examReadonly}
+                            onChange={(e) =>
+                              updateExam({
+                                bandConversion: {
+                                  mode: "auto",
+                                  readingType: e.target.value as
+                                    | "academic"
+                                    | "general",
+                                },
+                              })
+                            }
+                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            <option value="academic">IELTS Academic Reading</option>
+                            <option value="general">IELTS General Reading</option>
+                          </select>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          disabled={examReadonly}
+                          onClick={() => setBandDialogOpen(true)}
+                        >
+                          Cấu hình bảng Listening / Reading
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label className="text-xs">Mở lúc</Label>
                 <Input
@@ -1718,11 +1827,62 @@ export default function ExamBuilderPage() {
                 <Label className="text-xs">Mô tả</Label>
                 <Textarea
                   value={exam.description ?? ""}
-                  disabled={!USE_MOCKS && status === "closed"}
+                  disabled={status === "closed"}
                   onChange={(e) => updateExam({ description: e.target.value })}
                   rows={3}
                   className="resize-none text-sm"
                 />
+              </div>
+
+              {/* Banner / Ảnh bìa đề thi */}
+              <div className="space-y-1.5 pt-2 border-t border-border/60">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Ảnh bìa / Banner đề thi</Label>
+                  {exam.bannerUrl && !examReadonly && (
+                    <button
+                      type="button"
+                      onClick={() => updateExam({ bannerUrl: null })}
+                      className="text-[11px] text-destructive hover:underline cursor-pointer"
+                    >
+                      Xóa ảnh
+                    </button>
+                  )}
+                </div>
+
+                {exam.bannerUrl ? (
+                  <div className="relative group overflow-hidden rounded-lg border border-border bg-muted/20">
+                    <img
+                      src={exam.bannerUrl}
+                      alt="Banner đề thi"
+                      className="w-full h-28 object-cover transition-transform group-hover:scale-105"
+                    />
+                    {!examReadonly && (
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 text-xs font-semibold gap-1 shadow-md"
+                          onClick={() => setBannerPickerOpen(true)}
+                        >
+                          <HugeiconsIcon icon={Image01Icon} size={13} /> Thay đổi
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={examReadonly}
+                    onClick={() => setBannerPickerOpen(true)}
+                    className="w-full h-20 border-dashed border-border hover:border-primary/60 flex flex-col items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <HugeiconsIcon icon={Image01Icon} size={18} className="text-muted-foreground" />
+                    <span>+ Tải lên hoặc chọn ảnh banner</span>
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1847,6 +2007,17 @@ export default function ExamBuilderPage() {
         }}
       />
 
+      <MediaPicker
+        open={bannerPickerOpen}
+        onOpenChange={setBannerPickerOpen}
+        type="image"
+        onSelect={(asset) => {
+          updateExam({ bannerUrl: asset.url })
+          setBannerPickerOpen(false)
+          toast.success("Đã cập nhật ảnh banner cho đề thi!")
+        }}
+      />
+
       {/* Publish warnings confirm */}
       <Dialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
         <DialogContent className="max-w-lg">
@@ -1908,28 +2079,84 @@ export default function ExamBuilderPage() {
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={30} />
             </div>
             <DialogTitle className="text-center font-heading text-lg font-bold">
-              Xuất bản đề thành công!
+              Xuất bản {exam.kind === "practice" ? "bài luyện tập" : "đề thi"} thành công!
             </DialogTitle>
             <DialogDescription className="text-center text-xs">
-              {exam.title} đã sẵn sàng. Bạn có muốn giao bài cho học sinh ngay không?
+              {exam.title} đã sẵn sàng.{" "}
+              {exam.kind === "practice"
+                ? "Học sinh có thể tự do vào luyện tập từ danh mục lộ trình."
+                : "Bạn có muốn giao bài cho học sinh ngay không?"}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="sm:justify-center">
-            <Button variant="outline" onClick={() => setSuccessOpen(false)}>Để sau</Button>
-            <Button
-              className="gap-2 font-semibold"
-              onClick={() => {
-                setSuccessOpen(false)
-                setAssignOpen(true)
-              }}
-            >
-              <HugeiconsIcon icon={Tick02Icon} size={16} /> Giao bài ngay
-            </Button>
+            {exam.kind === "practice" ? (
+              <Button onClick={() => setSuccessOpen(false)}>Hoàn tất</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setSuccessOpen(false)}>Để sau</Button>
+                <Button
+                  className="gap-2 font-semibold"
+                  onClick={() => {
+                    setSuccessOpen(false)
+                    setAssignOpen(true)
+                  }}
+                >
+                  <HugeiconsIcon icon={Tick02Icon} size={16} /> Giao bài ngay
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <AssignDialog open={assignOpen} onOpenChange={setAssignOpen} initialExamId={examId} />
+
+      {/* Curriculum Dialog */}
+      <ExamCurriculumDialog
+        open={curriculumOpen}
+        onOpenChange={setCurriculumOpen}
+        examId={examId}
+        curriculum={exam.curriculum}
+        onSuccess={(curriculum) => {
+          updateExam({ curriculum })
+          void examQuery.refetch()
+        }}
+      />
+
+      {/* Resources Dialog */}
+      <ExamResourcesDialog
+        open={resourcesOpen}
+        onOpenChange={setResourcesOpen}
+        examId={examId}
+        resources={resources}
+        onSuccess={(updatedResources) => {
+          setResources(updatedResources)
+          void examQuery.refetch()
+        }}
+      />
+
+      {/* Band conversion Dialog */}
+      <BandConversionDialog
+        open={bandDialogOpen}
+        onOpenChange={setBandDialogOpen}
+        value={
+          exam.bandConversion ?? {
+            mode: "auto",
+            readingType: "academic",
+          }
+        }
+        defaults={examQuery.data?.bandConversionDefaults}
+        onSave={(listening: BandThreshold[], reading: BandThreshold[]) => {
+          updateExam({
+            bandConversion: {
+              mode: "custom",
+              readingType: exam.bandConversion?.readingType ?? "academic",
+              listeningThresholds: listening,
+              readingThresholds: reading,
+            },
+          })
+        }}
+      />
 
       {/* Question Group Type Picker */}
       <QuestionTypePickerDialog
@@ -1974,20 +2201,10 @@ function BankGroupSheet({
       search: query || undefined,
       limit: 50,
     },
-    !USE_MOCKS && open && !!section
+    open && !!section
   )
 
-  const candidates: BankQuestionGroup[] = USE_MOCKS
-    ? DEMO_BANK_GROUPS.filter(
-        (g) =>
-          section &&
-          g.skill === section.skill &&
-          g.part === section.part &&
-          `${g.instructions} ${g.questions.map((q) => q.prompt).join(" ")}`
-            .toLowerCase()
-            .includes(query.toLowerCase())
-      )
-    : (bankQuery.data?.items ?? [])
+  const candidates: BankQuestionGroup[] = bankQuery.data?.items ?? []
 
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -2018,13 +2235,13 @@ function BankGroupSheet({
           </div>
           <ScrollArea className="min-h-48 flex-1">
             <div className="space-y-2 pr-2">
-              {!USE_MOCKS && bankQuery.isLoading ? (
+              {bankQuery.isLoading ? (
                 <div className="space-y-2 py-2">
                   {Array.from({ length: 5 }).map((_, i) => (
                     <Skeleton key={i} className="h-14 w-full" />
                   ))}
                 </div>
-              ) : !USE_MOCKS && bankQuery.isError ? (
+              ) : bankQuery.isError ? (
                 <div className="flex flex-col items-center gap-2 py-10 text-center">
                   <p className="text-xs text-muted-foreground">
                     {bankQuery.error instanceof ApiError

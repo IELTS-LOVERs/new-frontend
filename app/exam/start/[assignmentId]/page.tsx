@@ -24,43 +24,13 @@ import { useMyAssignmentsQuery } from "@/hooks/use-assignments"
 import { useStartAttemptMutation } from "@/hooks/use-attempts"
 import { getExamDetailApi } from "@/lib/api/attempts"
 import { ApiError } from "@/lib/api/client"
-import { USE_MOCKS } from "@/lib/api/config"
-import { DEMO_EXAM_MOCK_01 } from "@/mocks/demo-data"
 import type { CandidateExam, MyAssignment } from "@/lib/api/types"
 
 export default function ExamLobbyPage() {
   const params = useParams<{ assignmentId: string }>()
   const assignmentId = params.assignmentId
 
-  if (USE_MOCKS) {
-    return <MockLobby assignmentId={assignmentId} />
-  }
-
   return <RealLobby assignmentId={assignmentId} />
-}
-
-function MockLobby({ assignmentId }: { assignmentId: string }) {
-  const router = useRouter()
-  const exam = DEMO_EXAM_MOCK_01
-  const assignment: MyAssignment = {
-    id: assignmentId,
-    examId: exam.id,
-    examTitle: exam.title,
-    durationMinutes: exam.durationMinutes,
-    deadline: null,
-    submissionStatus: "not_started",
-    teacherName: "Thầy Hùng",
-    classId: "c-2",
-    className: "IELTS Intermediate",
-    attemptId: null,
-    scores: null,
-  }
-  return <LobbyUI exam={exam} assignment={assignment} isPending={false} onStart={() => {
-    if (document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {})
-    }
-    router.push("/exam/att-mock-01")
-  }} />
 }
 
 function RealLobby({ assignmentId }: { assignmentId: string }) {
@@ -147,7 +117,7 @@ function RealLobby({ assignmentId }: { assignmentId: string }) {
             <h2 className="font-heading font-semibold text-base">Không thể mở phòng chờ thi</h2>
             <p className="text-xs text-muted-foreground">{isError ?? "Không có dữ liệu đề thi."}</p>
             <Button variant="outline" size="sm" asChild className="mt-2">
-              <Link href="/student/assignments">Về danh sách bài tập</Link>
+              <Link href="/student/exams">Về danh sách đề thi</Link>
             </Button>
           </CardContent>
         </Card>
@@ -212,9 +182,9 @@ function LobbyUI({
         <div className="flex items-center justify-between">
           <BrandLogo href="/student" />
           <Button variant="ghost" size="sm" asChild className="gap-1 text-xs">
-            <Link href="/student/assignments">
+            <Link href="/student/exams">
               <HugeiconsIcon icon={ArrowLeft01Icon} size={16} />
-              <span>Thoát ra danh sách bài tập</span>
+              <span>Thoát ra danh sách đề thi</span>
             </Link>
           </Button>
         </div>

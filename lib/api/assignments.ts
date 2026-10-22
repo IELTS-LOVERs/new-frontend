@@ -58,6 +58,7 @@ export interface ListAssignmentsResult {
 export interface MyAssignmentsParams {
   classId?: string
   status?: "all" | "not_started" | "in_progress" | "submitted" | "expired"
+  kind?: "practice" | "mock"
 }
 
 export async function getMyAssignmentsApi(
@@ -66,6 +67,7 @@ export async function getMyAssignmentsApi(
   const search = new URLSearchParams()
   if (params.classId) search.set("classId", params.classId)
   if (params.status) search.set("status", params.status)
+  if (params.kind) search.set("kind", params.kind)
   const qs = search.toString()
   const { data } = await apiClient<MyAssignment[]>(
     `/api/assignments/my${qs ? `?${qs}` : ""}`

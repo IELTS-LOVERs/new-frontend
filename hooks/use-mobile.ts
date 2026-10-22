@@ -15,6 +15,7 @@ export function useIsMobile(breakpoint = MOBILE_BREAKPOINT) {
       setIsMobile(mql.matches)
     }
     mql.addEventListener("change", onChange)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial sync after mount is intentional for SSR safety
     setIsMobile(mql.matches)
     return () => mql.removeEventListener("change", onChange)
   }, [breakpoint])

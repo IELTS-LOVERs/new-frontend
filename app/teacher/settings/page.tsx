@@ -21,15 +21,13 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { initials } from "@/lib/format"
 import { useAuthStore } from "@/stores/auth.store"
-import { DEMO_TEACHER } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useMeQuery, useUpdateMeMutation, useChangePasswordMutation } from "@/hooks/use-auth"
 
 export default function TeacherSettingsPage() {
   const { user: authUser } = useAuthStore()
-  const meQuery = useMeQuery(!USE_MOCKS)
-  const current = USE_MOCKS ? (authUser ?? DEMO_TEACHER) : (meQuery.data ?? authUser)
+  const meQuery = useMeQuery()
+  const current = meQuery.data ?? authUser
 
   const { theme, setTheme } = useTheme()
   const updateMe = useUpdateMeMutation()
@@ -53,10 +51,6 @@ export default function TeacherSettingsPage() {
 
   const saveProfile = (e: React.FormEvent) => {
     e.preventDefault()
-    if (USE_MOCKS) {
-      toast.success("Đã cập nhật hồ sơ giáo viên")
-      return
-    }
     updateMe.mutate(
       { fullName, phone: phone || undefined },
       {
@@ -76,15 +70,6 @@ export default function TeacherSettingsPage() {
     }
     if (newPassword !== confirmPassword) {
       toast.error("Mật khẩu xác nhận không khớp")
-      return
-    }
-    if (USE_MOCKS) {
-      toast.success("Đã đổi mật khẩu", {
-        description: "Bạn sẽ cần đăng nhập lại trên các thiết bị khác.",
-      })
-      setCurrentPassword("")
-      setNewPassword("")
-      setConfirmPassword("")
       return
     }
     changePasswordMutation.mutate(
@@ -109,7 +94,7 @@ export default function TeacherSettingsPage() {
     )
   }
 
-  if (!USE_MOCKS && meQuery.isLoading && !current) {
+  if (meQuery.isLoading && !current) {
     return (
       <div className="mx-auto max-w-4xl space-y-6">
         <Skeleton className="h-20 w-full rounded-2xl" />

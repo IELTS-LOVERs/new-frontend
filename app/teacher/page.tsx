@@ -28,8 +28,6 @@ import {
   RefreshIcon,
   SchoolIcon,
 } from "@hugeicons/core-free-icons"
-import { DEMO_TEACHER_DASHBOARD, DEMO_PENDING_GRADING, DEMO_SUSPICIOUS_SUBMISSIONS, DEMO_CLASSES, DEMO_EXAMS, DEMO_ASSIGNMENTS } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useTeacherDashboardQuery } from "@/hooks/use-dashboard"
 import { usePendingGradingQuery } from "@/hooks/use-grading"
@@ -70,61 +68,46 @@ function DashboardSkeleton() {
 }
 
 export default function TeacherDashboardPage() {
-  const dashboardQuery = useTeacherDashboardQuery(!USE_MOCKS)
-  const pendingQuery = usePendingGradingQuery(!USE_MOCKS)
-  const suspiciousQuery = useSuspiciousAttemptsQuery(5, !USE_MOCKS)
-  const draftExamsQuery = useExamsQuery({ status: "draft", limit: 5 }, !USE_MOCKS)
-  const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 20 }, !USE_MOCKS)
-  const classesQuery = useClassesQuery(!USE_MOCKS)
-  const publishedExamsQuery = useExamsQuery({ status: "published", limit: 1 }, !USE_MOCKS)
+  const dashboardQuery = useTeacherDashboardQuery()
+  const pendingQuery = usePendingGradingQuery()
+  const suspiciousQuery = useSuspiciousAttemptsQuery(5)
+  const draftExamsQuery = useExamsQuery({ status: "draft", limit: 5 })
+  const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 20 })
+  const classesQuery = useClassesQuery()
+  const publishedExamsQuery = useExamsQuery({ status: "published", limit: 1 })
 
-  const classes = USE_MOCKS ? DEMO_CLASSES : (classesQuery.data ?? [])
+  const classes = classesQuery.data ?? []
   const classAnalyticsQueries = useClassAnalyticsQueries(
     classes.slice(0, 5).map((c) => c.id),
-    !USE_MOCKS && classes.length > 0
+    classes.length > 0
   )
 
-  if (!USE_MOCKS) {
-    if (dashboardQuery.isLoading || pendingQuery.isLoading || classesQuery.isLoading) {
-      return <DashboardSkeleton />
-    }
-    if (dashboardQuery.isError) {
-      return (
-        <div className="mx-auto max-w-6xl space-y-6">
-          <DashboardError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
-        </div>
-      )
-    }
+  if (dashboardQuery.isLoading || pendingQuery.isLoading || classesQuery.isLoading) {
+    return <DashboardSkeleton />
+  }
+  if (dashboardQuery.isError) {
+    return (
+      <div className="mx-auto max-w-6xl space-y-6">
+        <DashboardError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
+      </div>
+    )
   }
 
-  const stats = USE_MOCKS ? DEMO_TEACHER_DASHBOARD : dashboardQuery.data
-  const pendingItems = USE_MOCKS
-    ? DEMO_PENDING_GRADING
-    : (pendingQuery.data?.items ?? [])
-  const pendingCount = USE_MOCKS
-    ? DEMO_TEACHER_DASHBOARD.pendingGradingCount
-    : (pendingQuery.data?.totalPending ?? pendingItems.length)
-  const suspicious = USE_MOCKS
-    ? DEMO_SUSPICIOUS_SUBMISSIONS
-    : (suspiciousQuery.data ?? [])
-  const draftExams = USE_MOCKS
-    ? DEMO_EXAMS.filter((e) => e.status === "draft")
-    : (draftExamsQuery.data?.items ?? [])
-  const assignments = USE_MOCKS
-    ? DEMO_ASSIGNMENTS
-    : (assignmentsQuery.data?.items ?? [])
-  const publishedExamsCount = USE_MOCKS
-    ? DEMO_EXAMS.filter((e) => e.status === "published").length
-    : (publishedExamsQuery.data?.meta?.total ?? publishedExamsQuery.data?.items.length ?? 0)
+  const stats = dashboardQuery.data
+  const pendingItems = pendingQuery.data?.items ?? []
+  const pendingCount = pendingQuery.data?.totalPending ?? pendingItems.length
+  const suspicious = suspiciousQuery.data ?? []
+  const draftExams = draftExamsQuery.data?.items ?? []
+  const assignments = assignmentsQuery.data?.items ?? []
+  const publishedExamsCount =
+    publishedExamsQuery.data?.meta?.total ?? publishedExamsQuery.data?.items.length ?? 0
 
   const firstPending = pendingItems[0]
 
   // Setup checklist (T0): ẩn khi đã có ≥1 lớp, ≥1 đề published, ≥1 assignment
   const hasClasses = classes.length > 0
   const hasPublishedExam = publishedExamsCount > 0
-  const hasAssignment = USE_MOCKS
-    ? assignments.length > 0
-    : (assignmentsQuery.data?.meta?.total ?? assignments.length) > 0
+  const hasAssignment = (assignmentsQuery.data?.meta?.total ?? assignments.length) > 0
   const showSetup = !hasClasses || !hasPublishedExam || !hasAssignment
 
   // Việc cần làm
@@ -362,7 +345,7 @@ export default function TeacherDashboardPage() {
               Tạo lớp đầu tiên
             </Link>
           </p>
-        ) : !USE_MOCKS && classAnalyticsQueries.some((q) => q.isLoading) ? (
+        ) : classAnalyticsQueries.some((q) => q.isLoading) ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
             {classes.slice(0, 3).map((c) => (
               <Skeleton key={c.id} className="h-24 w-full rounded-xl" />
@@ -370,23 +353,15 @@ export default function TeacherDashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
-            {(USE_MOCKS
-              ? classes.slice(0, 3).map((c) => ({
-                  id: c.id,
-                  name: c.name,
-                  studentsCount: c.studentsCount,
-                  overall: DEMO_TEACHER_DASHBOARD.averageScore,
-                }))
-              : classes.slice(0, 5).map((c, i) => {
-                  const analytics = classAnalyticsQueries[i]?.data
-                  return {
-                    id: c.id,
-                    name: c.name,
-                    studentsCount: c.studentsCount,
-                    overall: analytics?.average?.overall ?? null,
-                  }
-                })
-            ).map((cls) => (
+            {classes.slice(0, 5).map((c, i) => {
+              const analytics = classAnalyticsQueries[i]?.data
+              return {
+                id: c.id,
+                name: c.name,
+                studentsCount: c.studentsCount,
+                overall: analytics?.average?.overall ?? null,
+              }
+            }).map((cls) => (
               <div
                 key={cls.id}
                 className="rounded-xl border border-border p-3.5 space-y-2.5 bg-muted/20"

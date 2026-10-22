@@ -146,10 +146,13 @@ export function HighlightLayer({
 
   // Keep latest items and callback in refs to avoid stale closures in addHighlight / handlers
   const itemsRef = React.useRef(items)
-  itemsRef.current = items
-
   const onItemsChangeRef = React.useRef(onItemsChange)
-  onItemsChangeRef.current = onItemsChange
+  React.useLayoutEffect(() => {
+    itemsRef.current = items
+  }, [items])
+  React.useLayoutEffect(() => {
+    onItemsChangeRef.current = onItemsChange
+  }, [onItemsChange])
 
   const [tooltip, setTooltip] = React.useState<TooltipState | null>(null)
   const [editor, setEditor] = React.useState<EditorState | null>(null)

@@ -60,7 +60,6 @@ import {
 } from "@hugeicons/core-free-icons"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import {
   useQuestionsQuery,
@@ -75,8 +74,7 @@ import {
   SKILL_LABEL,
   formatRelative,
 } from "@/lib/format"
-import type { BankQuestionGroup, QuestionGroupConfig, QuestionGroupType, SkillType } from "@/lib/api/types"
-import { DEMO_BANK_GROUPS } from "@/mocks/demo-data"
+import type { BankQuestionGroup, QuestionGroupType, SkillType } from "@/lib/api/types"
 
 const SKILL_TABS = [
   { value: "all", label: "Tất cả" },
@@ -178,54 +176,18 @@ export default function TeacherQuestionsPage() {
     [skill, part, type, scope, search, page]
   )
 
-  const groupsQuery = useQuestionsQuery(queryParams, !USE_MOCKS)
+  const groupsQuery = useQuestionsQuery(queryParams)
   const createMutation = useCreateQuestionMutation()
   const updateMutation = useUpdateQuestionMutation(open !== "new" ? open : "")
   const deleteMutation = useDeleteQuestionMutation()
 
-  const [mockGroups, setMockGroups] = React.useState<BankQuestionGroup[]>(() =>
-    DEMO_BANK_GROUPS
-  )
-
-  const mockFiltered = React.useMemo(() => {
-    if (!USE_MOCKS) return []
-    return mockGroups.filter((g) => {
-      if (skill !== "all" && g.skill !== skill) return false
-      if (part !== "all" && String(g.part) !== part) return false
-      if (type !== "all" && g.groupType !== type) return false
-      if (search) {
-        const haystack = `${g.instructions} ${g.questions.map((q) => q.prompt).join(" ")}`
-        if (!haystack.toLowerCase().includes(search.toLowerCase())) return false
-      }
-      return true
-    })
-  }, [mockGroups, skill, part, type, search])
-
-  const groups = USE_MOCKS ? mockFiltered : (groupsQuery.data?.items ?? [])
-  const meta = USE_MOCKS ? undefined : groupsQuery.data?.meta
+  const groups = groupsQuery.data?.items ?? []
+  const meta = groupsQuery.data?.meta
   const totalPages = meta?.totalPages ?? 1
 
   const editing = groups.find((g) => g.id === open) ?? null
 
   const handleSave = async (payload: CreateBankGroupPayload) => {
-    if (USE_MOCKS) {
-      const next: BankQuestionGroup = {
-        id: open === "new" ? `bank-${Date.now()}` : open,
-        ...payload,
-        config: payload.config as QuestionGroupConfig,
-        questions: payload.questions.map((q, i) => ({ id: `bankq-${Date.now()}-${i}`, ...q })),
-        questionCount: payload.questions.length,
-        updatedAt: new Date().toISOString(),
-      }
-      setMockGroups((prev) =>
-        prev.some((g) => g.id === next.id)
-          ? prev.map((g) => (g.id === next.id ? next : g))
-          : [next, ...prev]
-      )
-      toast.success(open === "new" ? "Đã tạo nhóm câu hỏi" : "Đã cập nhật nhóm câu hỏi")
-      setOpen(null)
-      return
-    }
     try {
       if (open === "new") {
         await createMutation.mutateAsync(payload)
@@ -242,16 +204,6 @@ export default function TeacherQuestionsPage() {
 
   const handleDuplicate = async (group: BankQuestionGroup) => {
     const payload = groupToPayload(group)
-    if (USE_MOCKS) {
-      const copy: BankQuestionGroup = {
-        ...group,
-        id: `bank-copy-${Date.now()}`,
-        updatedAt: new Date().toISOString(),
-      }
-      setMockGroups((prev) => [copy, ...prev])
-      toast.success("Đã nhân bản nhóm câu hỏi")
-      return
-    }
     try {
       await createMutation.mutateAsync(payload)
       toast.success("Đã nhân bản nhóm câu hỏi")
@@ -261,11 +213,6 @@ export default function TeacherQuestionsPage() {
   }
 
   const handleDelete = async (group: BankQuestionGroup) => {
-    if (USE_MOCKS) {
-      setMockGroups((prev) => prev.filter((g) => g.id !== group.id))
-      toast.success("Đã xoá nhóm câu hỏi")
-      return
-    }
     try {
       await deleteMutation.mutateAsync(group.id)
       toast.success("Đã xoá nhóm câu hỏi")
@@ -281,8 +228,8 @@ export default function TeacherQuestionsPage() {
     }
   }
 
-  const isLoading = !USE_MOCKS && groupsQuery.isLoading
-  const isError = !USE_MOCKS && groupsQuery.isError
+  const isLoading = groupsQuery.isLoading
+  const isError = groupsQuery.isError
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -483,7 +430,7 @@ export default function TeacherQuestionsPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleDuplicate(g)}
-                              disabled={!USE_MOCKS && createMutation.isPending}
+                              disabled={createMutation.isPending}
                             >
                               <HugeiconsIcon icon={Copy01Icon} size={15} /> Nhân bản
                             </DropdownMenuItem>
@@ -491,7 +438,7 @@ export default function TeacherQuestionsPage() {
                             <DropdownMenuItem
                               variant="destructive"
                               onClick={() => handleDelete(g)}
-                              disabled={!USE_MOCKS && deleteMutation.isPending}
+                              disabled={deleteMutation.isPending}
                             >
                               <HugeiconsIcon icon={Delete02Icon} size={15} /> Xoá
                             </DropdownMenuItem>
@@ -508,7 +455,7 @@ export default function TeacherQuestionsPage() {
       )}
 
       {/* Server-side pagination */}
-      {!USE_MOCKS && meta && totalPages > 1 && (
+      {meta && totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
             Trang {meta.page}/{totalPages} · {meta.total} nhóm câu hỏi
@@ -553,7 +500,7 @@ export default function TeacherQuestionsPage() {
                   initial={editing}
                   onSave={handleSave}
                   submitLabel={
-                    !USE_MOCKS && (createMutation.isPending || updateMutation.isPending)
+                    (createMutation.isPending || updateMutation.isPending)
                       ? "Đang lưu…"
                       : open === "new"
                         ? "Tạo nhóm câu hỏi"

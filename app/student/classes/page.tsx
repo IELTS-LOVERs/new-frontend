@@ -40,12 +40,7 @@ import {
 import { toast } from "sonner"
 import { parseAsString, useQueryState } from "nuqs"
 import { useClassesQuery, useJoinClassMutation } from "@/hooks/use-classes"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
-import {
-  DEMO_STUDENT_CLASSES,
-  type StudentEnrolledClass,
-} from "@/mocks/demo-data"
 import type { ClassSummary } from "@/lib/api/types"
 
 // ─── Local adapter type ─────────────────────────────────────────────────────
@@ -59,27 +54,7 @@ interface ClassListItem extends ClassSummary {
 }
 
 export default function StudentClassesPage() {
-  return (
-    <>
-      {USE_MOCKS ? <MockClassesList /> : <RealClassesList />}
-    </>
-  )
-}
-
-// ─── MOCK ────────────────────────────────────────────────────────────────────
-function MockClassesList() {
-  const [classes] = React.useState<StudentEnrolledClass[]>(DEMO_STUDENT_CLASSES)
-  const mockItems: ClassListItem[] = classes.map((c) => ({
-    id: c.id,
-    name: c.name,
-    code: c.code,
-    description: c.description,
-    studentsCount: c.studentsCount,
-    teacherName: c.teacher.fullName,
-    totalAssignments: c.totalAssignments,
-    completedAssignments: c.completedAssignments,
-  }))
-  return <ClassesListView items={mockItems} isLoading={false} isError={null} refetch={() => {}} />
+  return <RealClassesList />
 }
 
 // ─── REAL ────────────────────────────────────────────────────────────────────
@@ -148,21 +123,6 @@ function ClassesListView({
     const cleanCode = joinCode.trim().toUpperCase()
     if (!cleanCode) return
     setJoinError(null)
-
-    if (USE_MOCKS) {
-      // Trong mock mode: giả lập check trùng local
-      const existed = items.some((c) => c.code.toUpperCase() === cleanCode)
-      if (existed) {
-        setJoinError("Bạn đã tham gia lớp học này rồi!")
-        return
-      }
-      toast.success("Tham gia lớp học thành công!", {
-        description: `(Mock) Đã vào lớp với mã ${cleanCode}. Chuyển sang API thật để lưu.`,
-      })
-      setIsJoinOpen(false)
-      setJoinCode("")
-      return
-    }
 
     try {
       const res = await joinMutation.mutateAsync(cleanCode)

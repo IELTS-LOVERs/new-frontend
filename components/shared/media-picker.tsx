@@ -26,7 +26,6 @@ import {
 } from "@hugeicons/core-free-icons"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { USE_MOCKS } from "@/lib/api/config"
 import {
   useMediaQuery,
   usePresignMediaMutation,
@@ -34,7 +33,6 @@ import {
 } from "@/hooks/use-media"
 import { useQueryClient } from "@tanstack/react-query"
 import type { MediaAsset } from "@/lib/api/types"
-import { DEMO_MEDIA } from "@/mocks/demo-data"
 
 const MAX_SIZE = 100 * 1024 * 1024 // 100MB
 
@@ -111,27 +109,21 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
 
   const targetType = type === "all" ? (tab as "audio" | "image") : type
 
-  // Query real media from backend API when USE_MOCKS is false
-  const mediaQuery = useMediaQuery(
-    { type: targetType, limit: 100 },
-    !USE_MOCKS && open
-  )
+  const mediaQuery = useMediaQuery({ type: targetType, limit: 100 }, open)
 
   const rawAssets: MediaAsset[] = React.useMemo(() => {
-    const base: MediaAsset[] = USE_MOCKS
-      ? DEMO_MEDIA
-      : (mediaQuery.data?.items ?? []).map((m) => ({
-          id: m.id,
-          url: m.url,
-          type: m.type,
-          originalName: m.originalName ?? "Untitled",
-          mimeType: m.mimeType,
-          size: m.size,
-          sizeLabel: formatSize(m.size),
-          uploadedAt: m.createdAt ?? new Date().toISOString(),
-          usageCount: 0,
-          status: "ready" as const,
-        }))
+    const base: MediaAsset[] = (mediaQuery.data?.items ?? []).map((m) => ({
+      id: m.id,
+      url: m.url,
+      type: m.type,
+      originalName: m.originalName ?? "Untitled",
+      mimeType: m.mimeType,
+      size: m.size,
+      sizeLabel: formatSize(m.size),
+      uploadedAt: m.createdAt ?? new Date().toISOString(),
+      usageCount: 0,
+      status: "ready" as const,
+    }))
 
     const existingIds = new Set(base.map((b) => b.id))
     const newlyAdded = localUploaded.filter((a) => !existingIds.has(a.id))
@@ -208,64 +200,40 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
     })
 
     try {
-      if (USE_MOCKS) {
-        setUploadingState((prev) => (prev ? { ...prev, progress: 45, status: "uploading" } : null))
-        await new Promise((r) => setTimeout(r, 500))
-        setUploadingState((prev) => (prev ? { ...prev, progress: 100, status: "confirming" } : null))
-        await new Promise((r) => setTimeout(r, 250))
+      setUploadingState((prev) => (prev ? { ...prev, status: "presigning" } : null))
+      const presign = await presignMutation.mutateAsync({
+        filename: file.name,
+        mimeType: validMime,
+        type: fileKind,
+        size: file.size,
+      })
 
-        const mockId = `mock-${Date.now()}`
-        const newAsset: MediaAsset = {
-          id: mockId,
-          url: URL.createObjectURL(file),
-          type: fileKind,
-          originalName: file.name,
-          mimeType: validMime,
-          size: file.size,
-          sizeLabel: formatSize(file.size),
-          uploadedAt: new Date().toISOString(),
-          usageCount: 0,
-          status: "ready",
-        }
-        setLocalUploaded((prev) => [newAsset, ...prev])
-        setSelectedId(mockId)
-        toast.success(`Đã tải lên tệp: ${file.name}`)
-      } else {
-        setUploadingState((prev) => (prev ? { ...prev, status: "presigning" } : null))
-        const presign = await presignMutation.mutateAsync({
-          filename: file.name,
-          mimeType: validMime,
-          type: fileKind,
-          size: file.size,
-        })
+      setUploadingState((prev) => (prev ? { ...prev, status: "uploading" } : null))
+      await uploadWithProgress(presign.uploadUrl, file, validMime, (pct) => {
+        setUploadingState((prev) => (prev ? { ...prev, progress: pct } : null))
+      })
 
-        setUploadingState((prev) => (prev ? { ...prev, status: "uploading" } : null))
-        await uploadWithProgress(presign.uploadUrl, file, validMime, (pct) => {
-          setUploadingState((prev) => (prev ? { ...prev, progress: pct } : null))
-        })
+      setUploadingState((prev) => (prev ? { ...prev, status: "confirming", progress: 100 } : null))
+      await confirmMutation.mutateAsync(presign.mediaId)
 
-        setUploadingState((prev) => (prev ? { ...prev, status: "confirming", progress: 100 } : null))
-        await confirmMutation.mutateAsync(presign.mediaId)
-
-        const newAsset: MediaAsset = {
-          id: presign.mediaId,
-          url: presign.publicUrl,
-          type: fileKind,
-          originalName: file.name,
-          mimeType: validMime,
-          size: file.size,
-          sizeLabel: formatSize(file.size),
-          uploadedAt: new Date().toISOString(),
-          usageCount: 0,
-          status: "ready",
-        }
-
-        setLocalUploaded((prev) => [newAsset, ...prev])
-        setSelectedId(presign.mediaId)
-        await queryClient.invalidateQueries({ queryKey: ["media"] })
-        await mediaQuery.refetch()
-        toast.success(`Đã tải lên tệp: ${file.name}`)
+      const newAsset: MediaAsset = {
+        id: presign.mediaId,
+        url: presign.publicUrl,
+        type: fileKind,
+        originalName: file.name,
+        mimeType: validMime,
+        size: file.size,
+        sizeLabel: formatSize(file.size),
+        uploadedAt: new Date().toISOString(),
+        usageCount: 0,
+        status: "ready",
       }
+
+      setLocalUploaded((prev) => [newAsset, ...prev])
+      setSelectedId(presign.mediaId)
+      await queryClient.invalidateQueries({ queryKey: ["media"] })
+      await mediaQuery.refetch()
+      toast.success(`Đã tải lên tệp: ${file.name}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Tải lên thất bại"
       toast.error(msg)
@@ -307,7 +275,7 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
       ? "image/png,image/jpeg,.png,.jpg,.jpeg"
       : "audio/mpeg,audio/wav,image/png,image/jpeg,.mp3,.wav,.png,.jpg,.jpeg"
 
-  const isLoading = !USE_MOCKS && mediaQuery.isLoading
+  const isLoading = mediaQuery.isLoading
   const isUploading = Boolean(uploadingState)
 
   return (
@@ -428,6 +396,25 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
                   <Skeleton className="h-14 w-full rounded-xl" />
                   <Skeleton className="h-14 w-full rounded-xl" />
                   <Skeleton className="h-14 w-full rounded-xl" />
+                </div>
+              ) : mediaQuery.isError ? (
+                <div className="rounded-2xl border border-destructive/30 bg-destructive/5 py-8 px-4 text-center space-y-2">
+                  <p className="text-xs font-semibold text-destructive">
+                    Không tải được thư viện media
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {mediaQuery.error instanceof Error
+                      ? mediaQuery.error.message
+                      : "Vui lòng thử lại."}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => mediaQuery.refetch()}
+                  >
+                    Thử lại
+                  </Button>
                 </div>
               ) : assets.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border py-10 px-4 text-center space-y-3">

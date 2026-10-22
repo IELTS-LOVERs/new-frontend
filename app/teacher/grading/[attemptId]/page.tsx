@@ -29,8 +29,6 @@ import {
   RefreshIcon,
 } from "@hugeicons/core-free-icons"
 import { toast } from "sonner"
-import { DEMO_GRADING_VIEW, DEMO_PENDING_GRADING, DEMO_ANTI_CHEAT_EVENTS } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import {
   useAttemptGradingViewQuery,
@@ -106,9 +104,9 @@ export default function TeacherWritingGradingPage() {
   const attemptId = params.attemptId
   const router = useRouter()
 
-  const gradingQuery = useAttemptGradingViewQuery(attemptId, !USE_MOCKS)
-  const eventsQuery = useAttemptEventsQuery(attemptId, !USE_MOCKS)
-  const pendingQuery = usePendingGradingQuery(!USE_MOCKS)
+  const gradingQuery = useAttemptGradingViewQuery(attemptId)
+  const eventsQuery = useAttemptEventsQuery(attemptId)
+  const pendingQuery = usePendingGradingQuery()
   const gradeMutation = useGradeWritingMutation()
 
   const [activeTask, setActiveTask] = React.useState<"task1" | "task2">("task1")
@@ -137,16 +135,14 @@ export default function TeacherWritingGradingPage() {
     saveDraft(attemptId, { task1Score, task1Comment, task2Score, task2Comment, generalFeedback })
   }, [attemptId, task1Score, task1Comment, task2Score, task2Comment, generalFeedback])
 
-  const data = USE_MOCKS ? DEMO_GRADING_VIEW : gradingQuery.data
-  const queue = USE_MOCKS ? DEMO_PENDING_GRADING : (pendingQuery.data?.items ?? [])
+  const data = gradingQuery.data
+  const queue = pendingQuery.data?.items ?? []
   const queueIndex = queue.findIndex((p) => p.attemptId === attemptId)
   const queuePosition = queueIndex >= 0 ? queueIndex + 1 : null
   const prevAttempt = queueIndex > 0 ? queue[queueIndex - 1] : null
   const nextAttempt = queueIndex >= 0 && queueIndex < queue.length - 1 ? queue[queueIndex + 1] : null
 
-  const events = USE_MOCKS
-    ? DEMO_ANTI_CHEAT_EVENTS
-    : (eventsQuery.data?.events ?? [])
+  const events = eventsQuery.data?.events ?? []
   const pastes = events.filter((e) => e.type === "PASTE").length
   const tabSwitches = events.filter((e) => e.type === "TAB_SWITCH" || e.type === "WINDOW_BLUR").length
   const fullscreenExits = events.filter((e) => e.type === "FULLSCREEN_EXIT").length
@@ -242,15 +238,13 @@ export default function TeacherWritingGradingPage() {
     return () => window.removeEventListener("keydown", handler)
   }, [gradeMutation.isPending, requestSave, prevAttempt, nextAttempt, router])
 
-  if (!USE_MOCKS) {
-    if (gradingQuery.isLoading) return <GradingSkeleton />
-    if (gradingQuery.isError) {
-      return (
-        <div className="mx-auto max-w-7xl space-y-6 pb-12">
-          <QueryError error={gradingQuery.error} onRetry={() => gradingQuery.refetch()} />
-        </div>
-      )
-    }
+  if (gradingQuery.isLoading) return <GradingSkeleton />
+  if (gradingQuery.isError) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-6 pb-12">
+        <QueryError error={gradingQuery.error} onRetry={() => gradingQuery.refetch()} />
+      </div>
+    )
   }
   if (!data) return null
 

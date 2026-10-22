@@ -52,7 +52,6 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { formatBand, formatDate, formatDuration } from "@/lib/format"
 import { ApiError } from "@/lib/api/client"
-import { USE_MOCKS } from "@/lib/api/config"
 import {
   useAssignmentProgressQuery,
   useUpdateAssignmentMutation,
@@ -60,7 +59,6 @@ import {
 } from "@/hooks/use-assignments"
 import { exportAssignmentCsvApi } from "@/lib/api/assignments"
 import type { SubmissionStatus } from "@/lib/api/types"
-import { DEMO_ASSIGNMENT_PROGRESS } from "@/mocks/demo-data"
 
 const FILTERS: Array<{ value: string; label: string }> = [
   { value: "all", label: "Tất cả" },
@@ -83,8 +81,8 @@ export default function AssignmentProgressPage() {
   }, [])
 
   // ── Data ──────────────────────────────────────────────────────────────────
-  const progressQuery = useAssignmentProgressQuery(assignmentId, !USE_MOCKS)
-  const progress = USE_MOCKS ? DEMO_ASSIGNMENT_PROGRESS : progressQuery.data
+  const progressQuery = useAssignmentProgressQuery(assignmentId)
+  const progress = progressQuery.data
 
   // ── Mutations & actions ───────────────────────────────────────────────────
   const updateMutation = useUpdateAssignmentMutation(assignmentId)
@@ -96,15 +94,11 @@ export default function AssignmentProgressPage() {
   const [deleteBlocked, setDeleteBlocked] = React.useState(false)
   const [exporting, setExporting] = React.useState(false)
 
-  const isLoading = !USE_MOCKS && progressQuery.isLoading
-  const isError = !USE_MOCKS && progressQuery.isError
+  const isLoading = progressQuery.isLoading
+  const isError = progressQuery.isError
 
   const exportCsv = async () => {
     if (!progress) return
-    if (USE_MOCKS) {
-      toast.success("Đã xuất file CSV tiến độ")
-      return
-    }
     setExporting(true)
     try {
       await exportAssignmentCsvApi(assignmentId, `${progress.examTitle}-progress.csv`)
@@ -130,11 +124,6 @@ export default function AssignmentProgressPage() {
   const handleExtend = async () => {
     if (!extendDeadline) return
     const iso = new Date(extendDeadline).toISOString()
-    if (USE_MOCKS) {
-      toast.success("Đã gia hạn deadline")
-      setExtendOpen(false)
-      return
-    }
     try {
       await updateMutation.mutateAsync({ deadline: iso })
       toast.success("Đã gia hạn deadline")
@@ -146,11 +135,6 @@ export default function AssignmentProgressPage() {
   }
 
   const handleArchive = async () => {
-    if (USE_MOCKS) {
-      toast.success("Đã lưu trữ đợt giao bài")
-      setArchiveConfirm(false)
-      return
-    }
     try {
       await updateMutation.mutateAsync({ status: "archived" })
       toast.success("Đã lưu trữ đợt giao bài")
@@ -162,11 +146,6 @@ export default function AssignmentProgressPage() {
   }
 
   const handleDelete = async () => {
-    if (USE_MOCKS) {
-      toast.success("Đã xoá đợt giao bài")
-      setDeleteConfirm(false)
-      return
-    }
     try {
       await deleteMutation.mutateAsync(assignmentId)
       toast.success("Đã xoá đợt giao bài")

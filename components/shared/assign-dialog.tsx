@@ -32,16 +32,10 @@ import {
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@/lib/api/client"
-import { USE_MOCKS } from "@/lib/api/config"
 import { useExamsQuery } from "@/hooks/use-exams"
 import { useClassesQuery, useClassDetailQuery } from "@/hooks/use-classes"
 import { useCreateAssignmentMutation } from "@/hooks/use-assignments"
 import type { CreateAssignmentPayload } from "@/lib/api/assignments"
-import {
-  DEMO_CLASSES,
-  DEMO_CLASS_ROSTERS,
-  DEMO_EXAMS,
-} from "@/mocks/demo-data"
 import { initials } from "@/lib/format"
 
 export interface AssignDialogProps {
@@ -70,14 +64,12 @@ export function AssignDialog({
   const router = useRouter()
 
   // ── Data sources ──────────────────────────────────────────────────────────
-  const examsQuery = useExamsQuery({ status: "published" }, !USE_MOCKS)
-  const classesQuery = useClassesQuery(!USE_MOCKS)
+  const examsQuery = useExamsQuery({ status: "published", kind: "mock" })
+  const classesQuery = useClassesQuery()
 
-  const publishedExams = USE_MOCKS
-    ? DEMO_EXAMS.filter((e) => e.status === "published")
-    : (examsQuery.data?.items ?? [])
+  const publishedExams = examsQuery.data?.items ?? []
 
-  const classes = USE_MOCKS ? DEMO_CLASSES : (classesQuery.data ?? [])
+  const classes = classesQuery.data ?? []
 
   const [examId, setExamId] = React.useState(initialExamId ?? "")
   const [target, setTarget] = React.useState<"class" | "students">(
@@ -98,7 +90,7 @@ export function AssignDialog({
   const [submitting, setSubmitting] = React.useState(false)
   const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null)
 
-  const classDetailQuery = useClassDetailQuery(classId, !USE_MOCKS && target === "students" && !!classId)
+  const classDetailQuery = useClassDetailQuery(classId, target === "students" && !!classId)
 
   // Reset form khi dialog chuyển từ đóng → mở (setState trong render theo props thay đổi —
   // pattern "adjusting state during render" của React, không dùng effect)
@@ -114,9 +106,7 @@ export function AssignDialog({
     }
   }
 
-  const roster = USE_MOCKS
-    ? (DEMO_CLASS_ROSTERS[classId] ?? [])
-    : (classDetailQuery.data?.students ?? [])
+  const roster = classDetailQuery.data?.students ?? []
 
   const selectedExam = publishedExams.find((e) => e.id === examId)
   const selectedClass = classes.find((c) => c.id === classId)
@@ -149,17 +139,6 @@ export function AssignDialog({
     }
     if (target === "students" && studentIds.length === 0) {
       toast.error("Vui lòng chọn ít nhất một học sinh")
-      return
-    }
-
-    if (USE_MOCKS) {
-      toast.success("Đã giao bài thành công!", {
-        description: `${selectedExam?.title} · ${recipientCount} học sinh${
-          unlimited ? "" : ` · hạn ${deadline.replace("T", " ")}`
-        }`,
-        action: { label: "Xem tiến độ", onClick: () => {} },
-      })
-      onOpenChange(false)
       return
     }
 
@@ -239,7 +218,7 @@ export function AssignDialog({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label className="text-xs">Đề thi</Label>
-            {!USE_MOCKS && examsQuery.isLoading ? (
+            {examsQuery.isLoading ? (
               <Skeleton className="h-10 w-full" />
             ) : (
               <Select value={examId} onValueChange={setExamId} disabled={submitting}>
@@ -291,7 +270,7 @@ export function AssignDialog({
 
           <div className="space-y-1.5">
             <Label className="text-xs">Lớp học</Label>
-            {!USE_MOCKS && classesQuery.isLoading ? (
+            {classesQuery.isLoading ? (
               <Skeleton className="h-10 w-full" />
             ) : (
               <Select
@@ -333,7 +312,7 @@ export function AssignDialog({
                 </button>
               </div>
               <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-border p-2">
-                {!USE_MOCKS && classDetailQuery.isLoading ? (
+                {classDetailQuery.isLoading ? (
                   <>
                     <Skeleton className="h-8 w-full" />
                     <Skeleton className="h-8 w-full" />

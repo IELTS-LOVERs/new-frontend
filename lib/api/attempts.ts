@@ -32,7 +32,7 @@ export interface ListMyAttemptsParams {
 
 export interface MyAttemptItem {
   id: string
-  exam: { id: string; title: string; durationMinutes: number; skills?: string[] }
+  exam: { id: string; title: string; durationMinutes: number; skills?: string[]; kind?: "practice" | "mock" }
   assignmentId: string | null
   startedAt: string
   expiresAt: string
@@ -40,6 +40,14 @@ export interface MyAttemptItem {
   status: SubmissionStatus
   scores: AttemptScores
   suspicious?: boolean
+  examKind?: "practice" | "mock"
+  scoringMode?: "band" | "raw"
+  totalPoints?: number
+  rawScore?: number
+  percentage?: number
+  correctCount?: number
+  wrongCount?: number
+  blankCount?: number
 }
 
 export interface ListMyAttemptsResult {

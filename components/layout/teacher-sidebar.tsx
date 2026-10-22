@@ -21,7 +21,6 @@ import {
 } from "@hugeicons/core-free-icons"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -39,7 +38,6 @@ import {
 import { useAuthStore } from "@/stores/auth.store"
 import { useSidebarStore } from "@/stores/sidebar.store"
 import { useLogout } from "@/hooks/use-logout"
-import { DEMO_TEACHER } from "@/mocks/demo-data"
 
 const navGroups = [
   {
@@ -53,12 +51,13 @@ const navGroups = [
     items: [
       { label: "Lớp học", href: "/teacher/classes", icon: UserIcon },
       { label: "Đợt giao bài", href: "/teacher/assignments", icon: Book02Icon },
-      { label: "Bài nộp & Chấm điểm", href: "/teacher/submissions", icon: Award01Icon, badge: "18" },
+      { label: "Bài nộp & Chấm điểm", href: "/teacher/submissions", icon: Award01Icon },
     ],
   },
   {
     title: "Nội dung học liệu",
     items: [
+      { label: "Bài luyện tập", href: "/teacher/practices", icon: Book02Icon },
       { label: "Đề thi", href: "/teacher/exams", icon: PencilEdit02Icon },
       { label: "Ngân hàng câu hỏi", href: "/teacher/questions", icon: Folder02Icon },
       { label: "Thư viện Media", href: "/teacher/media", icon: Folder02Icon },
@@ -76,7 +75,6 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
   const { user } = useAuthStore()
   const { isCollapsed, toggleSidebar, setCollapsed } = useSidebarStore()
   const logoutMutation = useLogout()
-  const currentUser = user || DEMO_TEACHER
 
   // On mobile sheet, always render in expanded mode
   const collapsed = !isMobile && isCollapsed
@@ -278,11 +276,6 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
                     </TooltipTrigger>
                     <TooltipContent side="right" className="flex items-center gap-1.5">
                       <span>{item.label}</span>
-                      {item.badge && (
-                        <Badge variant="secondary" className="px-1 py-0 text-[10px]">
-                          {item.badge}
-                        </Badge>
-                      )}
                     </TooltipContent>
                   </Tooltip>
                 )
@@ -311,14 +304,6 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
                     />
                     <span>{item.label}</span>
                   </div>
-                  {item.badge && (
-                    <Badge
-                      variant={isActive ? "default" : "secondary"}
-                      className="px-1.5 py-0 text-[10px] h-4.5 min-w-4.5 font-mono justify-center"
-                    >
-                      {item.badge}
-                    </Badge>
-                  )}
                 </Link>
               )
             })}
@@ -343,13 +328,13 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
                     )}
                   >
                     <span className="font-bold text-xs">
-                      {currentUser.fullName.slice(0, 2).toUpperCase()}
+                      {(user?.fullName ?? "").slice(0, 2).toUpperCase()}
                     </span>
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="right">
-                <p className="font-medium text-xs">{currentUser.fullName}</p>
+                <p className="font-medium text-xs">{(user?.fullName ?? "")}</p>
                 <p className="text-[10px] text-muted-foreground">Bấm để mở menu tài khoản</p>
               </TooltipContent>
             </Tooltip>
@@ -360,11 +345,11 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
             >
               <div className="flex items-center gap-2.5 p-2 border-b border-border mb-1">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
-                  {currentUser.fullName.slice(0, 2).toUpperCase()}
+                  {(user?.fullName ?? "").slice(0, 2).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1 leading-tight">
-                  <p className="text-xs font-semibold truncate text-foreground">{currentUser.fullName}</p>
-                  <p className="text-[10px] text-muted-foreground truncate font-mono mt-0.5">{currentUser.email}</p>
+                  <p className="text-xs font-semibold truncate text-foreground">{(user?.fullName ?? "")}</p>
+                  <p className="text-[10px] text-muted-foreground truncate font-mono mt-0.5">{(user?.email ?? "")}</p>
                 </div>
               </div>
               <DropdownMenuItem asChild className="gap-2 cursor-pointer text-xs" onClick={() => onNavigate?.()}>
@@ -406,11 +391,11 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
               >
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
-                    {currentUser.fullName.slice(0, 2).toUpperCase()}
+                    {(user?.fullName ?? "").slice(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium truncate leading-tight text-foreground group-hover:text-primary transition-colors">
-                      {currentUser.fullName}
+                      {(user?.fullName ?? "")}
                     </p>
                     <p className="text-[11px] text-muted-foreground truncate leading-tight mt-0.5">
                       Giáo viên phụ trách
@@ -431,14 +416,14 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
             >
               <div className="flex items-center gap-2.5 p-2 border-b border-border mb-1">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
-                  {currentUser.fullName.slice(0, 2).toUpperCase()}
+                  {(user?.fullName ?? "").slice(0, 2).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1 leading-tight">
                   <p className="text-xs font-semibold truncate text-foreground">
-                    {currentUser.fullName}
+                    {(user?.fullName ?? "")}
                   </p>
                   <p className="text-[10px] text-muted-foreground truncate font-mono mt-0.5">
-                    {currentUser.email}
+                    {(user?.email ?? "")}
                   </p>
                 </div>
               </div>

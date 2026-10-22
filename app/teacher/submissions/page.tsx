@@ -29,8 +29,6 @@ import {
   RefreshIcon,
   Shield01Icon,
 } from "@hugeicons/core-free-icons"
-import { DEMO_PENDING_GRADING, DEMO_SUSPICIOUS_SUBMISSIONS, DEMO_TEACHER_DASHBOARD } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { usePendingGradingQuery } from "@/hooks/use-grading"
 import { useSuspiciousAttemptsQuery } from "@/hooks/use-admin"
@@ -72,9 +70,9 @@ export default function TeacherSubmissionsPage() {
     parseAsStringLiteral(TABS).withDefault("pending")
   )
 
-  const pendingQuery = usePendingGradingQuery(!USE_MOCKS)
-  const suspiciousQuery = useSuspiciousAttemptsQuery(50, !USE_MOCKS)
-  const dashboardQuery = useTeacherDashboardQuery(!USE_MOCKS)
+  const pendingQuery = usePendingGradingQuery()
+  const suspiciousQuery = useSuspiciousAttemptsQuery(50)
+  const dashboardQuery = useTeacherDashboardQuery()
 
   type SuspiciousRow = {
     attemptId: string
@@ -86,28 +84,10 @@ export default function TeacherSubmissionsPage() {
     eventsByType: Record<string, number>
   }
 
-  const pending = USE_MOCKS ? DEMO_PENDING_GRADING : (pendingQuery.data?.items ?? [])
-  const pendingCount = USE_MOCKS
-    ? DEMO_PENDING_GRADING.length
-    : (pendingQuery.data?.totalPending ?? pending.length)
-  const suspicious: SuspiciousRow[] = USE_MOCKS
-    ? DEMO_SUSPICIOUS_SUBMISSIONS.map((s) => ({
-        attemptId: s.attemptId,
-        studentName: s.studentName,
-        studentEmail: s.studentEmail,
-        examTitle: s.examTitle,
-        submittedAt: s.submittedAt,
-        totalEvents: s.eventCount,
-        eventsByType: {
-          ...(s.tabSwitches > 0 ? { TAB_SWITCH: s.tabSwitches } : {}),
-          ...(s.pastes > 0 ? { PASTE: s.pastes } : {}),
-          ...(s.fullscreenExits > 0 ? { FULLSCREEN_EXIT: s.fullscreenExits } : {}),
-        },
-      }))
-    : (suspiciousQuery.data ?? [])
-  const recent = USE_MOCKS
-    ? DEMO_TEACHER_DASHBOARD.recentSubmissions
-    : (dashboardQuery.data?.recentSubmissions ?? [])
+  const pending = pendingQuery.data?.items ?? []
+  const pendingCount = pendingQuery.data?.totalPending ?? pending.length
+  const suspicious: SuspiciousRow[] = suspiciousQuery.data ?? []
+  const recent = dashboardQuery.data?.recentSubmissions ?? []
 
   const firstPending = pending[0]
 
@@ -161,9 +141,9 @@ export default function TeacherSubmissionsPage() {
         </TabsList>
 
         <TabsContent value="pending" className="space-y-4">
-          {!USE_MOCKS && pendingQuery.isLoading ? (
+          {pendingQuery.isLoading ? (
             <TableSkeleton />
-          ) : !USE_MOCKS && pendingQuery.isError ? (
+          ) : pendingQuery.isError ? (
             <QueryError error={pendingQuery.error} onRetry={() => pendingQuery.refetch()} />
           ) : pending.length === 0 ? (
             <EmptyState
@@ -233,9 +213,9 @@ export default function TeacherSubmissionsPage() {
         </TabsContent>
 
         <TabsContent value="suspicious" className="space-y-4">
-          {!USE_MOCKS && suspiciousQuery.isLoading ? (
+          {suspiciousQuery.isLoading ? (
             <TableSkeleton />
-          ) : !USE_MOCKS && suspiciousQuery.isError ? (
+          ) : suspiciousQuery.isError ? (
             <QueryError error={suspiciousQuery.error} onRetry={() => suspiciousQuery.refetch()} />
           ) : suspicious.length === 0 ? (
             <EmptyState
@@ -311,9 +291,9 @@ export default function TeacherSubmissionsPage() {
         </TabsContent>
 
         <TabsContent value="recent" className="space-y-4">
-          {!USE_MOCKS && dashboardQuery.isLoading ? (
+          {dashboardQuery.isLoading ? (
             <TableSkeleton />
-          ) : !USE_MOCKS && dashboardQuery.isError ? (
+          ) : dashboardQuery.isError ? (
             <QueryError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
           ) : recent.length === 0 ? (
             <EmptyState

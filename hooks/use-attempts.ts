@@ -55,8 +55,13 @@ export function useAttemptEventsQuery(attemptId: string, enabled = true) {
 }
 
 export function useStartAttemptMutation() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (payload: CreateAttemptPayload) => startAttemptApi(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.practice.all })
+      queryClient.invalidateQueries({ queryKey: ["attempts"] })
+    },
   })
 }
 
@@ -74,6 +79,7 @@ export function useSubmitAttemptMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.assignments.my() })
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.student() })
       queryClient.invalidateQueries({ queryKey: ["attempts"] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.practice.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.attempts.result(attemptId) })
     },
   })

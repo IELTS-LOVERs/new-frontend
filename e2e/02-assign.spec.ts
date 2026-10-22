@@ -59,8 +59,8 @@ test.describe("Flow 2 — Giao bài cho lớp", () => {
     await openAs(studentPage, scenario.student, "/student")
     await expect(studentPage.getByText(scenario.examTitle).first()).toBeVisible({ timeout: 20_000 })
 
-    // ── HS: thấy bài tập ở danh sách Bài tập (tab "Cần làm") ─────────────
-    await studentPage.goto("/student/assignments")
+    // ── HS: thấy bài tập ở danh sách Đề thi (tab "Cần làm") ─────────────
+    await studentPage.goto("/student/exams")
     await expect(studentPage.getByText(scenario.examTitle).first()).toBeVisible({ timeout: 20_000 })
   })
 })

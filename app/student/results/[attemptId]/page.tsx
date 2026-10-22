@@ -19,18 +19,17 @@ import {
   Clock01Icon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { formatBand, QUESTION_GROUP_TYPE_LABEL } from "@/lib/format"
 import { useAttemptResultQuery, useMyAttemptsQuery } from "@/hooks/use-attempts"
 import { useExamDetailQuery } from "@/hooks/use-exams"
+import { PostSubmissionResources } from "@/features/practice/components/post-submission-resources"
 import type {
   AttemptResult,
   AttemptResultDetail,
   CandidateExam,
   SkillType,
 } from "@/lib/api/types"
-import { DEMO_ATTEMPT_RESULT, DEMO_EXAM_MOCK_01 } from "@/mocks/demo-data"
 
 const TABS: Array<{ id: SkillType; label: string }> = [
   { id: "listening", label: "Listening" },
@@ -51,23 +50,7 @@ export default function StudentResultDetailPage() {
   const params = useParams<{ attemptId: string }>()
   const attemptId = params.attemptId
 
-  if (USE_MOCKS) {
-    return <MockResultDetail />
-  }
   return <RealResultDetail attemptId={attemptId} />
-}
-
-// ─── MOCK ────────────────────────────────────────────────────────────────────
-function MockResultDetail() {
-  return (
-    <ResultDetailView
-      result={DEMO_ATTEMPT_RESULT}
-      exam={DEMO_EXAM_MOCK_01}
-      isLoading={false}
-      error={null}
-      refetch={() => {}}
-    />
-  )
 }
 
 // ─── REAL ────────────────────────────────────────────────────────────────────
@@ -84,7 +67,11 @@ function RealResultDetail({ attemptId }: { attemptId: string }) {
 
   const isLoading =
     resultQuery.isLoading || (!!examId && examQuery.isLoading)
-  const error = resultQuery.error ?? examQuery.error ?? myAttemptsQuery.error
+  // Kết quả vẫn phải xem được nếu exam detail bị chặn (đề đã đóng/assignment
+  // đã archive). Chỉ coi examQuery.error là lỗi chính khi chưa có result.
+  const error =
+    resultQuery.error ??
+    (resultQuery.data ? null : examQuery.error ?? myAttemptsQuery.error)
 
   const refetch = () => {
     resultQuery.refetch()
@@ -229,11 +216,39 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     }).length
   }
 
-  const currentTab: SkillType = (["listening", "reading", "writing"] as const).includes(
-    tab as "listening" | "reading" | "writing"
+  const isPractice =
+    result.examKind === "practice" || exam?.kind === "practice"
+  const isRawDisplay = isPractice || result.scoreMode === "raw"
+  const rawTotal = result.totalPoints ?? result.questionCount ?? 0
+  const fallbackCorrect = result.details.filter(
+    (d) => !d.groupType?.startsWith("writing") && d.isCorrect
+  ).length
+  const fallbackBlank = result.details.filter(
+    (d) =>
+      !d.groupType?.startsWith("writing") &&
+      (!d.studentAnswer || d.studentAnswer.trim() === "")
+  ).length
+  const fallbackWrong = result.details.filter(
+    (d) =>
+      !d.groupType?.startsWith("writing") &&
+      !!d.studentAnswer &&
+      d.studentAnswer.trim() !== "" &&
+      !d.isCorrect
+  ).length
+  const correctCount = result.correctCount ?? fallbackCorrect
+  const wrongCount = result.wrongCount ?? fallbackWrong
+  const blankCount = result.blankCount ?? fallbackBlank
+  const countTotal = correctCount + wrongCount + blankCount
+
+  const backHref = isPractice ? "/student/practice" : "/student/exams"
+  const backLabel = isPractice ? "Quay lại luyện tập" : "Quay lại đề thi"
+
+  const availableSkills = (["listening", "reading", "writing"] as const).filter(
+    (k) => rowsBySkill[k].length > 0
   )
+  const currentTab: SkillType = availableSkills.includes(tab as SkillType)
     ? (tab as SkillType)
-    : "listening"
+    : (availableSkills[0] ?? "listening")
 
   const currentRows = rowsBySkill[currentTab]
   const filteredRows = applyFilter(currentRows)
@@ -243,9 +258,9 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
       {/* Back button */}
       <div>
         <Button variant="ghost" size="sm" asChild className="gap-2 text-xs">
-          <Link href="/student/results">
+          <Link href={backHref}>
             <HugeiconsIcon icon={ArrowLeft01Icon} size={15} />
-            <span>Quay lại danh sách kết quả</span>
+            <span>{backLabel}</span>
           </Link>
         </Button>
       </div>
@@ -257,30 +272,40 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
             <Badge variant="secondary" className="text-xs font-medium">
               {isExpired ? "Hết giờ" : "Đã nộp"}
             </Badge>
+            {isPractice && (
+              <Badge
+                variant="outline"
+                className="text-xs border-primary/30 text-primary bg-primary/5"
+              >
+                Bài luyện tập
+              </Badge>
+            )}
             {isExpired && (
               <Badge variant="outline" className="text-xs">
                 Tự động nộp khi hết giờ
               </Badge>
             )}
-            {!hasScores && (
+            {!hasScores && !isPractice && (
               <Badge variant="outline" className="text-xs">
                 Giáo viên chưa công bố điểm cho bài này
               </Badge>
             )}
           </div>
           <h1 className="font-heading text-xl md:text-2xl font-semibold tracking-tight text-foreground">
-            Kết quả thi: {examTitle}
+            {isPractice ? "Kết quả luyện tập" : "Kết quả thi"}: {examTitle}
           </h1>
           <p className="text-xs text-muted-foreground">
-            Listening & Reading được chấm tự động ngay sau khi nộp bài.
+            {isPractice
+              ? "Bài luyện tập hiển thị kết quả và hướng dẫn giải chi tiết bên dưới."
+              : "Listening & Reading được chấm tự động ngay sau khi nộp bài."}
           </p>
         </div>
 
-        {/* Action buttons: retake TODO(G5), progress, assignments */}
+        {/* Action buttons: retake TODO(G5), progress, back */}
         <div className="flex flex-wrap items-center gap-2.5">
           {hasRetakeInfo && (
             <Button size="sm" asChild className="gap-1.5 font-medium text-xs">
-              <Link href="/student/assignments">
+              <Link href={backHref}>
                 <HugeiconsIcon icon={RotateRight01Icon} size={14} />
                 <span>Làm lại bài thi</span>
               </Link>
@@ -295,13 +320,88 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
           </Button>
 
           <Button variant="ghost" size="sm" asChild className="text-xs">
-            <Link href="/student/assignments">Về danh sách bài tập</Link>
+            <Link href={backHref}>{backLabel}</Link>
           </Button>
         </div>
       </div>
 
-      {/* Band Score Cards */}
-      {hasScores ? (
+      {/* Score Cards */}
+      {isRawDisplay ? (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
+          <Card className="border-border bg-card">
+            <CardHeader className="p-4 pb-1">
+              <CardDescription className="text-xs font-medium">SỐ CÂU ĐÚNG</CardDescription>
+              <CardTitle className="font-mono text-3xl font-semibold text-primary">
+                {correctCount}
+                <span className="text-base font-normal text-muted-foreground">
+                  /{countTotal || rawTotal || 0}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-1 text-[11px] text-muted-foreground">
+              {countTotal > 0
+                ? `${Math.round((correctCount / countTotal) * 100)}% số câu`
+                : "Chưa có dữ liệu"}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card">
+            <CardHeader className="p-4 pb-1">
+              <CardDescription className="text-xs font-medium">SỐ CÂU SAI</CardDescription>
+              <CardTitle className="font-mono text-3xl font-semibold text-rose-600 dark:text-rose-400">
+                {wrongCount}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-1 text-[11px] text-muted-foreground">
+              Đã trả lời nhưng chưa đúng
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card">
+            <CardHeader className="p-4 pb-1">
+              <CardDescription className="text-xs font-medium">BỎ TRỐNG</CardDescription>
+              <CardTitle className="font-mono text-3xl font-semibold text-amber-600 dark:text-amber-400">
+                {blankCount}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-1 text-[11px] text-muted-foreground">
+              Không có câu trả lời
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card">
+            <CardHeader className="p-4 pb-1">
+              <CardDescription className="text-xs font-medium">TỶ LỆ ĐÚNG</CardDescription>
+              <CardTitle className="font-mono text-3xl font-semibold text-foreground">
+                {countTotal > 0
+                  ? `${Math.round((correctCount / countTotal) * 100)}%`
+                  : result.percentage !== undefined
+                    ? `${result.percentage}%`
+                    : "—"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-1 text-[11px] text-muted-foreground">
+              {result.rawScore !== undefined
+                ? `${result.rawScore}/${rawTotal} điểm`
+                : "Điểm số làm bài"}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card">
+            <CardHeader className="p-4 pb-1">
+              <CardDescription className="text-xs font-medium">THỜI GIAN LÀM</CardDescription>
+              <CardTitle className="font-mono text-2xl font-semibold text-foreground">
+                {result.durationSeconds != null
+                  ? `${Math.floor(result.durationSeconds / 60)}p ${result.durationSeconds % 60}s`
+                  : "—"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-1 text-[11px] text-muted-foreground">
+              {exam?.durationMinutes ? `Giới hạn ${exam.durationMinutes} phút` : "Tự luyện tập"}
+            </CardContent>
+          </Card>
+        </div>
+      ) : hasScores ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           {/* Overall */}
           <Card className="border-border bg-card">
@@ -446,6 +546,11 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
             </p>
           </div>
         )
+      )}
+
+      {/* Post-submission learning resources */}
+      {result.postSubmissionResources && (
+        <PostSubmissionResources resources={result.postSubmissionResources} />
       )}
 
       {/* Detailed Question Review with tabs + filter (URL state qua nuqs) */}
@@ -607,7 +712,7 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
           </Link>
         </Button>
         <Button variant="outline" size="sm" asChild className="text-xs">
-          <Link href="/student/assignments">Về danh sách bài tập</Link>
+          <Link href={backHref}>{backLabel}</Link>
         </Button>
       </div>
     </div>

@@ -71,7 +71,6 @@ import {
 import { toast } from "sonner"
 import { SKILL_LABEL, formatBand, formatDateShort } from "@/lib/format"
 import { ApiError } from "@/lib/api/client"
-import { USE_MOCKS } from "@/lib/api/config"
 import {
   useClassDetailQuery,
   useAddStudentMutation,
@@ -80,13 +79,6 @@ import {
 import { useTeacherAssignmentsQuery } from "@/hooks/use-assignments"
 import { useClassAnalyticsQuery, useStudentProgressQuery } from "@/hooks/use-analytics"
 import type { ClassRosterStudent } from "@/lib/api/types"
-import {
-  DEMO_ASSIGNMENTS,
-  DEMO_CLASSES,
-  DEMO_CLASS_ANALYTICS,
-  DEMO_CLASS_ROSTERS,
-  DEMO_STUDENT_ANALYTICS,
-} from "@/mocks/demo-data"
 
 const SKILL_BANDS: Array<{ key: "listening" | "reading" | "writing"; label: string }> = [
   { key: "listening", label: "Listening" },
@@ -100,20 +92,15 @@ export default function ClassDetailPage() {
   const [tab, setTab] = useQueryState("tab", parseAsString.withDefault("students"))
 
   // ── Data sources ──────────────────────────────────────────────────────────
-  const classQuery = useClassDetailQuery(classId, !USE_MOCKS)
-  const analyticsQuery = useClassAnalyticsQuery(classId, !USE_MOCKS)
+  const classQuery = useClassDetailQuery(classId)
+  const analyticsQuery = useClassAnalyticsQuery(classId)
   // G3: không có stats tiến độ trong GET /assignments → tab Bài tập ẩn cột tiến độ
-  const assignmentsQuery = useTeacherAssignmentsQuery({ classId }, !USE_MOCKS)
+  const assignmentsQuery = useTeacherAssignmentsQuery({ classId })
 
-  const klass = USE_MOCKS
-    ? (DEMO_CLASSES.find((c) => c.id === classId) ?? DEMO_CLASSES[0])
-    : classQuery.data
+  const klass = classQuery.data
 
   // Merge roster + analytics
   const roster: ClassRosterStudent[] = React.useMemo(() => {
-    if (USE_MOCKS) {
-      return DEMO_CLASS_ROSTERS[classId] ?? DEMO_CLASS_ROSTERS["c-1"]
-    }
     const students = classQuery.data?.students ?? []
     // API /api/analytics/classes/:id trả về students[] chứa attempts/listening/... theo audit;
     // nếu backend chưa trả về, fallback về danh sách rỗng (chỉ dùng averages).
@@ -143,24 +130,20 @@ export default function ClassDetailPage() {
         overall: stats?.overall ?? null,
       }
     })
-  }, [classQuery.data, analyticsQuery.data, classId])
+  }, [classQuery.data, analyticsQuery.data])
 
-  const analytics = USE_MOCKS
-    ? (DEMO_CLASS_ANALYTICS[classId] ?? DEMO_CLASS_ANALYTICS["c-1"])
-    : {
-        classId: analyticsQuery.data?.classId ?? classId,
-        className: analyticsQuery.data?.className ?? klass?.name ?? "",
-        studentsCount: analyticsQuery.data?.studentsCount ?? roster.length,
-        average: analyticsQuery.data?.average ?? {},
-        needSupport: analyticsQuery.data?.needSupport ?? [],
-      }
+  const analytics = {
+    classId: analyticsQuery.data?.classId ?? classId,
+    className: analyticsQuery.data?.className ?? klass?.name ?? "",
+    studentsCount: analyticsQuery.data?.studentsCount ?? roster.length,
+    average: analyticsQuery.data?.average ?? {},
+    needSupport: analyticsQuery.data?.needSupport ?? [],
+  }
 
-  const assignments = USE_MOCKS
-    ? DEMO_ASSIGNMENTS.filter((a) => a.classId === classId)
-    : (assignmentsQuery.data?.items ?? [])
+  const assignments = assignmentsQuery.data?.items ?? []
 
-  const isLoading = !USE_MOCKS && classQuery.isLoading
-  const isError = !USE_MOCKS && classQuery.isError
+  const isLoading = classQuery.isLoading
+  const isError = classQuery.isError
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [addOpen, setAddOpen] = React.useState(false)
@@ -244,11 +227,6 @@ export default function ClassDetailPage() {
 
   const handleConfirmRemove = async () => {
     if (!removeTarget) return
-    if (USE_MOCKS) {
-      toast.success(`Đã xoá ${removeTarget.fullName} khỏi lớp`)
-      setRemoveTarget(null)
-      return
-    }
     try {
       await removeMutation.mutateAsync(removeTarget.id)
       toast.success(`Đã xoá ${removeTarget.fullName} khỏi lớp`)
@@ -504,7 +482,7 @@ export default function ClassDetailPage() {
         </TabsContent>
 
         <TabsContent value="assignments" className="space-y-3">
-          {!USE_MOCKS && assignmentsQuery.isLoading ? (
+          {assignmentsQuery.isLoading ? (
             <>
               <Skeleton className="h-20 w-full" />
               <Skeleton className="h-20 w-full" />
@@ -565,7 +543,7 @@ export default function ClassDetailPage() {
 
         {/* Tab Analytics: Contextual Class Analytics */}
         <TabsContent value="analytics" className="space-y-6">
-          {!USE_MOCKS && analyticsQuery.isLoading ? (
+          {analyticsQuery.isLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Skeleton className="h-72 w-full" />
               <Skeleton className="h-72 w-full" />
@@ -731,11 +709,9 @@ function StudentProgressSheet({
   student: ClassRosterStudent | null
   onClose: () => void
 }) {
-  // Gọi API tiến độ học sinh khi không dùng mock
-  const progressQuery = useStudentProgressQuery(student?.id, !USE_MOCKS && !!student)
-  const points = USE_MOCKS
-    ? DEMO_STUDENT_ANALYTICS.points
-    : (progressQuery.data?.points ?? [])
+  // Gọi API tiến độ học sinh
+  const progressQuery = useStudentProgressQuery(student?.id, !!student)
+  const points = progressQuery.data?.points ?? []
 
   return (
     <Sheet open={!!student} onOpenChange={(v) => !v && onClose()}>
@@ -797,7 +773,7 @@ function StudentProgressSheet({
               Xu hướng điểm số theo thời gian
             </span>
             <div className="pt-2">
-              {!USE_MOCKS && progressQuery.isLoading ? (
+              {progressQuery.isLoading ? (
                 <Skeleton className="h-40 w-full" />
               ) : points.length === 0 ? (
                 <p className="py-10 text-center text-xs text-muted-foreground">
@@ -847,16 +823,6 @@ function AddStudentsDialog({
       return
     }
     const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-    if (USE_MOCKS) {
-      const parsedResults = emails.map((email, i) => {
-        if (!valid.test(email)) return { email, status: "invalid" as const }
-        if (i % 4 === 3) return { email, status: "exists" as const }
-        return { email, status: "added" as const }
-      })
-      setResults(parsedResults)
-      return
-    }
 
     // G12 fallback: gửi tuần tự từng email, cập nhật kết quả theo tiến trình
     setIsSubmitting(true)

@@ -161,7 +161,7 @@ export default function LandingPage() {
                 </div>
                 <div className="flex items-center justify-between text-muted-foreground pt-1 text-[11px]">
                   <span>Câu hỏi 1 / 40</span>
-                  <Link href="/exam/start/assign-1" className="text-primary font-medium hover:underline flex items-center gap-1">
+                  <Link href="/student/exams" className="text-primary font-medium hover:underline flex items-center gap-1">
                     Trải nghiệm trực tiếp →
                   </Link>
                 </div>
@@ -314,7 +314,7 @@ export default function LandingPage() {
                 </p>
                 <div className="pt-1 flex justify-end">
                   <Button size="sm" variant="outline" className="h-7 text-xs font-medium" asChild>
-                    <Link href="/teacher/grading/att-grade-01">Chấm bài ngay →</Link>
+                    <Link href="/teacher/submissions">Chấm bài ngay →</Link>
                   </Button>
                 </div>
               </div>

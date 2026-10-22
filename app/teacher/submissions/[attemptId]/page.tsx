@@ -29,8 +29,6 @@ import {
 import { cn } from "@/lib/utils"
 import { formatBand, formatDate, formatDurationHuman, isSuspiciouslyFast, formatDuration } from "@/lib/format"
 import type { AntiCheatEvent, AttemptResult } from "@/lib/api/types"
-import { DEMO_ANTI_CHEAT_EVENTS, DEMO_ATTEMPT_RESULT, DEMO_QUESTION_BANK, DEMO_PENDING_GRADING, DEMO_SUSPICIOUS_SUBMISSIONS } from "@/mocks/demo-data"
-import { USE_MOCKS } from "@/lib/api/config"
 import { ApiError } from "@/lib/api/client"
 import { useAttemptResultQuery, useAttemptEventsQuery } from "@/hooks/use-attempts"
 
@@ -88,43 +86,31 @@ export default function TeacherSubmissionDetailPage() {
   const params = useParams<{ attemptId: string }>()
   const attemptId = params.attemptId
 
-  const resultQuery = useAttemptResultQuery(attemptId, !USE_MOCKS)
-  const eventsQuery = useAttemptEventsQuery(attemptId, !USE_MOCKS)
+  const resultQuery = useAttemptResultQuery(attemptId)
+  const eventsQuery = useAttemptEventsQuery(attemptId)
 
   const [tab, setTab] = useQueryState("tab", parseAsString.withDefault("answers"))
   const [answerFilter, setAnswerFilter] = useQueryState("filter", parseAsString.withDefault("all"))
 
-  if (!USE_MOCKS) {
-    if (resultQuery.isLoading) return <DetailSkeleton />
-    if (resultQuery.isError) {
-      return (
-        <div className="mx-auto max-w-6xl space-y-6">
-          <QueryError error={resultQuery.error} onRetry={() => resultQuery.refetch()} />
-        </div>
-      )
-    }
+  if (resultQuery.isLoading) return <DetailSkeleton />
+  if (resultQuery.isError) {
+    return (
+      <div className="mx-auto max-w-6xl space-y-6">
+        <QueryError error={resultQuery.error} onRetry={() => resultQuery.refetch()} />
+      </div>
+    )
   }
 
-  const result: AttemptResult | undefined = USE_MOCKS ? DEMO_ATTEMPT_RESULT : resultQuery.data
+  const result: AttemptResult | undefined = resultQuery.data
   if (!result) return null
 
-  const events = USE_MOCKS
-    ? DEMO_ANTI_CHEAT_EVENTS
-    : (eventsQuery.data?.events ?? [])
-  const suspicious = USE_MOCKS
-    ? DEMO_ANTI_CHEAT_EVENTS.length >= 3
-    : (eventsQuery.data?.suspicious ?? false)
-  const eventsSummary = USE_MOCKS ? null : (eventsQuery.data?.summary ?? null)
+  const events = eventsQuery.data?.events ?? []
+  const suspicious = eventsQuery.data?.suspicious ?? false
+  const eventsSummary = eventsQuery.data?.summary ?? null
 
-  // Thông tin học sinh/đề/thời gian nộp: API result không trả về → bổ sung từ
-  // Thông tin học sinh/đề/thời gian nộp: lấy từ API result, fallback từ danh sách pending/suspicious
-  const submissionInfo = USE_MOCKS
-    ? (DEMO_PENDING_GRADING.find((p) => p.attemptId === attemptId) ??
-       DEMO_SUSPICIOUS_SUBMISSIONS.find((s) => s.attemptId === attemptId) ?? null)
-    : null
-  const studentName = result.studentName ?? submissionInfo?.studentName ?? "Học sinh"
-  const examTitle = result.examTitle ?? submissionInfo?.examTitle ?? "Bài thi"
-  const submittedAt = result.submittedAt ?? submissionInfo?.submittedAt ?? null
+  const studentName = result.studentName ?? "Học sinh"
+  const examTitle = result.examTitle ?? "Bài thi"
+  const submittedAt = result.submittedAt ?? null
   const startedAt = result.startedAt ?? null
 
   const durationSeconds =
@@ -140,7 +126,6 @@ export default function TeacherSubmissionDetailPage() {
 
   const isTooFast = isSuspiciouslyFast(durationSeconds, answered)
 
-  const promptById = new Map(DEMO_QUESTION_BANK.map((q) => [q.id, q.prompt]))
   const writingGraded = !!result.writingReview
 
   const filteredDetails = result.details.filter((d) => {
@@ -329,7 +314,7 @@ export default function TeacherSubmissionDetailPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">
-                        {promptById.get(d.questionId) ?? d.questionId}
+                        {d.questionNumber ? `Câu ${d.questionNumber}` : d.questionId}
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-muted-foreground">
@@ -361,7 +346,7 @@ export default function TeacherSubmissionDetailPage() {
         </TabsContent>
 
         <TabsContent value="log" className="space-y-4">
-          {!USE_MOCKS && eventsQuery.isLoading ? (
+          {eventsQuery.isLoading ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5">
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -370,7 +355,7 @@ export default function TeacherSubmissionDetailPage() {
               </div>
               <Skeleton className="h-64 w-full rounded-xl" />
             </div>
-          ) : !USE_MOCKS && eventsQuery.isError ? (
+          ) : eventsQuery.isError ? (
             <QueryError error={eventsQuery.error} onRetry={() => eventsQuery.refetch()} />
           ) : (
             <>

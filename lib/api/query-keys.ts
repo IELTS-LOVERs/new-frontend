@@ -48,6 +48,14 @@ export const queryKeys = {
     studentProgress: (studentId?: string) => ["analytics", "studentProgress", studentId] as const,
   },
   media: {
-    list: (type?: string) => ["media", "list", type] as const,
+    list: (type?: string, page?: number, limit?: number) =>
+      ["media", "list", type, page, limit] as const,
+  },
+  practice: {
+    all: ["practice"] as const,
+    catalog: (params?: Record<string, any>) => ["practice", "catalog", params] as const,
+    heatmap: (params?: Record<string, any>) => ["practice", "heatmap", params] as const,
+    weeklyReport: (classId: string, params?: Record<string, any>) =>
+      ["practice", "weeklyReport", classId, params] as const,
   },
 }
