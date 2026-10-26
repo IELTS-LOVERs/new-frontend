@@ -33,6 +33,7 @@ import {
 } from "@/hooks/use-media"
 import { useQueryClient } from "@tanstack/react-query"
 import type { MediaAsset } from "@/lib/api/types"
+import { compressImageFile } from "@/features/media/lib/compress-image"
 
 const MAX_SIZE = 100 * 1024 * 1024 // 100MB
 
@@ -41,6 +42,16 @@ function formatSize(bytes?: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+class UploadError extends Error {
+  constructor(
+    message: string,
+    readonly retryable = false
+  ) {
+    super(message)
+    this.name = "UploadError"
+  }
 }
 
 function uploadWithProgress(
@@ -58,18 +69,41 @@ function uploadWithProgress(
     }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve()
-      else reject(new Error(`Tải lên thất bại (HTTP ${xhr.status})`))
+      else
+        reject(
+          new UploadError(
+            `Tải lên thất bại (HTTP ${xhr.status})`,
+            xhr.status >= 500 || xhr.status === 429
+          )
+        )
     }
-    xhr.onerror = () => reject(new Error("Lỗi kết nối mạng khi tải lên"))
+    xhr.onerror = () =>
+      reject(new UploadError("Lỗi kết nối mạng khi tải lên", true))
     xhr.send(file)
   })
+}
+
+/** #11: one retry for transient network/5xx failures. */
+async function uploadWithRetry(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress: (pct: number) => void
+): Promise<void> {
+  try {
+    await uploadWithProgress(url, file, contentType, onProgress)
+  } catch (error) {
+    if (!(error instanceof UploadError) || !error.retryable) throw error
+    onProgress(0)
+    await uploadWithProgress(url, file, contentType, onProgress)
+  }
 }
 
 interface UploadingState {
   name: string
   size: number
   progress: number
-  status: "presigning" | "uploading" | "confirming"
+  status: "compressing" | "presigning" | "uploading" | "confirming"
 }
 
 interface MediaPickerProps {
@@ -188,28 +222,45 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
     }
 
     const fileKind: "audio" | "image" = isAudio ? "audio" : "image"
-    const validMime = isAudio
-      ? (file.name.endsWith(".wav") ? ("audio/wav" as const) : ("audio/mpeg" as const))
-      : (file.name.endsWith(".png") ? ("image/png" as const) : ("image/jpeg" as const))
 
     setUploadingState({
       name: file.name,
       size: file.size,
       progress: 0,
-      status: "presigning",
+      status: isImage ? "compressing" : "presigning",
     })
 
     try {
-      setUploadingState((prev) => (prev ? { ...prev, status: "presigning" } : null))
+      // #11: resize/compress photos before presigning so uploads are faster.
+      // The helper falls back to the original file on any failure.
+      const uploadFile = isImage ? await compressImageFile(file) : file
+      const validMime = isAudio
+        ? /\.wav$/i.test(uploadFile.name)
+          ? ("audio/wav" as const)
+          : ("audio/mpeg" as const)
+        : uploadFile.type === "image/png"
+          ? ("image/png" as const)
+          : ("image/jpeg" as const)
+
+      setUploadingState((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: uploadFile.name,
+              size: uploadFile.size,
+              status: "presigning",
+            }
+          : null
+      )
       const presign = await presignMutation.mutateAsync({
-        filename: file.name,
+        filename: uploadFile.name,
         mimeType: validMime,
         type: fileKind,
-        size: file.size,
+        size: uploadFile.size,
       })
 
       setUploadingState((prev) => (prev ? { ...prev, status: "uploading" } : null))
-      await uploadWithProgress(presign.uploadUrl, file, validMime, (pct) => {
+      await uploadWithRetry(presign.uploadUrl, uploadFile, validMime, (pct) => {
         setUploadingState((prev) => (prev ? { ...prev, progress: pct } : null))
       })
 
@@ -220,10 +271,10 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
         id: presign.mediaId,
         url: presign.publicUrl,
         type: fileKind,
-        originalName: file.name,
+        originalName: uploadFile.name,
         mimeType: validMime,
-        size: file.size,
-        sizeLabel: formatSize(file.size),
+        size: uploadFile.size,
+        sizeLabel: formatSize(uploadFile.size),
         uploadedAt: new Date().toISOString(),
         usageCount: 0,
         status: "ready",
@@ -235,7 +286,7 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
       // background. Do not block the "upload complete" state on refetching the
       // whole library (which signs up to 100 preview URLs).
       void queryClient.invalidateQueries({ queryKey: ["media"] })
-      toast.success(`Đã tải lên tệp: ${file.name}`)
+      toast.success(`Đã tải lên tệp: ${uploadFile.name}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Tải lên thất bại"
       toast.error(msg)
@@ -381,7 +432,9 @@ function MediaPickerBody({ open, onOpenChange, type = "all", onSelect }: MediaPi
                     </span>
                   </div>
                   <span className="font-semibold text-primary shrink-0 text-[11px]">
-                    {uploadingState.status === "presigning"
+                    {uploadingState.status === "compressing"
+                      ? "Đang tối ưu ảnh…"
+                      : uploadingState.status === "presigning"
                       ? "Chuẩn bị..."
                       : uploadingState.status === "confirming"
                       ? "Xác thực..."

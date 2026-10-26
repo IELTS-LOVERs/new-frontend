@@ -62,6 +62,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@/lib/api/client"
 import { RichText } from "@/features/exam-engine/components/rich-text"
+import { RichDocView } from "@/features/rich-text/render"
 import {
   useQuestionsQuery,
   useCreateQuestionMutation,
@@ -93,9 +94,11 @@ function groupToPayload(group: BankQuestionGroup): CreateBankGroupPayload {
     part: group.part,
     groupType: group.groupType,
     instructions: group.instructions ?? "",
+    instructionsDoc: group.instructionsDoc ?? undefined,
     config: group.config ?? {},
     questions: (group.questions ?? []).map((q) => ({
       prompt: q.prompt ?? "",
+      promptDoc: q.promptDoc ?? undefined,
       acceptedAnswers: q.acceptedAnswers ?? [],
       points: q.points ?? 1,
       explanation: q.explanation ?? undefined,
@@ -110,10 +113,17 @@ function GroupPreview({ group }: { group: BankQuestionGroup }) {
       <Badge variant="secondary" className="font-medium">
         {QUESTION_GROUP_TYPE_LABEL[group.groupType] || group.groupType}
       </Badge>
-      {group.instructions && (
-        <p className="whitespace-pre-line rounded-lg border border-border bg-muted/20 p-3 text-sm leading-relaxed">
-          <RichText text={group.instructions} />
-        </p>
+      {group.instructionsDoc ? (
+        <RichDocView
+          doc={group.instructionsDoc}
+          className="rounded-lg border border-border bg-muted/20 p-3 text-sm"
+        />
+      ) : (
+        group.instructions && (
+          <p className="whitespace-pre-line rounded-lg border border-border bg-muted/20 p-3 text-sm leading-relaxed">
+            <RichText text={group.instructions} />
+          </p>
+        )
       )}
       <div className="space-y-2">
         {group.questions.map((q, index) => (

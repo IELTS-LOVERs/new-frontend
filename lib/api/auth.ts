@@ -5,6 +5,8 @@ import type { User } from "./types"
 export interface LoginResponse {
   user: User
   accessToken: string
+  /** True when this login kicked another device's session (single-device roles). */
+  sessionReplaced?: boolean
 }
 
 export interface RegisterPayload {

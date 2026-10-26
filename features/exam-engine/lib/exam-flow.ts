@@ -11,6 +11,7 @@ import type {
   CandidateQuestionItem,
   CandidateSection,
   MediaItem,
+  RichDoc,
 } from "@/lib/api/types"
 
 export type BlankAnswers = Record<
@@ -68,6 +69,7 @@ export function buildExamQuestionIndex(exam: CandidateExam): IndexedExamQuestion
 export interface WritingQuestionView {
   id: string
   prompt: string
+  promptDoc?: RichDoc | null
   content?: string
   media?: MediaItem[]
 }
@@ -83,6 +85,7 @@ export function findWritingQuestion(
   return {
     id: q.id,
     prompt: q.prompt,
+    promptDoc: q.promptDoc ?? null,
     content: group?.instructions || undefined,
     // Group-level image (e.g. Task 1 chart) first, then per-question media.
     media: [...(group?.media ?? []), ...(q.media ?? [])],

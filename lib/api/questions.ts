@@ -3,6 +3,7 @@ import type {
   BankQuestionGroup,
   QuestionGroupConfig,
   QuestionGroupType,
+  RichDoc,
   SkillType,
 } from "./types"
 import type { PaginatedMeta } from "./assignments"
@@ -47,6 +48,7 @@ export async function getQuestionDetailApi(id: string, scope?: "all"): Promise<B
 
 export interface BankQuestionItemPayload {
   prompt: string
+  promptDoc?: RichDoc | null
   acceptedAnswers?: string[]
   points?: number
   explanation?: string
@@ -58,6 +60,7 @@ export interface CreateBankGroupPayload {
   part: number
   groupType: QuestionGroupType
   instructions: string
+  instructionsDoc?: RichDoc | null
   config: QuestionGroupConfig
   questions: BankQuestionItemPayload[]
 }

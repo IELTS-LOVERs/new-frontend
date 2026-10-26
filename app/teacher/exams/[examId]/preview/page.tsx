@@ -22,14 +22,16 @@ import {
 import { cn } from "@/lib/utils"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { RichText } from "@/features/exam-engine/components/rich-text"
+import { RichDocView } from "@/features/rich-text/render"
 import { ApiError } from "@/lib/api/client"
 import { useTeacherExamDetailQuery } from "@/hooks/use-exams"
-import type { MediaItem, SkillType } from "@/lib/api/types"
+import type { MediaItem, RichDoc, SkillType } from "@/lib/api/types"
 
 interface PreviewQuestion {
   id: string
   type: string
   prompt: string
+  promptDoc?: RichDoc | null
   part?: number
   data?: Record<string, unknown>
   acceptedAnswers?: string[]
@@ -40,7 +42,9 @@ interface PreviewSection {
   part: number
   title: string
   instructions?: string | null
+  instructionsDoc?: RichDoc | null
   passageText?: string | null
+  passageDoc?: RichDoc | null
   mediaIds?: string[]
   media?: Array<{ id: string; url: string; type: string; originalName?: string }>
   questionGroups?: Array<{ id: string; groupType: string; media?: MediaItem[] }>
@@ -52,7 +56,12 @@ function flattenGroupsToPreviewQuestions(section: {
   questionGroups?: Array<{
     groupType: string
     config?: Record<string, unknown>
-    questions?: Array<{ id: string; prompt: string; acceptedAnswers?: string[] }>
+    questions?: Array<{
+      id: string
+      prompt: string
+      promptDoc?: RichDoc | null
+      acceptedAnswers?: string[]
+    }>
   }>
 }): PreviewQuestion[] {
   return (section.questionGroups ?? []).flatMap((g) =>
@@ -60,6 +69,7 @@ function flattenGroupsToPreviewQuestions(section: {
       id: q.id,
       type: g.groupType,
       prompt: q.prompt,
+      promptDoc: q.promptDoc ?? null,
       data: (g.config ?? {}) as Record<string, unknown>,
       acceptedAnswers: q.acceptedAnswers ?? [],
     }))
@@ -245,21 +255,35 @@ export default function ExamPreviewPage() {
           </div>
         )}
 
-        {current.skill === "reading" && current.passageText && (
+        {current.skill === "reading" && (current.passageText || current.passageDoc) && (
           <div className="rounded-2xl border border-border bg-card p-6">
             <Badge variant="outline" className="mb-3 text-primary">{current.title}</Badge>
-            <div className="prose prose-sm max-w-none whitespace-pre-line font-serif text-sm leading-[1.8] text-foreground/90">
-              <RichText text={current.passageText} />
-            </div>
+            {current.passageDoc ? (
+              <RichDocView
+                doc={current.passageDoc}
+                className="font-serif text-sm text-foreground/90"
+              />
+            ) : (
+              <div className="prose prose-sm max-w-none whitespace-pre-line font-serif text-sm leading-[1.8] text-foreground/90">
+                <RichText text={current.passageText} />
+              </div>
+            )}
           </div>
         )}
 
         {current.skill === "writing" && current.questions[0] && (
           <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
             <p className="text-xs font-semibold uppercase tracking-wider text-primary">Đề bài</p>
-            <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">
-              <RichText text={current.questions[0].prompt} />
-            </p>
+            {current.questions[0].promptDoc ? (
+              <RichDocView
+                doc={current.questions[0].promptDoc}
+                className="mt-2 text-sm text-foreground"
+              />
+            ) : (
+              <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">
+                <RichText text={current.questions[0].prompt} />
+              </p>
+            )}
           </div>
         )}
 
@@ -299,8 +323,15 @@ export default function ExamPreviewPage() {
             <h3 className="font-heading text-sm font-bold text-foreground">
               Questions 1–{current.questions.length}
             </h3>
-            {current.instructions && (
-              <p className="text-xs text-muted-foreground"><RichText text={current.instructions} /></p>
+            {current.instructionsDoc ? (
+              <RichDocView
+                doc={current.instructionsDoc}
+                className="text-xs text-muted-foreground"
+              />
+            ) : (
+              current.instructions && (
+                <p className="text-xs text-muted-foreground"><RichText text={current.instructions} /></p>
+              )
             )}
           </div>
 

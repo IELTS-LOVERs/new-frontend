@@ -2,13 +2,14 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { parseAsString, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ExamStatusBadge, AssignmentStatusBadge } from "@/components/shared/status-badge"
 import { BarChart, HBarChart } from "@/components/shared/charts"
 import { AssignDialog } from "@/components/shared/assign-dialog"
+import { EditExamButton } from "@/components/shared/edit-exam-button"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -23,10 +24,22 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { toast } from "sonner"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Book02Icon,
   Clock01Icon,
+  Delete02Icon,
   EyeIcon,
   HeadphonesIcon,
   MusicNote01Icon,
@@ -37,7 +50,11 @@ import {
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@/lib/api/client"
-import { useTeacherExamDetailQuery } from "@/hooks/use-exams"
+import {
+  useDeleteExamMutation,
+  useReopenExamMutation,
+  useTeacherExamDetailQuery,
+} from "@/hooks/use-exams"
 import { useTeacherAssignmentsQuery } from "@/hooks/use-assignments"
 import { useExamAnalyticsQuery } from "@/hooks/use-analytics"
 import { RichText } from "@/features/exam-engine/components/rich-text"
@@ -56,8 +73,12 @@ export default function TeacherExamDetailPage() {
   const examId = params.examId
   const [tab, setTab] = useQueryState("tab", parseAsString.withDefault("overview"))
   const [assignOpen, setAssignOpen] = React.useState(false)
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
+  const router = useRouter()
 
   const examQuery = useTeacherExamDetailQuery(examId)
+  const reopenMutation = useReopenExamMutation(examId)
+  const deleteMutation = useDeleteExamMutation()
   // TODO(G3): GET /api/assignments chưa hỗ trợ filter examId — lấy tất cả rồi lọc client.
   // Gỡ fallback khi backend thêm filter examId.
   const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 100 })
@@ -85,6 +106,29 @@ export default function TeacherExamDetailPage() {
 
   const isLoading = examQuery.isLoading
   const isError = examQuery.isError
+
+  const handleReopen = async () => {
+    try {
+      const result = await reopenMutation.mutateAsync()
+      toast.success("Đã mở lại đề thi")
+      if (result.clearedCloseAt) {
+        toast.info("Thời gian đóng đã qua nên đã được xoá. Đề hiện đang mở.")
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Không thể mở lại đề.")
+    }
+  }
+
+  const handleDelete = async () => {
+    try {
+      await deleteMutation.mutateAsync(examId)
+      setDeleteOpen(false)
+      toast.success("Đã xoá đề thi")
+      router.push(exam?.kind === "practice" ? "/teacher/practices" : "/teacher/exams")
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Không thể xoá đề.")
+    }
+  }
 
   if (isLoading) {
     return (
@@ -167,21 +211,46 @@ export default function TeacherExamDetailPage() {
                   <HugeiconsIcon icon={PencilEdit02Icon} size={15} /> Soạn tiếp
                 </Link>
               </Button>
-            ) : exam.kind === "practice" ? (
-              <Button variant="outline" size="sm" className="gap-1.5 font-semibold" asChild>
-                <Link href={`/teacher/exams/${examId}/edit`}>
-                  <HugeiconsIcon icon={PencilEdit02Icon} size={15} /> Học liệu
-                </Link>
-              </Button>
             ) : (
+              <EditExamButton
+                examId={examId}
+                status={exam.status}
+                hasAttempts={exam.hasAttempts}
+                hasAssignments={exam.hasAssignments}
+                variant="default"
+                size="sm"
+                className="gap-1.5 font-semibold"
+              />
+            )}
+            {exam.status === "closed" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 font-semibold"
+                onClick={handleReopen}
+                isLoading={reopenMutation.isPending}
+              >
+                <HugeiconsIcon icon={RefreshIcon} size={15} /> Mở lại
+              </Button>
+            )}
+            {exam.status === "published" && exam.kind !== "practice" && (
               <Button
                 variant="default"
                 size="sm"
                 className="gap-1.5 font-semibold"
                 onClick={() => setAssignOpen(true)}
-                disabled={exam.status === "closed"}
               >
                 <HugeiconsIcon icon={Task01Icon} size={15} /> Giao bài
+              </Button>
+            )}
+            {exam.status !== "published" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <HugeiconsIcon icon={Delete02Icon} size={15} /> Xoá
               </Button>
             )}
           </>
@@ -519,6 +588,45 @@ export default function TeacherExamDetailPage() {
       </Tabs>
 
       <AssignDialog open={assignOpen} onOpenChange={setAssignOpen} initialExamId={examId} />
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xoá đề thi?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p>
+                  Đề &quot;{exam.title}&quot; sẽ bị xoá vĩnh viễn cùng toàn bộ phần
+                  thi và câu hỏi. Hành động này không thể hoàn tác.
+                </p>
+                {exam.hasAttempts && (
+                  <p className="font-medium text-destructive">
+                    Đề đã có học sinh làm bài nên sẽ không thể xoá.
+                  </p>
+                )}
+                {!exam.hasAttempts && exam.hasAssignments && (
+                  <p className="font-medium text-destructive">
+                    Đề đã được giao cho lớp nên sẽ không thể xoá.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Huỷ</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void handleDelete()
+              }}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? "Đang xoá…" : "Xoá vĩnh viễn"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

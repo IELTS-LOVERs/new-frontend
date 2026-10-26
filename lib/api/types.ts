@@ -101,6 +101,27 @@ export type QuestionType =
   | "writing_task_1"
   | "writing_task_2"
 
+// === Rich text (ProseMirror/TipTap JSON) ===
+// Persisted alongside the legacy plain-text fields. Older exams have no doc and
+// keep rendering through the marker-based renderer.
+export interface RichTextMarkJSON {
+  type: string
+  attrs?: Record<string, unknown>
+}
+
+export interface RichTextNodeJSON {
+  type: string
+  attrs?: Record<string, unknown>
+  content?: RichTextNodeJSON[]
+  marks?: RichTextMarkJSON[]
+  text?: string
+}
+
+export interface RichDoc {
+  type: "doc"
+  content?: RichTextNodeJSON[]
+}
+
 export type QuestionGroupType =
   | "multiple_choice_single"
   | "multiple_choice_multiple"
@@ -129,6 +150,8 @@ export interface Question {
   type: QuestionType
   part: number
   prompt: string
+  /** Rich-text JSON for the prompt (teacher-authored). */
+  promptDoc?: RichDoc | null
   content?: string | null
   data?: Record<string, any>
   acceptedAnswers?: string[]
@@ -155,6 +178,7 @@ export interface QuestionItem {
   id: string
   questionNumber: number
   prompt: string
+  promptDoc?: RichDoc | null
   acceptedAnswers?: string[]
   points?: number
   explanation?: string | null
@@ -175,6 +199,8 @@ export interface QuestionGroupConfig {
   allowNumbers?: boolean
   wordLimitText?: string
   optionsPool?: Array<{ id: string; text: string }>
+  /** #14: when false, a summary answer can only be chosen once. */
+  allowChangeAnswer?: boolean
   imageMediaId?: string
   labels?: Array<{ id: string; label: string; xPercent?: number; yPercent?: number }>
   minWords?: number
@@ -193,6 +219,8 @@ export interface QuestionGroup {
   id: string
   groupType: QuestionGroupType
   instructions: string
+  /** Rich-text JSON for the group instructions. */
+  instructionsDoc?: RichDoc | null
   config: QuestionGroupConfig
   /** Resolved group-level image (config.imageMediaId) with a presigned URL. */
   media?: MediaItem[]
@@ -206,6 +234,7 @@ export interface QuestionGroup {
 export interface BankQuestionItem {
   id: string
   prompt: string
+  promptDoc?: RichDoc | null
   acceptedAnswers?: string[]
   points?: number
   explanation?: string | null
@@ -219,6 +248,7 @@ export interface BankQuestionGroup {
   part: number
   groupType: QuestionGroupType
   instructions: string
+  instructionsDoc?: RichDoc | null
   config: QuestionGroupConfig
   questions: BankQuestionItem[]
   questionCount?: number
@@ -233,6 +263,7 @@ export interface CandidateQuestionItem {
   id: string
   questionNumber: number
   prompt: string
+  promptDoc?: RichDoc | null
   points?: number
   mediaIds?: string[]
   media?: MediaItem[]
@@ -242,6 +273,7 @@ export interface CandidateQuestionGroup {
   id: string
   groupType: QuestionGroupType
   instructions: string
+  instructionsDoc?: RichDoc | null
   config: QuestionGroupConfig
   /** Resolved group-level image (config.imageMediaId) with a presigned URL. */
   media?: MediaItem[]
@@ -254,7 +286,9 @@ export interface CandidateSection {
   part: number
   title: string
   instructions?: string | null
+  instructionsDoc?: RichDoc | null
   passageText?: string | null
+  passageDoc?: RichDoc | null
   transcript?: string | null
   mediaIds?: string[]
   media?: MediaItem[]

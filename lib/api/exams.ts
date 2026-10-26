@@ -12,6 +12,7 @@ import type {
   BandThreshold,
   IExamCurriculum,
   IExamPostSubmissionResources,
+  RichDoc,
 } from "./types"
 import type { PaginatedMeta } from "./assignments"
 
@@ -44,6 +45,7 @@ export interface QuestionItemPayload {
   _id?: string
   questionNumber: number
   prompt: string
+  promptDoc?: RichDoc | null
   acceptedAnswers?: string[]
   points?: number
   explanation?: string
@@ -54,6 +56,7 @@ export interface QuestionGroupPayload {
   _id?: string
   groupType: QuestionGroupType
   instructions?: string
+  instructionsDoc?: RichDoc | null
   config?: QuestionGroupConfig
   questions?: QuestionItemPayload[]
 }
@@ -64,7 +67,9 @@ export interface CreateExamSectionPayload {
   part: number
   title?: string
   instructions?: string
+  instructionsDoc?: RichDoc | null
   passageText?: string
+  passageDoc?: RichDoc | null
   transcript?: string
   mediaIds?: string[]
   questionGroups?: QuestionGroupPayload[]
@@ -161,6 +166,26 @@ export async function closeExamApi(id: string): Promise<{ id: string; status: st
   return data
 }
 
+export async function reopenExamApi(
+  id: string
+): Promise<{ id: string; status: string; clearedCloseAt?: boolean }> {
+  const { data } = await apiClient<{ id: string; status: string; clearedCloseAt?: boolean }>(
+    `/api/exams/${id}/reopen`,
+    { method: "PATCH" }
+  )
+  return data
+}
+
+export async function convertExamToDraftApi(
+  id: string
+): Promise<{ id: string; status: "draft" }> {
+  const { data } = await apiClient<{ id: string; status: "draft" }>(
+    `/api/exams/${id}/to-draft`,
+    { method: "PATCH" }
+  )
+  return data
+}
+
 export async function migrateExamApi(
   id: string
 ): Promise<{ id: string; message: string; migratedSections: number }> {
@@ -177,6 +202,7 @@ export interface TeacherQuestionItem {
   id: string
   questionNumber: number
   prompt: string
+  promptDoc?: RichDoc | null
   acceptedAnswers: string[]
   points: number
   explanation?: string | null
@@ -187,6 +213,7 @@ export interface TeacherQuestionGroup {
   id: string
   groupType: QuestionGroupType
   instructions: string
+  instructionsDoc?: RichDoc | null
   config: QuestionGroupConfig
   /** Resolved group-level image (config.imageMediaId) with a presigned URL. */
   media?: MediaItem[]
@@ -199,7 +226,9 @@ export interface TeacherExamSection {
   part: number
   title: string
   instructions?: string | null
+  instructionsDoc?: RichDoc | null
   passageText?: string | null
+  passageDoc?: RichDoc | null
   transcript?: string | null
   mediaIds?: string[]
   media?: MediaItem[]
@@ -227,6 +256,10 @@ export interface TeacherExamDetail {
   sections: TeacherExamSection[]
   openAt?: string | null
   closeAt?: string | null
+  /** Teacher view: true when at least one student has attempted this exam. */
+  hasAttempts?: boolean
+  /** Teacher view: true when the exam is assigned to at least one class. */
+  hasAssignments?: boolean
 }
 
 export async function getTeacherExamDetailApi(examId: string): Promise<TeacherExamDetail> {

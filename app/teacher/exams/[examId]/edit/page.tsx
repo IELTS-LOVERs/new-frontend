@@ -56,8 +56,11 @@ import {
   EyeIcon,
   HeadphonesIcon,
   Image01Icon,
+  MaximizeScreenIcon,
+  MinimizeScreenIcon,
   MusicNote01Icon,
   PenTool01Icon,
+  PencilEdit02Icon,
   RefreshIcon,
   Search01Icon,
   SparklesIcon,
@@ -74,7 +77,7 @@ import {
   useUpdateExamMutation,
   useUpdateExamMetadataMutation,
   usePublishExamMutation,
-  useUnpublishExamMutation,
+  useConvertExamToDraftMutation,
   useCloneExamMutation,
 } from "@/hooks/use-exams"
 import { useQuestionsQuery, useCreateQuestionMutation } from "@/hooks/use-questions"
@@ -108,6 +111,9 @@ import { ExamCurriculumDialog } from "@/features/exams/components/exam-curriculu
 import { ExamResourcesDialog } from "@/features/exams/components/exam-resources-dialog"
 import { RichTextFormatBar } from "@/features/exam-engine/components/rich-text-format-bar"
 import { RichText } from "@/features/exam-engine/components/rich-text"
+import { RichTextEditor } from "@/features/rich-text/lazy-editor"
+import { RichDocView } from "@/features/rich-text/render"
+import { RICH_EDITOR_ENABLED } from "@/features/rich-text/feature-flag"
 import { MediaPicker } from "@/components/shared/media-picker"
 import { AssignDialog } from "@/components/shared/assign-dialog"
 
@@ -274,12 +280,14 @@ function toLocalExam(detail: TeacherExamDetail): CandidateExam {
         id: g.id,
         groupType: g.groupType,
         instructions: g.instructions,
+        instructionsDoc: g.instructionsDoc ?? null,
         config: g.config as any,
         media: g.media ?? [],
         questions: g.questions.map((q) => ({
           id: q.id,
           questionNumber: q.questionNumber,
           prompt: q.prompt,
+          promptDoc: q.promptDoc ?? null,
           points: q.points,
           acceptedAnswers: (q as any).acceptedAnswers ?? [],
           explanation: (q as any).explanation ?? undefined,
@@ -292,7 +300,9 @@ function toLocalExam(detail: TeacherExamDetail): CandidateExam {
         part: s.part,
         title: s.title,
         instructions: s.instructions ?? "",
+        instructionsDoc: s.instructionsDoc ?? null,
         passageText: s.passageText ?? "",
+        passageDoc: s.passageDoc ?? null,
         transcript: s.transcript ?? "",
         mediaIds: s.mediaIds ?? [],
         media: s.media ?? [],
@@ -319,7 +329,9 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
     part: s.part,
     title: s.title,
     instructions: s.instructions ?? "",
+    instructionsDoc: s.instructionsDoc ?? undefined,
     passageText: s.skill === "reading" ? (s.passageText ?? "") : undefined,
+    passageDoc: s.skill === "reading" ? (s.passageDoc ?? undefined) : undefined,
     transcript: s.skill === "listening" ? (s.transcript ?? "") : undefined,
     // Prefer media picked in this session; otherwise fall back to the persisted
     // mediaIds. The teacher detail endpoint does not hydrate `media` objects,
@@ -330,6 +342,7 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
       _id: isValidObjectId(g.id) ? g.id : undefined,
       groupType: g.groupType,
       instructions: g.instructions ?? "",
+      instructionsDoc: g.instructionsDoc ?? undefined,
       config: g.config ?? {},
       questions: g.questions.map(
         (q) =>
@@ -337,6 +350,7 @@ function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
             _id: isValidObjectId(q.id) ? q.id : undefined,
             questionNumber: q.questionNumber,
             prompt: q.prompt ?? "",
+            promptDoc: q.promptDoc ?? undefined,
             acceptedAnswers: (q as any).acceptedAnswers ?? [],
             points: q.points ?? 1,
             explanation: (q as any).explanation ?? undefined,
@@ -377,7 +391,7 @@ export default function ExamBuilderPage() {
   const updateMutation = useUpdateExamMutation(examId)
   const updateMetadataMutation = useUpdateExamMetadataMutation(examId)
   const publishMutation = usePublishExamMutation(examId)
-  const unpublishMutation = useUnpublishExamMutation(examId)
+  const convertToDraftMutation = useConvertExamToDraftMutation(examId)
   const cloneMutation = useCloneExamMutation()
   const createQuestionMutation = useCreateQuestionMutation()
 
@@ -390,6 +404,7 @@ export default function ExamBuilderPage() {
   const [saveStatus, setSaveStatus] = React.useState<"saved" | "saving" | "error">("saved")
   const [lastSavedAt, setLastSavedAt] = React.useState<Date | null>(null)
   const [hasAttemptsError, setHasAttemptsError] = React.useState(false)
+  const [cloneDialogOpen, setCloneDialogOpen] = React.useState(false)
 
   const [bankOpen, setBankOpen] = React.useState(false)
   const [mediaPickerOpen, setMediaPickerOpen] = React.useState(false)
@@ -400,6 +415,7 @@ export default function ExamBuilderPage() {
   const [successOpen, setSuccessOpen] = React.useState(false)
   const [assignOpen, setAssignOpen] = React.useState(false)
   const [passagePreview, setPassagePreview] = React.useState(false)
+  const [focusMode, setFocusMode] = React.useState(false)
   const [dragIndex, setDragIndex] = React.useState<number | null>(null)
   const [dropTarget, setDropTarget] = React.useState<{
     index: number
@@ -431,6 +447,21 @@ export default function ExamBuilderPage() {
       setCloseAt(toLocalInputValue(examQuery.data.closeAt))
     }
   }, [examQuery.data, examId])
+
+  // Focus mode: lock background scroll and allow Esc to exit.
+  React.useEffect(() => {
+    if (!focusMode) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFocusMode(false)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener("keydown", onKeyDown)
+    }
+  }, [focusMode])
 
   // Keep the debounced autosave in sync with the latest state after every render.
   React.useEffect(() => {
@@ -668,6 +699,7 @@ export default function ExamBuilderPage() {
           id: createClientId("from-bank-q"),
           questionNumber: maxNumber,
           prompt: item.prompt ?? "",
+          promptDoc: item.promptDoc ?? null,
           acceptedAnswers: item.acceptedAnswers ?? [],
           points: item.points ?? 1,
           explanation: item.explanation ?? undefined,
@@ -678,6 +710,7 @@ export default function ExamBuilderPage() {
         id: createClientId("from-bank"),
         groupType: bankGroup.groupType,
         instructions: bankGroup.instructions ?? "",
+        instructionsDoc: bankGroup.instructionsDoc ?? null,
         config: (bankGroup.config ?? {}) as Record<string, unknown>,
         questions,
       } as unknown as CandidateQuestionGroup
@@ -704,9 +737,11 @@ export default function ExamBuilderPage() {
         part: active.part,
         groupType: group.groupType,
         instructions: group.instructions ?? "",
+        instructionsDoc: group.instructionsDoc ?? undefined,
         config: (group.config ?? {}) as Record<string, unknown>,
         questions: group.questions.map((q) => ({
           prompt: q.prompt ?? "",
+          promptDoc: q.promptDoc ?? undefined,
           acceptedAnswers: (q as QuestionItem).acceptedAnswers ?? [],
           points: q.points ?? 1,
           explanation: (q as QuestionItem).explanation ?? undefined,
@@ -1016,20 +1051,22 @@ export default function ExamBuilderPage() {
     }
   }
 
-  const handleUnpublish = async () => {
+  // #17: published/closed → draft via a dedicated endpoint. Blocked when the
+  // exam already has attempts, in which case we offer a clone instead.
+  const handleEdit = async () => {
     try {
-      await unpublishMutation.mutateAsync()
+      await convertToDraftMutation.mutateAsync()
       setStatus("draft")
       setHasAttemptsError(false)
-      toast.success("Đã hủy xuất bản, đề chuyển về nháp")
+      toast.success("Đã chuyển đề về nháp. Bạn có thể chỉnh sửa nội dung.")
       hydratedFor.current = null
       await examQuery.refetch()
     } catch (err) {
       if (err instanceof ApiError && err.code === "EXAM_HAS_ATTEMPTS") {
         setHasAttemptsError(true)
-        toast.error("Đã có học sinh làm đề này, không thể hủy xuất bản. Hãy nhân bản.")
+        setCloneDialogOpen(true)
       } else {
-        toast.error(err instanceof ApiError ? err.message : "Không thể hủy xuất bản.")
+        toast.error(err instanceof ApiError ? err.message : "Không thể chuyển đề về nháp.")
       }
     }
   }
@@ -1039,6 +1076,7 @@ export default function ExamBuilderPage() {
   const handleClone = async () => {
     try {
       const cloned = await cloneMutation.mutateAsync(examId)
+      setCloneDialogOpen(false)
       toast.success("Đã nhân bản đề thi", { description: "Đang mở bản sao ở chế độ chỉnh sửa." })
       router.push(`/teacher/exams/${cloned.id}/edit`)
     } catch (err) {
@@ -1109,9 +1147,23 @@ export default function ExamBuilderPage() {
     deleteTargetIndex !== null ? exam.sections[deleteTargetIndex] : undefined
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] flex-col">
+    <div
+      className={cn(
+        "flex flex-col",
+        focusMode
+          ? "fixed inset-0 z-50 min-h-0 overflow-y-auto bg-background p-4 sm:p-6 lg:p-8"
+          : "min-h-[calc(100vh-4rem)]"
+      )}
+    >
       {/* Header */}
-      <div className="sticky top-16 z-10 -mx-8 -mt-8 flex flex-col gap-3 border-b border-border bg-background/95 px-8 py-3 backdrop-blur-md lg:flex-row lg:items-center lg:justify-between">
+      <div
+        className={cn(
+          "flex flex-col gap-3 border-b border-border bg-background/95 py-3 backdrop-blur-md lg:flex-row lg:items-center lg:justify-between",
+          focusMode
+            ? "sticky top-0 z-30 -mx-4 -mt-4 mb-4 px-4 sm:-mx-6 sm:-mt-6 sm:px-6 lg:-mx-8 lg:-mt-8 lg:px-8"
+            : "-mx-8 -mt-8 px-8"
+        )}
+      >
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="icon-sm" asChild>
             <Link href={exam.kind === "practice" ? "/teacher/practices" : "/teacher/exams"}>
@@ -1158,7 +1210,28 @@ export default function ExamBuilderPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {focusMode && (
+            <RichTextFormatBar
+              containerRef={workspaceRef}
+              disabled={examReadonly}
+            />
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setFocusMode((value) => !value)}
+            title={focusMode ? "Thoát chế độ toàn màn hình (Esc)" : "Bật chế độ toàn màn hình"}
+          >
+            <HugeiconsIcon
+              icon={focusMode ? MinimizeScreenIcon : MaximizeScreenIcon}
+              size={15}
+            />
+            <span className="hidden sm:inline">
+              {focusMode ? "Thoát toàn màn hình" : "Toàn màn hình"}
+            </span>
+          </Button>
           {exam.kind === "practice" && (
             <Button
               variant="outline"
@@ -1227,10 +1300,13 @@ export default function ExamBuilderPage() {
               ) : (
                 <>
                   <p className="text-sm font-semibold text-foreground">
-                    Đề đang xuất bản nên cấu trúc đang bị khóa
+                    {status === "closed"
+                      ? "Đề đã đóng nên cấu trúc đang bị khóa"
+                      : "Đề đang xuất bản nên cấu trúc đang bị khóa"}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Cho phép sửa Tên đề & Mô tả. Cấu trúc câu hỏi bị khóa để bảo toàn kết quả thi.
+                    Cho phép sửa Tên đề & Mô tả. Bấm “Sửa” để chuyển đề về nháp và
+                    chỉnh sửa toàn bộ nội dung.
                   </p>
                 </>
               )}
@@ -1241,16 +1317,17 @@ export default function ExamBuilderPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleUnpublish}
-                disabled={unpublishMutation.isPending}
+                onClick={handleEdit}
+                disabled={convertToDraftMutation.isPending}
               >
-                {unpublishMutation.isPending ? "Đang hủy…" : "Hủy xuất bản để sửa"}
+                <HugeiconsIcon icon={PencilEdit02Icon} size={14} className="mr-1" />
+                {convertToDraftMutation.isPending ? "Đang chuyển…" : "Sửa"}
               </Button>
             )}
             <Button
               size="sm"
               className="gap-1.5"
-              onClick={handleClone}
+              onClick={() => setCloneDialogOpen(true)}
               disabled={cloneMutation.isPending}
             >
               <HugeiconsIcon icon={Copy01Icon} size={14} />
@@ -1423,6 +1500,17 @@ export default function ExamBuilderPage() {
 
         {/* Workspace */}
         <div ref={workspaceRef} className="min-w-0 space-y-4">
+          {!focusMode && (
+            <div className="sticky top-14 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/95 px-3 py-2 shadow-xs backdrop-blur-md">
+              <RichTextFormatBar
+                containerRef={workspaceRef}
+                disabled={examReadonly}
+              />
+              <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">
+                Bôi đen chữ trong ô soạn thảo rồi bấm định dạng
+              </span>
+            </div>
+          )}
           {!active ? (
             <Card className="border-dashed border-border shadow-none">
               <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
@@ -1443,10 +1531,6 @@ export default function ExamBuilderPage() {
                     </CardTitle>
                   </div>
                   <div className="flex items-center gap-2">
-                    <RichTextFormatBar
-                      containerRef={workspaceRef}
-                      disabled={examReadonly}
-                    />
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -1471,14 +1555,33 @@ export default function ExamBuilderPage() {
 
                   <div className="space-y-1.5">
                     <Label className="text-xs">Hướng dẫn</Label>
-                    <Textarea
-                      value={active.instructions ?? ""}
-                      disabled={examReadonly}
-                      onChange={(e) => updateSection(activeIndex, { instructions: e.target.value })}
-                      placeholder="VD: Questions 1–10. Complete the notes below..."
-                      rows={2}
-                      className="resize-none text-sm"
-                    />
+                    {RICH_EDITOR_ENABLED ? (
+                      <RichTextEditor
+                        key={`section-instructions-${active.id ?? activeIndex}`}
+                        value={active.instructionsDoc ?? null}
+                        legacyText={active.instructions ?? ""}
+                        disabled={examReadonly}
+                        compact
+                        minHeight={72}
+                        placeholder="VD: Questions 1–10. Complete the notes below..."
+                        ariaLabel="Hướng dẫn của phần"
+                        onChange={(doc, plainText) =>
+                          updateSection(activeIndex, {
+                            instructionsDoc: doc,
+                            instructions: plainText,
+                          })
+                        }
+                      />
+                    ) : (
+                      <Textarea
+                        value={active.instructions ?? ""}
+                        disabled={examReadonly}
+                        onChange={(e) => updateSection(activeIndex, { instructions: e.target.value })}
+                        placeholder="VD: Questions 1–10. Complete the notes below..."
+                        rows={2}
+                        className="resize-none text-sm"
+                      />
+                    )}
                   </div>
 
                   {active.skill === "listening" && (
@@ -1540,13 +1643,35 @@ export default function ExamBuilderPage() {
                         </button>
                       </div>
                       {passagePreview ? (
-                        <div className="prose prose-sm max-w-none rounded-xl border border-border bg-card p-4 leading-relaxed">
-                          {(active.passageText ?? "").split(/\n{2,}/).map((para, i) => (
-                            <p key={i} className="whitespace-pre-line text-sm">
-                              <RichText text={para} />
-                            </p>
-                          ))}
+                        <div className="rounded-xl border border-border bg-card p-4">
+                          {active.passageDoc ? (
+                            <RichDocView doc={active.passageDoc} />
+                          ) : (
+                            <div className="prose prose-sm max-w-none leading-relaxed">
+                              {(active.passageText ?? "").split(/\n{2,}/).map((para, i) => (
+                                <p key={i} className="whitespace-pre-line text-sm">
+                                  <RichText text={para} />
+                                </p>
+                              ))}
+                            </div>
+                          )}
                         </div>
+                      ) : RICH_EDITOR_ENABLED ? (
+                        <RichTextEditor
+                          key={`section-passage-${active.id ?? activeIndex}`}
+                          value={active.passageDoc ?? null}
+                          legacyText={active.passageText ?? ""}
+                          disabled={examReadonly}
+                          minHeight={280}
+                          placeholder={"Paragraph A\nNội dung đoạn A...\n\nParagraph B\nNội dung đoạn B..."}
+                          ariaLabel="Nội dung bài đọc"
+                          onChange={(doc, plainText) =>
+                            updateSection(activeIndex, {
+                              passageDoc: doc,
+                              passageText: plainText,
+                            })
+                          }
+                        />
                       ) : (
                         <Textarea
                           value={active.passageText ?? ""}
@@ -1632,11 +1757,6 @@ export default function ExamBuilderPage() {
                     câu trong {(active.questionGroups ?? []).length} nhóm)
                   </CardTitle>
                   <div className="flex items-center gap-2">
-                    <RichTextFormatBar
-                      containerRef={workspaceRef}
-                      disabled={examReadonly}
-                      enableShortcuts={false}
-                    />
                     <Button
                       variant="outline"
                       size="sm"
@@ -1732,11 +1852,11 @@ export default function ExamBuilderPage() {
                     htmlFor="disable-text-selection"
                     className="cursor-pointer text-xs"
                   >
-                    Chặn bôi đen văn bản
+                    Chặn sao chép văn bản
                   </Label>
                   <p className="text-[11px] leading-snug text-muted-foreground">
-                    Học sinh không thể bôi đen, highlight hoặc ghi chú trên máy
-                    tính và điện thoại.
+                    Học sinh vẫn có thể bôi đen để highlight/ghi chú, nhưng không
+                    thể sao chép, cắt hoặc dán.
                   </p>
                 </div>
               </div>
@@ -2151,6 +2271,39 @@ export default function ExamBuilderPage() {
       </Dialog>
 
       <AssignDialog open={assignOpen} onOpenChange={setAssignOpen} initialExamId={examId} />
+
+      {/* #17: exam already has attempts → edit by cloning */}
+      <AlertDialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Đề đã có học sinh làm bài</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p>
+                  Không thể chuyển đề đã có lượt làm bài về nháp vì sẽ làm thay đổi
+                  nội dung và kết quả đã chấm.
+                </p>
+                <p className="font-medium text-foreground">
+                  Bạn có muốn nhân bản đề để chỉnh sửa không? Bản gốc được giữ nguyên.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cloneMutation.isPending}>Huỷ</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void handleClone()
+              }}
+              disabled={cloneMutation.isPending}
+            >
+              <HugeiconsIcon icon={Copy01Icon} size={14} className="mr-1" />
+              {cloneMutation.isPending ? "Đang nhân bản…" : "Nhân bản để sửa"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Curriculum Dialog */}
       <ExamCurriculumDialog

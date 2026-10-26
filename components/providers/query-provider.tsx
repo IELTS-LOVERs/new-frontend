@@ -4,6 +4,7 @@ import * as React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { NuqsAdapter } from "nuqs/adapters/next/app"
 import { ApiError } from "@/lib/api/client"
+import { SessionReplacedNotice } from "@/components/providers/session-replaced-notice"
 
 function makeQueryClient() {
   return new QueryClient({
@@ -45,6 +46,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <NuqsAdapter>{children}</NuqsAdapter>
+      <SessionReplacedNotice />
     </QueryClientProvider>
   )
 }

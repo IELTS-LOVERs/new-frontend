@@ -135,6 +135,8 @@ export function RichTextFormatBar<T extends HTMLElement>({
       const key = event.key.toLowerCase()
       if (key !== "b" && key !== "i") return
       event.preventDefault()
+      // Stop the global Ctrl+B sidebar shortcut in AppHeader from also firing.
+      event.stopPropagation()
       applyRichTextFormat(container, key === "b" ? "bold" : "italic")
     }
 
@@ -150,8 +152,8 @@ export function RichTextFormatBar<T extends HTMLElement>({
   }
 
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
-      <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
+    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+      <span className="text-[10px] font-medium text-muted-foreground">
         Định dạng
       </span>
       <Button
@@ -159,7 +161,7 @@ export function RichTextFormatBar<T extends HTMLElement>({
         variant="outline"
         size="sm"
         disabled={disabled}
-        className="h-7 w-7 p-0 text-xs font-bold"
+        className="h-8 w-8 p-0 text-xs font-bold"
         title="In đậm (Ctrl+B)"
         aria-label="In đậm"
         onMouseDown={(e) => e.preventDefault()}
@@ -172,7 +174,7 @@ export function RichTextFormatBar<T extends HTMLElement>({
         variant="outline"
         size="sm"
         disabled={disabled}
-        className="h-7 w-7 p-0 text-xs font-semibold italic"
+        className="h-8 w-8 p-0 text-xs font-semibold italic"
         title="In nghiêng (Ctrl+I)"
         aria-label="In nghiêng"
         onMouseDown={(e) => e.preventDefault()}
@@ -185,7 +187,7 @@ export function RichTextFormatBar<T extends HTMLElement>({
         variant="outline"
         size="sm"
         disabled={disabled}
-        className="h-7 w-7 p-0"
+        className="h-8 w-8 p-0"
         title="Bôi nền chữ"
         aria-label="Bôi nền chữ"
         onMouseDown={(e) => e.preventDefault()}

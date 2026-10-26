@@ -57,7 +57,14 @@ export function AppHeader({ title, subtitle, children }: AppHeaderProps) {
         e.preventDefault()
         setPaletteOpen((v) => !v)
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+      const target = e.target as HTMLElement | null
+      const isTyping =
+        !!target &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b" && !isTyping) {
         e.preventDefault()
         toggleSidebar()
       }

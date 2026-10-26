@@ -5,6 +5,9 @@ export type ForcedLogoutReason =
   | "session_expired"
   | "token_revoked"
 
+/** sessionStorage key used for the one-time "another device logged in" notice. */
+export const SESSION_REPLACED_FLAG = "auth:session-replaced"
+
 let redirecting = false
 
 /**

@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ExamStatusBadge } from "@/components/shared/status-badge"
+import { EditExamButton } from "@/components/shared/edit-exam-button"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -64,7 +65,7 @@ import {
   useDeleteExamMutation,
   useCloneExamMutation,
 } from "@/hooks/use-exams"
-import { publishExamApi, unpublishExamApi, closeExamApi } from "@/lib/api/exams"
+import { publishExamApi, closeExamApi, reopenExamApi } from "@/lib/api/exams"
 import type { ExamListItem } from "@/lib/api/types"
 
 const STATUS_TABS = [
@@ -125,14 +126,17 @@ export default function TeacherPracticesPage() {
     }
   }
 
-  const handleUnpublish = async (item: ExamListItem) => {
+  const handleReopen = async (item: ExamListItem) => {
     try {
-      await unpublishExamApi(item.id)
-      toast.success("Đã chuyển về bản nháp")
+      const result = await reopenExamApi(item.id)
+      toast.success("Đã mở lại bài luyện tập")
+      if (result.clearedCloseAt) {
+        toast.info("Thời gian đóng đã qua nên đã được xoá. Bài hiện đang mở.")
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.practice.all })
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Thao tác thất bại.")
+      toast.error(err instanceof ApiError ? err.message : "Không thể mở lại bài luyện tập.")
     }
   }
 
@@ -259,7 +263,7 @@ export default function TeacherPracticesPage() {
                 <TableHead className="text-xs font-semibold">Giáo trình & Phần thi</TableHead>
                 <TableHead className="w-[100px] text-xs font-semibold text-center">Thời lượng</TableHead>
                 <TableHead className="w-[120px] text-xs font-semibold">Trạng thái</TableHead>
-                <TableHead className="w-[70px] text-right text-xs font-semibold">Thao tác</TableHead>
+                <TableHead className="w-[170px] text-right text-xs font-semibold">Thao tác</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -267,7 +271,11 @@ export default function TeacherPracticesPage() {
                 <TableRow key={item.id} className="border-border/50 text-xs">
                   <TableCell className="py-3">
                     <Link
-                      href={`/teacher/exams/${item.id}/edit`}
+                      href={
+                        item.status === "draft"
+                          ? `/teacher/exams/${item.id}/edit`
+                          : `/teacher/exams/${item.id}`
+                      }
                       className="font-semibold text-foreground hover:text-primary transition-colors block truncate max-w-[300px]"
                     >
                       {item.title}
@@ -298,49 +306,57 @@ export default function TeacherPracticesPage() {
                     <ExamStatusBadge status={item.status} />
                   </TableCell>
 
-                  <TableCell className="py-3 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <HugeiconsIcon icon={MoreHorizontalIcon} size={16} />
-                          <span className="sr-only">Mở menu</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="text-xs">
-                        <DropdownMenuItem asChild>
-                          <Link href={`/teacher/exams/${item.id}/edit`} className="gap-2">
-                            <HugeiconsIcon icon={PencilEdit02Icon} size={14} />
-                            <span>Chỉnh sửa nội dung & học liệu</span>
-                          </Link>
-                        </DropdownMenuItem>
-
-                        <DropdownMenuItem onClick={() => handleClone(item)} className="gap-2">
-                          <HugeiconsIcon icon={Copy01Icon} size={14} />
-                          <span>Nhân bản bài này</span>
-                        </DropdownMenuItem>
-
-                        <DropdownMenuSeparator />
-
-                        {item.status === "draft" && (
-                          <DropdownMenuItem
-                            onClick={() => handlePublish(item)}
-                            className="gap-2 text-emerald-600 dark:text-emerald-400"
-                          >
-                            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
-                            <span>Xuất bản ngay</span>
-                          </DropdownMenuItem>
-                        )}
-
-                        {item.status === "published" && (
-                          <>
-                            <DropdownMenuItem
-                              onClick={() => handleUnpublish(item)}
-                              className="gap-2 text-amber-600 dark:text-amber-400"
+                  <TableCell className="py-3">
+                    <div className="flex items-center justify-end gap-2">
+                      {(item.status === "published" || item.status === "closed") && (
+                        <EditExamButton
+                          examId={item.id}
+                          status={item.status}
+                          size="sm"
+                          variant={item.status === "closed" ? "default" : "outline"}
+                          className="h-8 text-xs font-semibold"
+                        />
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <HugeiconsIcon icon={MoreHorizontalIcon} size={16} />
+                            <span className="sr-only">Mở menu</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="text-xs">
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={
+                                item.status === "draft"
+                                  ? `/teacher/exams/${item.id}/edit`
+                                  : `/teacher/exams/${item.id}`
+                              }
+                              className="gap-2"
                             >
-                              <HugeiconsIcon icon={RefreshIcon} size={14} />
-                              <span>Chuyển về nháp</span>
-                            </DropdownMenuItem>
+                              <HugeiconsIcon icon={PencilEdit02Icon} size={14} />
+                              <span>{item.status === "draft" ? "Sửa / Soạn tiếp" : "Xem chi tiết"}</span>
+                            </Link>
+                          </DropdownMenuItem>
 
+                          <DropdownMenuItem onClick={() => handleClone(item)} className="gap-2">
+                            <HugeiconsIcon icon={Copy01Icon} size={14} />
+                            <span>Nhân bản bài này</span>
+                          </DropdownMenuItem>
+
+                          <DropdownMenuSeparator />
+
+                          {item.status === "draft" && (
+                            <DropdownMenuItem
+                              onClick={() => handlePublish(item)}
+                              className="gap-2 text-emerald-600 dark:text-emerald-400"
+                            >
+                              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
+                              <span>Xuất bản ngay</span>
+                            </DropdownMenuItem>
+                          )}
+
+                          {item.status === "published" && (
                             <DropdownMenuItem
                               onClick={() => setCloseTarget(item)}
                               className="gap-2 text-destructive"
@@ -348,23 +364,33 @@ export default function TeacherPracticesPage() {
                               <HugeiconsIcon icon={LockIcon} size={14} />
                               <span>Đóng bài luyện tập</span>
                             </DropdownMenuItem>
-                          </>
-                        )}
+                          )}
 
-                        {item.status === "draft" && (
-                          <>
-                            <DropdownMenuSeparator />
+                          {item.status === "closed" && (
                             <DropdownMenuItem
-                              onClick={() => setDeleteTarget(item)}
-                              className="gap-2 text-destructive"
+                              onClick={() => handleReopen(item)}
+                              className="gap-2 text-emerald-600 dark:text-emerald-400"
                             >
-                              <HugeiconsIcon icon={Delete02Icon} size={14} />
-                              <span>Xóa vĩnh viễn</span>
+                              <HugeiconsIcon icon={RefreshIcon} size={14} />
+                              <span>Mở lại</span>
                             </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          )}
+
+                          {item.status !== "published" && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setDeleteTarget(item)}
+                                className="gap-2 text-destructive"
+                              >
+                                <HugeiconsIcon icon={Delete02Icon} size={14} />
+                                <span>Xóa vĩnh viễn</span>
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

@@ -41,6 +41,8 @@ import {
   ArrowRight01Icon,
   ArrowLeft01Icon,
   Flag01Icon,
+  Image01Icon,
+  RefreshIcon,
   TextFontIcon,
 } from "@hugeicons/core-free-icons"
 import {
@@ -67,6 +69,8 @@ import {
   RichText,
   renderRichTextNodes,
 } from "@/features/exam-engine/components/rich-text"
+import { RichDocView } from "@/features/rich-text/render"
+import { SelectableRichDoc } from "@/features/rich-text/selectable"
 import { parseRichText } from "@/features/exam-engine/lib/rich-text"
 import { scrollToQuestion } from "@/features/exam-engine/lib/question-nav"
 import { toast } from "sonner"
@@ -76,6 +80,7 @@ import { useExamTimer } from "@/features/exam-engine/hooks/use-exam-timer"
 import { useAutosave } from "@/features/exam-engine/hooks/use-autosave"
 import { useExamRecovery } from "@/features/exam-engine/hooks/use-recovery"
 import { useAntiCheat } from "@/features/exam-engine/hooks/use-anti-cheat"
+import { useClipboardGuard } from "@/features/exam-engine/hooks/use-clipboard-guard"
 import { useExamAudioPlayer } from "@/features/exam-engine/hooks/use-audio-player"
 import { useSubmitAttemptMutation } from "@/hooks/use-attempts"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -157,7 +162,11 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
     onFatal: () => void handleSubmitRef.current(true),
   })
   const isMock = exam?.kind === "mock"
+  const selectionBlocked = exam?.disableTextSelection === true
   useAntiCheat(attemptId, isMock && (phase === "active" || phase === "offline"))
+  // #10: mock exams already block + log clipboard events in useAntiCheat.
+  // Practice exams block clipboard only when the teacher disabled selection.
+  useClipboardGuard(selectionBlocked && !isMock)
 
   // ─── Submit ────────────────────────────────────────────────
   const handleSubmit = async (auto = false) => {
@@ -329,7 +338,6 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const allQuestions = buildExamQuestionIndex(exam)
   const answeredCount = computeAnsweredCount(answers)
   const totalQuestions = allQuestions.length
-  const selectionBlocked = exam.disableTextSelection === true
 
   return (
     <div
@@ -777,8 +785,7 @@ function MediaImages({
   return (
     <div className={cn("space-y-3", className)}>
       {images.map((m) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <ExamImage
           key={m.id}
           src={m.url}
           alt={m.originalName || "Hình ảnh minh hoạ"}
@@ -786,6 +793,105 @@ function MediaImages({
         />
       ))}
     </div>
+  )
+}
+
+/**
+ * #12: exam images can fail on mobile (expired presign, flaky network). Retry
+ * once, then show a readable placeholder instead of a broken-image icon.
+ * HTTPS pages also surface mixed-content HTTP URLs clearly.
+ *
+ * Presigned MinIO/S3 URLs sign their whole query string, so appending a
+ * cache-buster would make the retry 403. For those we remount the <img> with
+ * the same URL instead; only unsigned (public) URLs get `_retry=`.
+ */
+function ExamImage({
+  src,
+  alt,
+  className,
+}: {
+  src: string
+  alt: string
+  className?: string
+}) {
+  const [reloadKey, setReloadKey] = React.useState(0)
+  const [failed, setFailed] = React.useState(false)
+  const [mixedContent, setMixedContent] = React.useState(false)
+  const [prevSrc, setPrevSrc] = React.useState(src)
+
+  // Reset retry state when the API hands us a new presigned URL.
+  if (prevSrc !== src) {
+    setPrevSrc(src)
+    setReloadKey(0)
+    setFailed(false)
+    setMixedContent(false)
+  }
+
+  const retry = () => {
+    setFailed(false)
+    setMixedContent(false)
+    setReloadKey((value) => value + 1)
+  }
+
+  if (failed) {
+    return (
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/30 p-5 text-center",
+          className
+        )}
+      >
+        <HugeiconsIcon
+          icon={Image01Icon}
+          size={24}
+          className="text-muted-foreground"
+        />
+        <p className="text-xs font-semibold text-foreground">
+          Không tải được hình ảnh
+        </p>
+        <p className="max-w-sm text-[11px] leading-relaxed text-muted-foreground">
+          {mixedContent
+            ? "Hình ảnh đang dùng liên kết HTTP nên bị trình duyệt chặn khi trang chạy HTTPS. Vui lòng báo giáo viên."
+            : "Kết nối có thể bị gián đoạn. Hãy thử tải lại hình ảnh."}
+        </p>
+        {!mixedContent && (
+          <Button type="button" size="sm" variant="outline" onClick={retry}>
+            <HugeiconsIcon icon={RefreshIcon} size={13} className="mr-1" />
+            Thử lại
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  const isPresigned = /[?&](X-Amz-Signature|Signature)=/i.test(src)
+  const url =
+    reloadKey > 0 && !isPresigned
+      ? `${src}${src.includes("?") ? "&" : "?"}_retry=${reloadKey}`
+      : src
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      key={reloadKey}
+      src={url}
+      alt={alt}
+      loading="eager"
+      decoding="async"
+      className={className}
+      onError={() => {
+        if (reloadKey < 1) {
+          setReloadKey(reloadKey + 1)
+          return
+        }
+        setMixedContent(
+          typeof window !== "undefined" &&
+            window.location.protocol === "https:" &&
+            /^http:\/\//i.test(src)
+        )
+        setFailed(true)
+      }}
+    />
   )
 }
 
@@ -938,14 +1044,11 @@ function ReadingSection({
         >
           {section.title}
         </Badge>
-        <div
-          className={cn(
-            "flex items-center gap-1.5 sm:gap-2",
-            selectionDisabled && "hidden"
-          )}
-        >
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <span className="hidden text-xs text-muted-foreground lg:inline">
-            Bôi đen để highlight / ghi chú
+            {selectionDisabled
+              ? "Vẫn có thể bôi đen để highlight / ghi chú · Không thể sao chép"
+              : "Bôi đen để highlight / ghi chú"}
           </span>
           <HighlightControls />
         </div>
@@ -953,10 +1056,14 @@ function ReadingSection({
       <MediaImages media={section.media} className="mb-4" />
 
       <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
-        <SelectableHighlightedText
-          targetId="passage"
-          text={section.passageText ?? ""}
-        />
+        {section.passageDoc ? (
+          <SelectableRichDoc targetId="passage" doc={section.passageDoc} />
+        ) : (
+          <SelectableHighlightedText
+            targetId="passage"
+            text={section.passageText ?? ""}
+          />
+        )}
       </div>
     </div>
   )
@@ -967,9 +1074,16 @@ function ReadingSection({
         <h3 className="font-heading text-base sm:text-lg font-bold text-foreground">
           {section.title}
         </h3>
-        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-          <RichText text={section.instructions} />
-        </p>
+        {section.instructionsDoc ? (
+          <RichDocView
+            doc={section.instructionsDoc}
+            className="text-xs sm:text-sm text-muted-foreground"
+          />
+        ) : (
+          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+            <RichText text={section.instructions} />
+          </p>
+        )}
       </div>
 
       <div className="space-y-6 sm:space-y-8">
@@ -992,7 +1106,7 @@ function ReadingSection({
       sectionIndex={sectionIndex}
       items={highlights}
       onItemsChange={setHighlights}
-      disabled={selectionDisabled}
+      disabled={false}
       className="h-full"
     >
       <ResizablePanelGroup
@@ -1087,20 +1201,25 @@ function WritingSection({
                     ? "Task 1 Instructions"
                     : "Task 2 Instructions"}
                 </h3>
-                <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
-                  <RichText text={currentQ.prompt} />
-                  {currentQ.content ? (
-                    <>
-                      {"\n\n"}
-                      <RichText text={currentQ.content} />
-                    </>
-                  ) : null}
-                </p>
+                {currentQ.promptDoc ? (
+                  <RichDocView
+                    doc={currentQ.promptDoc}
+                    className="text-xs leading-relaxed font-medium text-muted-foreground"
+                  />
+                ) : (
+                  <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
+                    <RichText text={currentQ.prompt} />
+                  </p>
+                )}
+                {currentQ.content ? (
+                  <p className="text-xs leading-relaxed font-medium whitespace-pre-line text-muted-foreground">
+                    <RichText text={currentQ.content} />
+                  </p>
+                ) : null}
               </div>
               {currentQ.media?.map((m) =>
                 m.type === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <ExamImage
                     key={m.id}
                     src={m.url}
                     alt={m.originalName ?? "Task image"}
@@ -1169,6 +1288,8 @@ interface BlankRenderContext {
   onToggleFlag: (questionId: string) => void
   optionsPool?: Array<{ id: string; text: string }>
   maxWords?: number
+  /** #14: false → once a summary answer is selected it cannot be changed. */
+  allowChangeAnswer?: boolean
   matched: Set<number>
 }
 
@@ -1189,6 +1310,7 @@ function InlineBlank({
 }) {
   const answer = ctx.answers[q.id]?.value ?? ""
   const isFlag = !!ctx.flagged[q.id]
+  const answerLocked = ctx.allowChangeAnswer === false && answer !== ""
   return (
     <span
       id={`exam-q-${q.questionNumber}`}
@@ -1207,8 +1329,12 @@ function InlineBlank({
         <select
           value={answer}
           onChange={(e) => ctx.onAnswer(q.id, e.target.value)}
+          disabled={answerLocked}
+          title={
+            answerLocked ? "Đã chọn đáp án, không thể đổi" : undefined
+          }
           className={cn(
-            "h-11 rounded-md border border-border bg-background font-mono text-sm font-medium focus:border-primary focus:outline-hidden md:h-8",
+            "h-11 rounded-md border border-border bg-background font-mono text-base font-medium focus:border-primary focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-70 md:h-8",
             compact ? "px-2" : "px-2.5"
           )}
         >
@@ -1232,6 +1358,11 @@ function InlineBlank({
             compact ? "w-28 px-2" : "w-32 px-2.5 sm:w-44"
           )}
         />
+      )}
+      {answerLocked && ctx.optionsPool && ctx.optionsPool.length > 0 && !compact && (
+        <span className="whitespace-nowrap text-[10px] font-medium text-muted-foreground">
+          Đã chọn đáp án, không thể đổi
+        </span>
       )}
       <button
         type="button"
@@ -1375,6 +1506,7 @@ function InlineTemplateRenderer({
   onToggleFlag,
   optionsPool,
   maxWords,
+  allowChangeAnswer,
 }: {
   template: string
   questions: CandidateQuestionItem[]
@@ -1384,6 +1516,7 @@ function InlineTemplateRenderer({
   onToggleFlag: (questionId: string) => void
   optionsPool?: Array<{ id: string; text: string }>
   maxWords?: number
+  allowChangeAnswer?: boolean
 }) {
   const matched = new Set<number>()
   const ctx: BlankRenderContext = {
@@ -1394,6 +1527,7 @@ function InlineTemplateRenderer({
     onToggleFlag,
     optionsPool,
     maxWords,
+    allowChangeAnswer,
     matched,
   }
   const renderedTokens = renderInlineBlanks(template, ctx, "inline")
@@ -1600,9 +1734,16 @@ function MatchingFeaturesRenderer({
       <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         Questions {first}–{last}
       </p>
-      <p className="text-sm font-medium whitespace-pre-line text-foreground">
-        <RichText text={group.instructions} />
-      </p>
+      {group.instructionsDoc ? (
+        <RichDocView
+          doc={group.instructionsDoc}
+          className="text-sm font-medium text-foreground"
+        />
+      ) : (
+        <p className="text-sm font-medium whitespace-pre-line text-foreground">
+          <RichText text={group.instructions} />
+        </p>
+      )}
       {allowReuse && (
         <p className="text-xs font-semibold text-primary">
           NB: You may use any letter more than once.
@@ -1630,7 +1771,7 @@ function MatchingFeaturesRenderer({
                     className="w-10 min-w-10 max-w-10 sm:w-12 sm:min-w-12 sm:max-w-12 border-b border-l border-border/60 px-0.5 py-2 text-center align-bottom"
                   >
                     <div className="flex flex-col items-center gap-0.5">
-                      <span className="font-mono text-xs font-bold text-foreground">
+                      <span className="font-mono text-sm font-bold text-foreground sm:text-base">
                         {f.id}
                       </span>
                       {f.text && (
@@ -1734,7 +1875,7 @@ function MatchingFeaturesRenderer({
         </p>
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {features.map((f) => (
-            <div key={f.id} className="flex gap-2 text-xs">
+            <div key={f.id} className="flex gap-2 text-sm">
               <span className="w-5 shrink-0 font-mono font-bold text-primary">
                 {f.id}
               </span>
@@ -1789,7 +1930,7 @@ function MatchingFeaturesRenderer({
                       title={f.text}
                       onClick={() => onAnswer(q.id, f.id)}
                       className={cn(
-                        "min-w-8 rounded-full border px-2.5 py-1 font-mono text-xs font-bold transition-colors",
+                        "min-w-9 rounded-full border px-2.5 py-1 font-mono text-sm font-bold transition-colors sm:text-base",
                         isSelected
                           ? "border-primary bg-primary text-primary-foreground shadow-xs"
                           : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
@@ -1854,6 +1995,8 @@ function GroupRendererBody({
     wordLimitText,
     matchPool,
   } = getGroupViewMeta(group)
+  // #14: summary answers can be locked after the first selection.
+  const allowChangeAnswer = config.allowChangeAnswer !== false
 
   // ─── Multiple Choice Multiple ──────────────────────────────────────────────
   if (group.groupType === "multiple_choice_multiple") {
@@ -2035,7 +2178,7 @@ function GroupRendererBody({
                 {paragraphLabels.map((label) => (
                   <th
                     key={label}
-                    className="w-8 min-w-8 max-w-8 sm:w-10 sm:min-w-10 sm:max-w-10 border-b border-l border-border/60 px-0.5 py-2.5 text-center font-mono text-xs font-bold text-foreground"
+                    className="w-8 min-w-8 max-w-8 sm:w-10 sm:min-w-10 sm:max-w-10 border-b border-l border-border/60 px-0.5 py-2.5 text-center font-mono text-sm font-bold text-foreground sm:text-base"
                   >
                     {label}
                   </th>
@@ -2236,9 +2379,9 @@ function GroupRendererBody({
               {optionsPool.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1 text-xs"
+                  className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1 text-sm sm:text-base"
                 >
-                  <span className="font-bold text-primary">{item.id}</span>
+                  <span className="text-xs font-bold text-primary sm:text-sm">{item.id}</span>
                   <span className="text-foreground"><RichText text={item.text} /></span>
                 </div>
               ))}
@@ -2255,6 +2398,11 @@ function GroupRendererBody({
           onToggleFlag={onToggleFlag}
           optionsPool={optionsPool}
           maxWords={maxWords}
+          allowChangeAnswer={
+            typeof config.allowChangeAnswer === "boolean"
+              ? config.allowChangeAnswer
+              : undefined
+          }
         />
       </div>
     )
@@ -2296,9 +2444,9 @@ function GroupRendererBody({
             {optionsPool.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-xs sm:text-sm"
+                className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm sm:text-base"
               >
-                <span className="font-bold text-primary">{item.id}</span>
+                <span className="text-xs font-bold text-primary sm:text-sm">{item.id}</span>
                 <span className="text-foreground"><RichText text={item.text} /></span>
               </div>
             ))}
@@ -2329,6 +2477,7 @@ function GroupRendererBody({
         {group.questions.map((q) => {
           const answer = answers[q.id]?.value ?? ""
           const isFlagged = !!flagged[q.id]
+          const answerLocked = !allowChangeAnswer && answer !== ""
           return (
             <div
               key={q.id}
@@ -2393,45 +2542,84 @@ function GroupRendererBody({
                     ))}
                   </div>
                 ) : isMatching ? (
-                  <select
-                    value={answer}
-                    onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-11 rounded-lg border border-border bg-background px-3 text-xs sm:text-sm md:h-9"
-                  >
-                    <option value="">—</option>
-                    {matchPool.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.id}
-                        {opt.text !== opt.id ? " - " + opt.text : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="space-y-1">
+                    <select
+                      value={answer}
+                      onChange={(e) => onAnswer(q.id, e.target.value)}
+                      disabled={answerLocked}
+                      title={
+                        answerLocked
+                          ? "Đã chọn đáp án, không thể đổi"
+                          : undefined
+                      }
+                      className="h-11 rounded-lg border border-border bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-70 sm:text-base md:h-9"
+                    >
+                      <option value="">—</option>
+                      {matchPool.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.id}
+                          {opt.text !== opt.id ? " - " + opt.text : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {answerLocked && (
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        Đã chọn đáp án, không thể đổi
+                      </p>
+                    )}
+                  </div>
                 ) : optionsPool.length > 0 ? (
-                  <select
-                    value={answer}
-                    onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-11 rounded-lg border border-border bg-background px-3 font-mono text-xs sm:text-sm font-medium md:h-9"
-                  >
-                    <option value="">— Chọn từ khóa —</option>
-                    {optionsPool.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.id}: {opt.text}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="space-y-1">
+                    <select
+                      value={answer}
+                      onChange={(e) => onAnswer(q.id, e.target.value)}
+                      disabled={answerLocked}
+                      title={
+                        answerLocked
+                          ? "Đã chọn đáp án, không thể đổi"
+                          : undefined
+                      }
+                      className="h-11 rounded-lg border border-border bg-background px-3 font-mono text-sm font-medium disabled:cursor-not-allowed disabled:opacity-70 sm:text-base md:h-9"
+                    >
+                      <option value="">— Chọn từ khóa —</option>
+                      {optionsPool.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.id}: {opt.text}
+                        </option>
+                      ))}
+                    </select>
+                    {answerLocked && (
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        Đã chọn đáp án, không thể đổi
+                      </p>
+                    )}
+                  </div>
                 ) : labelsPool.length > 0 ? (
-                  <select
-                    value={answer}
-                    onChange={(e) => onAnswer(q.id, e.target.value)}
-                    className="h-11 rounded-lg border border-border bg-background px-3 font-mono text-xs sm:text-sm font-medium md:h-9"
-                  >
-                    <option value="">— Chọn nhãn —</option>
-                    {labelsPool.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.id}: {l.label || l.id}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="space-y-1">
+                    <select
+                      value={answer}
+                      onChange={(e) => onAnswer(q.id, e.target.value)}
+                      disabled={answerLocked}
+                      title={
+                        answerLocked
+                          ? "Đã chọn đáp án, không thể đổi"
+                          : undefined
+                      }
+                      className="h-11 rounded-lg border border-border bg-background px-3 font-mono text-sm font-medium disabled:cursor-not-allowed disabled:opacity-70 sm:text-base md:h-9"
+                    >
+                      <option value="">— Chọn nhãn —</option>
+                      {labelsPool.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.id}: {l.label || l.id}
+                        </option>
+                      ))}
+                    </select>
+                    {answerLocked && (
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        Đã chọn đáp án, không thể đổi
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <Input
                     value={answer}

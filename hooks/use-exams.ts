@@ -12,6 +12,8 @@ import {
   publishExamApi,
   unpublishExamApi,
   closeExamApi,
+  reopenExamApi,
+  convertExamToDraftApi,
   getTeacherExamDetailApi,
   type ListExamsParams,
   type CreateExamPayload,
@@ -128,6 +130,28 @@ export function useCloseExamMutation(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => closeExamApi(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.teacher() })
+    },
+  })
+}
+
+export function useReopenExamMutation(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => reopenExamApi(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.teacher() })
+    },
+  })
+}
+
+export function useConvertExamToDraftMutation(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => convertExamToDraftApi(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.teacher() })

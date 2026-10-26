@@ -27,6 +27,11 @@ import {
   reconcileTemplateQuestions,
   removeTemplatePlaceholder,
 } from "./lib/completion-template"
+import { parseMarkdownTable } from "@/features/exam-engine/lib/template-layout"
+import { RichText } from "@/features/exam-engine/components/rich-text"
+import { RichTextEditor } from "@/features/rich-text/lazy-editor"
+import { RICH_EDITOR_ENABLED } from "@/features/rich-text/feature-flag"
+import { htmlToTemplateDsl } from "@/features/rich-text/word-paste"
 import { toast } from "sonner"
 import { QUESTION_GROUP_TYPE_LABEL } from "@/lib/format"
 import type {
@@ -434,14 +439,33 @@ export function QuestionGroupEditor({
           <Label className="text-xs font-medium text-foreground">
             Hướng dẫn nhóm (Instructions)
           </Label>
-          <Textarea
-            value={group.instructions}
-            disabled={examReadonly}
-            onChange={(e) => onUpdateGroup({ instructions: e.target.value })}
-            rows={2}
-            className="resize-y text-xs leading-relaxed"
-            placeholder="VD: Questions 1–6. Do the following statements agree with the information..."
-          />
+          {RICH_EDITOR_ENABLED ? (
+            <RichTextEditor
+              key={`group-instructions-${group.id}`}
+              value={group.instructionsDoc ?? null}
+              legacyText={group.instructions ?? ""}
+              disabled={examReadonly}
+              compact
+              minHeight={72}
+              placeholder="VD: Questions 1–6. Do the following statements agree with the information..."
+              ariaLabel="Hướng dẫn nhóm"
+              onChange={(doc, plainText) =>
+                onUpdateGroup({
+                  instructionsDoc: doc,
+                  instructions: plainText,
+                })
+              }
+            />
+          ) : (
+            <Textarea
+              value={group.instructions}
+              disabled={examReadonly}
+              onChange={(e) => onUpdateGroup({ instructions: e.target.value })}
+              rows={2}
+              className="resize-y text-xs leading-relaxed"
+              placeholder="VD: Questions 1–6. Do the following statements agree with the information..."
+            />
+          )}
         </div>
 
         {/* ------------------------------------------------------------------- */}
@@ -906,6 +930,25 @@ export function QuestionGroupEditor({
                     </Button>
                   )}
                 </div>
+                <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-background px-2.5 py-2 text-xs select-none">
+                  <input
+                    type="checkbox"
+                    checked={config.allowChangeAnswer ?? true}
+                    disabled={examReadonly}
+                    onChange={(e) =>
+                      updateConfig({ allowChangeAnswer: e.target.checked })
+                    }
+                    className="mt-0.5 rounded border-border accent-primary"
+                  />
+                  <span>
+                    <span className="font-medium text-foreground">
+                      Cho phép chọn lại đáp án
+                    </span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      Khi tắt, học sinh chỉ chọn được một lần cho mỗi ô.
+                    </span>
+                  </span>
+                </label>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {optionsPool.map((opt, oIdx) => (
                     <div key={opt.id} className="flex items-center gap-1.5">
@@ -989,6 +1032,40 @@ export function QuestionGroupEditor({
                 value={config.template ?? ""}
                 disabled={examReadonly}
                 onChange={(e) => updateConfig({ template: e.target.value })}
+                onPaste={(e) => {
+                  const clipboard = e.clipboardData
+                  if (!clipboard) return
+                  const hasImage = Array.from(clipboard.items ?? []).some((item) =>
+                    item.type.startsWith("image/")
+                  )
+                  if (hasImage) {
+                    e.preventDefault()
+                    toast.info(
+                      "Ảnh trong clipboard chưa được dán vào mẫu. Hãy thêm ảnh qua mục “Ảnh của nhóm”."
+                    )
+                    return
+                  }
+                  const html = clipboard.getData("text/html")
+                  if (!html) return
+                  const dsl = htmlToTemplateDsl(html)
+                  if (!dsl) return
+                  e.preventDefault()
+                  const el = e.currentTarget
+                  const start = el.selectionStart ?? templateValue.length
+                  const end = el.selectionEnd ?? start
+                  const nextValue =
+                    templateValue.slice(0, start) + dsl + templateValue.slice(end)
+                  updateConfig({ template: nextValue })
+                  requestAnimationFrame(() => {
+                    const node = textareaRef.current
+                    if (node) {
+                      node.focus()
+                      const caret = start + dsl.length
+                      node.setSelectionRange(caret, caret)
+                    }
+                  })
+                  toast.success("Đã chuyển nội dung dán từ Word sang định dạng mẫu.")
+                }}
                 rows={5}
                 className="resize-y font-mono text-xs leading-relaxed"
                 placeholder={
@@ -997,6 +1074,12 @@ export function QuestionGroupEditor({
                     : "Complete the notes below:\n- Ancient people discovered tea in [1] around 2700 BC.\n- The leaves were initially used for [2] purposes."
                 }
               />
+              {templateValue.trim().length > 0 && (
+                <TemplateLivePreview
+                  template={templateValue}
+                  groupType={group.groupType}
+                />
+              )}
             </div>
           </div>
         )}
@@ -1179,15 +1262,33 @@ export function QuestionGroupEditor({
 
                       <div className="min-w-0 flex-1 space-y-2">
                         {/* Prompt */}
-                        <Input
-                          value={q.prompt}
-                          disabled={examReadonly}
-                          onChange={(e) =>
-                            onUpdateQuestion(q.id, { prompt: e.target.value })
-                          }
-                          className="h-8 text-xs font-medium"
-                          placeholder="Nội dung câu hỏi / nhận định..."
-                        />
+                        {isWriting && RICH_EDITOR_ENABLED ? (
+                          <RichTextEditor
+                            key={`writing-prompt-${q.id}`}
+                            value={q.promptDoc ?? null}
+                            legacyText={q.prompt ?? ""}
+                            disabled={examReadonly}
+                            minHeight={140}
+                            placeholder="Nhập đề bài Writing chi tiết..."
+                            ariaLabel="Đề bài Writing"
+                            onChange={(doc, plainText) =>
+                              onUpdateQuestion(q.id, {
+                                promptDoc: doc,
+                                prompt: plainText,
+                              })
+                            }
+                          />
+                        ) : (
+                          <Input
+                            value={q.prompt}
+                            disabled={examReadonly}
+                            onChange={(e) =>
+                              onUpdateQuestion(q.id, { prompt: e.target.value })
+                            }
+                            className="h-8 text-xs font-medium"
+                            placeholder="Nội dung câu hỏi / nhận định..."
+                          />
+                        )}
 
                         {/* Answer Selectors based on Type */}
                         {isMCSingle && (
@@ -1588,6 +1689,162 @@ export function QuestionGroupEditor({
           toast.success(isLabelling ? "Đã chọn ảnh sơ đồ." : "Đã chọn ảnh cho nhóm.")
         }}
       />
+    </div>
+  )
+}
+
+/** Render DSL text with `[n]` blanks turned into visible chips. */
+function TemplatePreviewText({
+  text,
+  keyPrefix,
+}: {
+  text: string
+  keyPrefix: string
+}) {
+  return (
+    <>
+      {text
+        .split(/(\[\d+\])/g)
+        .filter((chunk) => chunk.length > 0)
+        .map((chunk, index) => {
+          const blank = /^\[(\d+)\]$/.exec(chunk)
+          if (blank) {
+            return (
+              <span
+                key={`${keyPrefix}-blank-${index}`}
+                className="mx-0.5 inline-flex min-w-6 items-center justify-center rounded border border-primary/40 bg-primary/10 px-1 font-mono text-[10px] font-bold text-primary"
+              >
+                {blank[1]}
+              </span>
+            )
+          }
+          return <RichText key={`${keyPrefix}-text-${index}`} text={chunk} />
+        })}
+    </>
+  )
+}
+
+/**
+ * Live preview of the completion template DSL. Mirrors what candidates see
+ * (GFM table / bullet list / inline blanks) without changing the persisted
+ * string, so authoring and rendering can never drift apart.
+ */
+function TemplateLivePreview({
+  template,
+  groupType,
+}: {
+  template: string
+  groupType: string
+}) {
+  const table = React.useMemo(() => parseMarkdownTable(template), [template])
+
+  if (table) {
+    return (
+      <div className="space-y-1.5 rounded-lg border border-dashed border-border bg-muted/15 p-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Xem trước
+        </p>
+        {table.preamble && (
+          <p className="text-xs leading-relaxed text-foreground">
+            <TemplatePreviewText text={table.preamble} keyPrefix="pre" />
+          </p>
+        )}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr>
+                {table.header.map((cell, index) => (
+                  <th
+                    key={`th-${index}`}
+                    className="border border-border bg-muted/40 px-2 py-1 text-left font-semibold"
+                  >
+                    <TemplatePreviewText text={cell} keyPrefix={`th-${index}`} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((row, rowIndex) => (
+                <tr key={`tr-${rowIndex}`}>
+                  {row.map((cell, cellIndex) => (
+                    <td
+                      key={`td-${rowIndex}-${cellIndex}`}
+                      className="border border-border px-2 py-1 align-top"
+                    >
+                      <TemplatePreviewText
+                        text={cell}
+                        keyPrefix={`td-${rowIndex}-${cellIndex}`}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {table.trailing && (
+          <p className="text-xs leading-relaxed text-foreground">
+            <TemplatePreviewText text={table.trailing} keyPrefix="post" />
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  const lines = template.replace(/\r\n/g, "\n").split("\n")
+  const blocks: Array<
+    { type: "paragraph"; text: string } | { type: "bullet"; text: string }
+  > = []
+  let paragraph: string[] = []
+
+  const flush = () => {
+    if (paragraph.length === 0) return
+    const text = paragraph.join("\n").trim()
+    if (text) blocks.push({ type: "paragraph", text })
+    paragraph = []
+  }
+
+  for (const line of lines) {
+    const bullet = /^\s*[-*]\s+(.*)$/.exec(line)
+    if (bullet) {
+      flush()
+      blocks.push({ type: "bullet", text: bullet[1] })
+    } else if (line.trim() === "") {
+      flush()
+    } else {
+      paragraph.push(line)
+    }
+  }
+  flush()
+
+  if (blocks.length === 0) return null
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-dashed border-border bg-muted/15 p-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Xem trước{groupType === "flow_chart_completion" ? " · Flow chart" : ""}
+      </p>
+      <div className="exam-prose text-xs leading-relaxed">
+        {blocks.map((block, index) =>
+          block.type === "bullet" ? (
+            <ul key={`block-${index}`} className="my-0.5 list-disc pl-4">
+              <li>
+                <TemplatePreviewText
+                  text={block.text}
+                  keyPrefix={`bullet-${index}`}
+                />
+              </li>
+            </ul>
+          ) : (
+            <p key={`block-${index}`} className="my-0.5 whitespace-pre-line">
+              <TemplatePreviewText
+                text={block.text}
+                keyPrefix={`para-${index}`}
+              />
+            </p>
+          )
+        )}
+      </div>
     </div>
   )
 }

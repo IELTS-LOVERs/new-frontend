@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ExamStatusBadge } from "@/components/shared/status-badge"
 import { AssignDialog } from "@/components/shared/assign-dialog"
+import { EditExamButton } from "@/components/shared/edit-exam-button"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -66,7 +67,7 @@ import {
   useExamsQuery,
   useDeleteExamMutation,
   useCloneExamMutation,
-  useUnpublishExamMutation,
+  useReopenExamMutation,
   useCloseExamMutation,
 } from "@/hooks/use-exams"
 import {
@@ -171,8 +172,9 @@ export default function TeacherExamsPage() {
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds]
   )
-  const selectedDrafts = React.useMemo(
-    () => selectedItems.filter((item) => item.status === "draft"),
+  // #16: closed exams without attempts/assignments can be deleted directly too.
+  const selectedDeletable = React.useMemo(
+    () => selectedItems.filter((item) => item.status === "draft" || item.status === "closed"),
     [selectedItems]
   )
   const selectedPublished = React.useMemo(
@@ -209,8 +211,10 @@ export default function TeacherExamsPage() {
 
   // --- Bulk Actions ---
   const handleBulkDeleteConfirm = async () => {
-    if (selectedDrafts.length === 0) {
-      toast.error("Không có đề nháp nào được chọn để xoá. Các đề đã xuất bản hoặc đóng không thể xoá trực tiếp.")
+    if (selectedDeletable.length === 0) {
+      toast.error(
+        "Không có đề nháp hoặc đã đóng nào được chọn để xoá. Đề đã xuất bản cần chuyển về nháp trước."
+      )
       setBulkDeleteDialogOpen(false)
       return
     }
@@ -219,7 +223,7 @@ export default function TeacherExamsPage() {
 
     try {
       const results = await Promise.allSettled(
-        selectedDrafts.map((d) => deleteExamApi(d.id))
+        selectedDeletable.map((d) => deleteExamApi(d.id))
       )
       const successCount = results.filter((r) => r.status === "fulfilled").length
       const failCount = results.length - successCount
@@ -229,7 +233,7 @@ export default function TeacherExamsPage() {
 
       // Clear deleted IDs from selection
       const deletedIds = new Set(
-        selectedDrafts
+        selectedDeletable
           .filter((_, idx) => results[idx].status === "fulfilled")
           .map((d) => d.id)
       )
@@ -239,12 +243,12 @@ export default function TeacherExamsPage() {
         return next
       })
 
-      const nonDraftCount = selectedItems.length - selectedDrafts.length
+      const keptCount = selectedItems.length - selectedDeletable.length
 
       if (successCount > 0) {
-        if (nonDraftCount > 0) {
+        if (keptCount > 0) {
           toast.info(
-            `Đã xoá ${successCount} đề nháp. ${nonDraftCount} đề đã xuất bản/đóng được giữ lại.`,
+            `Đã xoá ${successCount} đề. ${keptCount} đề đã xuất bản được giữ lại.`,
             { description: failCount > 0 ? `${failCount} đề gặp lỗi khi xoá.` : undefined }
           )
         } else {
@@ -542,13 +546,13 @@ export default function TeacherExamsPage() {
             <Button
               variant="destructive"
               size="sm"
-              disabled={isBulkBusy || selectedDrafts.length === 0}
+              disabled={isBulkBusy || selectedDeletable.length === 0}
               onClick={() => setBulkDeleteDialogOpen(true)}
               className="h-8 gap-1.5 text-xs font-medium bg-rose-600 hover:bg-rose-700 text-white shadow-xs"
             >
               <HugeiconsIcon icon={Delete02Icon} size={14} />
               <span>
-                Xoá ({selectedDrafts.length})
+                Xoá ({selectedDeletable.length})
               </span>
             </Button>
           </div>
@@ -563,14 +567,14 @@ export default function TeacherExamsPage() {
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-xs text-muted-foreground pt-1">
                 <p>
-                  Bạn có chắc chắn muốn xoá <strong className="text-foreground">{selectedDrafts.length} đề thi nháp</strong> đã chọn không?
+                  Bạn có chắc chắn muốn xoá <strong className="text-foreground">{selectedDeletable.length} đề thi</strong> đã chọn không?
                 </p>
                 <p className="text-rose-600 dark:text-rose-400 font-medium">
                   Hành động này không thể hoàn tác. Các phần thi và câu hỏi liên quan sẽ bị xoá vĩnh viễn.
                 </p>
-                {selectedItems.length > selectedDrafts.length && (
+                {selectedItems.length > selectedDeletable.length && (
                   <p className="rounded-lg bg-muted p-2 text-muted-foreground">
-                    ℹ️ Lưu ý: <strong>{selectedItems.length - selectedDrafts.length} đề đã xuất bản hoặc đã đóng</strong> không thể xoá trực tiếp và sẽ được giữ lại an toàn.
+                    ℹ️ Lưu ý: <strong>{selectedItems.length - selectedDeletable.length} đề đã xuất bản</strong> không thể xoá trực tiếp và sẽ được giữ lại an toàn. Hãy dùng “Sửa” để chuyển về nháp trước.
                   </p>
                 )}
               </div>
@@ -613,21 +617,8 @@ function ExamRow({
   onDelete: () => void
   onClone: () => void
 }) {
-  const unpublishMutation = useUnpublishExamMutation(exam.id)
   const closeMutation = useCloseExamMutation(exam.id)
-
-  const handleUnpublish = async () => {
-    try {
-      await unpublishMutation.mutateAsync()
-      toast.success("Đã hủy xuất bản, đề chuyển về nháp")
-    } catch (err) {
-      if (err instanceof ApiError && err.code === "EXAM_HAS_ATTEMPTS") {
-        toast.error("Đã có học sinh làm đề này, không thể hủy xuất bản. Hãy nhân bản.")
-      } else {
-        toast.error(err instanceof ApiError ? err.message : "Không thể hủy xuất bản.")
-      }
-    }
-  }
+  const reopenMutation = useReopenExamMutation(exam.id)
 
   const handleClose = async () => {
     try {
@@ -638,7 +629,19 @@ function ExamRow({
     }
   }
 
-  const actionBusy = unpublishMutation.isPending || closeMutation.isPending
+  const handleReopen = async () => {
+    try {
+      const result = await reopenMutation.mutateAsync()
+      toast.success("Đã mở lại đề thi")
+      if (result.clearedCloseAt) {
+        toast.info("Thời gian đóng đã qua nên đã được xoá. Đề hiện đang mở.")
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Không thể mở lại đề.")
+    }
+  }
+
+  const actionBusy = closeMutation.isPending || reopenMutation.isPending
 
   return (
     <TableRow
@@ -685,6 +688,15 @@ function ExamRow({
                 Tiếp tục soạn
               </Link>
             </Button>
+          )}
+          {(exam.status === "published" || exam.status === "closed") && (
+            <EditExamButton
+              examId={exam.id}
+              status={exam.status}
+              variant={exam.status === "closed" ? "default" : "outline"}
+              size="sm"
+              className="h-8 text-xs font-semibold"
+            />
           )}
           {exam.status === "published" && (
             <Button
@@ -749,11 +761,8 @@ function ExamRow({
                     <HugeiconsIcon icon={Copy01Icon} size={15} /> Nhân bản
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleUnpublish} disabled={unpublishMutation.isPending}>
-                    <HugeiconsIcon icon={LockIcon} size={15} /> Hủy xuất bản
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleClose} disabled={closeMutation.isPending}>
-                    <HugeiconsIcon icon={Delete02Icon} size={15} /> Đóng đề
+                    <HugeiconsIcon icon={LockIcon} size={15} /> Đóng đề
                   </DropdownMenuItem>
                 </>
               )}
@@ -771,6 +780,13 @@ function ExamRow({
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={onClone}>
                     <HugeiconsIcon icon={Copy01Icon} size={15} /> Nhân bản
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleReopen} disabled={reopenMutation.isPending}>
+                    <HugeiconsIcon icon={RefreshIcon} size={15} /> Mở lại
+                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                    <HugeiconsIcon icon={Delete02Icon} size={15} /> Xoá
                   </DropdownMenuItem>
                 </>
               )}

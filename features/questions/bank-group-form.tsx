@@ -30,6 +30,7 @@ import type {
   QuestionGroupConfig,
   QuestionGroupType,
   QuestionItem,
+  RichDoc,
   SkillType,
 } from "@/lib/api/types"
 import type { CreateBankGroupPayload } from "@/lib/api/questions"
@@ -39,6 +40,7 @@ interface EditorGroup {
   id: string
   groupType: QuestionGroupType
   instructions: string
+  instructionsDoc?: RichDoc | null
   config: QuestionGroupConfig
   questions: QuestionItem[]
 }
@@ -56,11 +58,13 @@ function toEditorGroup(group: BankQuestionGroup): EditorGroup {
     id: group.id,
     groupType: group.groupType,
     instructions: group.instructions ?? "",
+    instructionsDoc: group.instructionsDoc ?? null,
     config: (group.config ?? {}) as QuestionGroupConfig,
     questions: (group.questions ?? []).map((q, index) => ({
       id: q.id,
       questionNumber: index + 1,
       prompt: q.prompt ?? "",
+      promptDoc: q.promptDoc ?? null,
       acceptedAnswers: q.acceptedAnswers ?? [],
       points: q.points ?? 1,
       explanation: q.explanation ?? undefined,
@@ -121,9 +125,11 @@ export function BankGroupForm({
       part,
       groupType: group.groupType,
       instructions: group.instructions ?? "",
+      instructionsDoc: group.instructionsDoc ?? undefined,
       config: group.config ?? {},
       questions: group.questions.map((q) => ({
         prompt: q.prompt ?? "",
+        promptDoc: q.promptDoc ?? undefined,
         acceptedAnswers: q.acceptedAnswers ?? [],
         points: q.points ?? 1,
         explanation: q.explanation ?? undefined,

@@ -14,6 +14,7 @@ import {
   type ChangePasswordPayload,
 } from "@/lib/api/auth"
 import type { User } from "@/lib/api/types"
+import { SESSION_REPLACED_FLAG } from "@/lib/auth-session"
 
 export function useMeQuery(enabled = true) {
   const { accessToken } = useAuthStore()
@@ -32,6 +33,11 @@ export function useLoginMutation() {
       loginApi(email, password),
     onSuccess: (data) => {
       setAuth(data.user, data.accessToken)
+      // #1: let the notice component show a one-time banner on this device.
+      if (data.sessionReplaced && typeof window !== "undefined") {
+        window.sessionStorage.setItem(SESSION_REPLACED_FLAG, "1")
+        window.dispatchEvent(new Event("auth:session-replaced"))
+      }
     },
   })
 }
