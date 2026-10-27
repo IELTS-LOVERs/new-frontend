@@ -1,6 +1,7 @@
 import * as React from "react"
 import { fireEvent, render, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { toast } from "sonner"
 import { DeleteExamDialog, type DeleteExamTarget } from "./delete-exam-dialog"
 
 const mutateAsync = vi.fn()
@@ -155,6 +156,32 @@ describe("DeleteExamDialog", () => {
     fireEvent.click(confirm)
     await waitFor(() =>
       expect(mutateAsync).toHaveBeenCalledWith({ id: "e1", force: true })
+    )
+  })
+
+  it("admin xoá cứng được khi có học sinh đang làm bài và báo số bài bị dừng", async () => {
+    currentRole = "admin"
+    mutateAsync.mockResolvedValueOnce({
+      message: "ok",
+      deletedAssignments: 0,
+      deletedAttempts: 1,
+      deletedActiveAttempts: 1,
+    })
+    const { container } = setup(exam({ status: "published", hasAttempts: true }))
+
+    expect(container.textContent).toContain("sẽ bị dừng ngay lập tức")
+
+    const input = container.querySelector("input") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "IELTS Mock 01" } })
+    fireEvent.click(buttonByText(container, "Xoá vĩnh viễn"))
+
+    await waitFor(() =>
+      expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
+        "Đã xoá đề thi",
+        expect.objectContaining({
+          description: expect.stringContaining("1 bài làm đang thực hiện"),
+        })
+      )
     )
   })
 

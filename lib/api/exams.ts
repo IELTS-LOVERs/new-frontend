@@ -136,6 +136,8 @@ export interface DeleteExamResult {
   message: string
   deletedAssignments: number
   deletedAttempts: number
+  /** Attempts that were still in progress when an admin force deleted. */
+  deletedActiveAttempts?: number
 }
 
 export async function deleteExamApi(

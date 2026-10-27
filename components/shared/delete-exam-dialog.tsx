@@ -130,6 +130,11 @@ export function DeleteExamDialog({
       if (result.deletedAssignments > 0) {
         notes.push(`Đã xoá kèm ${result.deletedAssignments} bài tập đã giao.`)
       }
+      if (result.deletedActiveAttempts && result.deletedActiveAttempts > 0) {
+        notes.push(
+          `Đã dừng và xoá ${result.deletedActiveAttempts} bài làm đang thực hiện.`
+        )
+      }
       if (result.deletedAttempts > 0) {
         notes.push(`Đã xoá ${result.deletedAttempts} bài làm của học sinh.`)
       }
@@ -221,6 +226,10 @@ export function DeleteExamDialog({
                     {hasAttempts
                       ? "Toàn bộ bài làm, điểm, nhận xét Writing và log chống gian lận sẽ bị xoá vĩnh viễn."
                       : "Học sinh đang giữ liên kết đề này sẽ không xem được nữa."}
+                  </p>
+                  <p className="text-destructive/90">
+                    Học sinh đang làm bài (nếu có) sẽ bị dừng ngay lập tức và bài
+                    làm hiện tại bị xoá.
                   </p>
                   <p className="pt-1 text-foreground">
                     Gõ chính xác tên {entityLabel} để xác nhận xoá cứng:
