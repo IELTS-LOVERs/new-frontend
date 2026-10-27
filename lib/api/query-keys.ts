@@ -22,6 +22,7 @@ export const queryKeys = {
     detail: (id: string) => ["exams", "detail", id] as const,
   },
   assignments: {
+    all: ["assignments"] as const,
     my: (params?: { classId?: string; status?: string }) =>
       params ? (["assignments", "my", params] as const) : (["assignments", "my"] as const),
     teacher: (params?: { classId?: string; page?: number; limit?: number }) =>

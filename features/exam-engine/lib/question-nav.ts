@@ -1,22 +1,23 @@
 /**
- * DOM helpers for "jump to question N" navigation from the bottom palette.
+ * DOM helpers for "jump to question" navigation from the bottom palette.
  *
- * Every rendered question carries `data-question-number="<global number>"` plus
- * a matching `id="exam-q-<n>"` so the footer can scroll the (independently
- * scrollable) question panel to the exact question and flash a focus ring.
+ * Every rendered question carries `data-question-id="<question id>"` plus a
+ * matching `id="exam-q-<question id>"`. Question *numbers* are display data and
+ * can repeat across skills (Listening Q1 / Reading Q1), so navigation must key
+ * on the globally unique question id instead.
  */
 
 /** Data attribute stamped on every question anchor element. */
-export const QUESTION_NUMBER_ATTR = "data-question-number"
+export const QUESTION_ID_ATTR = "data-question-id"
 
-/** CSS selector used to locate a question anchor by its global number. */
-export function questionAnchorSelector(questionNumber: number): string {
-  return `[${QUESTION_NUMBER_ATTR}="${questionNumber}"]`
+/** CSS selector used to locate a question anchor by its question id. */
+export function questionAnchorSelector(questionId: string): string {
+  return `[${QUESTION_ID_ATTR}="${questionId}"]`
 }
 
 /** Stable DOM id for a question anchor. */
-export function questionAnchorId(questionNumber: number): string {
-  return `exam-q-${questionNumber}`
+export function questionAnchorId(questionId: string): string {
+  return `exam-q-${questionId}`
 }
 
 /** Duration (ms) the focus ring stays visible after a jump. */
@@ -44,17 +45,17 @@ export function flashQuestionElement(
 }
 
 /**
- * Scroll the question panel to question `questionNumber` (centred) and flash a
- * focus ring. Returns `false` when no anchor is mounted (e.g. the target
- * section has not rendered yet) so callers can retry later.
+ * Scroll the question panel to the question with `questionId` (centred) and
+ * flash a focus ring. Returns `false` when no anchor is mounted (e.g. the
+ * target section has not rendered yet) so callers can retry later.
  */
 export function scrollToQuestion(
-  questionNumber: number,
+  questionId: string,
   opts: { behavior?: ScrollBehavior; focusMs?: number } = {}
 ): boolean {
   if (typeof document === "undefined") return false
   const el = document.querySelector<HTMLElement>(
-    questionAnchorSelector(questionNumber)
+    questionAnchorSelector(questionId)
   )
   if (!el) return false
   el.scrollIntoView({

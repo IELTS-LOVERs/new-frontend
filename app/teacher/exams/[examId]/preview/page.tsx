@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { RichText } from "@/features/exam-engine/components/rich-text"
+import { formatQuestionRange } from "@/features/exam-engine/lib/exam-flow"
 import { RichDocView } from "@/features/rich-text/render"
 import { ApiError } from "@/lib/api/client"
 import { useTeacherExamDetailQuery } from "@/hooks/use-exams"
@@ -29,6 +30,7 @@ import type { MediaItem, RichDoc, SkillType } from "@/lib/api/types"
 
 interface PreviewQuestion {
   id: string
+  questionNumber: number
   type: string
   prompt: string
   promptDoc?: RichDoc | null
@@ -58,6 +60,7 @@ function flattenGroupsToPreviewQuestions(section: {
     config?: Record<string, unknown>
     questions?: Array<{
       id: string
+      questionNumber: number
       prompt: string
       promptDoc?: RichDoc | null
       acceptedAnswers?: string[]
@@ -67,6 +70,7 @@ function flattenGroupsToPreviewQuestions(section: {
   return (section.questionGroups ?? []).flatMap((g) =>
     (g.questions ?? []).map((q) => ({
       id: q.id,
+      questionNumber: q.questionNumber,
       type: g.groupType,
       prompt: q.prompt,
       promptDoc: q.promptDoc ?? null,
@@ -321,7 +325,7 @@ export default function ExamPreviewPage() {
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-muted/20 p-4">
             <h3 className="font-heading text-sm font-bold text-foreground">
-              Questions 1–{current.questions.length}
+              {formatQuestionRange(current.questions)}
             </h3>
             {current.instructionsDoc ? (
               <RichDocView
@@ -335,7 +339,7 @@ export default function ExamPreviewPage() {
             )}
           </div>
 
-          {current.questions.map((q, idx) => {
+          {current.questions.map((q) => {
             const answers = q.acceptedAnswers ?? []
             const options =
               (q.data?.options as Array<{ id: string; text: string }>) ??
@@ -345,7 +349,7 @@ export default function ExamPreviewPage() {
               <div key={q.id} className="rounded-xl border border-border bg-card p-5 shadow-xs">
                 <div className="mb-3 flex items-start gap-2">
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
-                    {idx + 1}
+                    {q.questionNumber}
                   </span>
                   <span className="text-sm font-semibold text-foreground"><RichText text={q.prompt} /></span>
                 </div>

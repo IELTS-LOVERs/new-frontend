@@ -33,7 +33,9 @@ import { cn } from "@/lib/utils"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   PlayIcon,
+  PauseIcon,
   VolumeHighIcon,
+  VolumeOffIcon,
   Timer01Icon,
   CheckmarkCircle02Icon,
   Alert02Icon,
@@ -56,6 +58,7 @@ import {
   computeSectionReviews,
   countWords,
   findWritingQuestion,
+  formatQuestionRange,
   getGroupViewMeta,
   parseInlineToken,
   resolveInlineBlankQuestion,
@@ -72,7 +75,7 @@ import {
 import { RichDocView } from "@/features/rich-text/render"
 import { SelectableRichDoc } from "@/features/rich-text/selectable"
 import { parseRichText } from "@/features/exam-engine/lib/rich-text"
-import { scrollToQuestion } from "@/features/exam-engine/lib/question-nav"
+import { questionAnchorId, scrollToQuestion } from "@/features/exam-engine/lib/question-nav"
 import { toast } from "sonner"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { useExamSessionStore } from "@/stores/exam-session.store"
@@ -81,7 +84,7 @@ import { useAutosave } from "@/features/exam-engine/hooks/use-autosave"
 import { useExamRecovery } from "@/features/exam-engine/hooks/use-recovery"
 import { useAntiCheat } from "@/features/exam-engine/hooks/use-anti-cheat"
 import { useClipboardGuard } from "@/features/exam-engine/hooks/use-clipboard-guard"
-import { useExamAudioPlayer } from "@/features/exam-engine/hooks/use-audio-player"
+import { useExamAudioPlayer, type ExamAudioMode } from "@/features/exam-engine/hooks/use-audio-player"
 import { useSubmitAttemptMutation } from "@/hooks/use-attempts"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { clearAttemptSnapshot } from "@/features/exam-engine/lib/idb"
@@ -133,11 +136,11 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const [writingTask, setWritingTask] = React.useState<"task1" | "task2">(
     "task1"
   )
-  const [activeQuestionNumber, setActiveQuestionNumber] = React.useState<
-    number | null
+  const [activeQuestionId, setActiveQuestionId] = React.useState<
+    string | null
   >(null)
-  const [pendingScrollQNum, setPendingScrollQNum] = React.useState<
-    number | null
+  const [pendingScrollQuestionId, setPendingScrollQuestionId] = React.useState<
+    string | null
   >(null)
   const submitMutation = useSubmitAttemptMutation()
   const handleSubmitRef = React.useRef<(auto?: boolean) => Promise<void>>(
@@ -222,13 +225,13 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
 
   // ─── Question navigation (palette → scroll inside question panel) ─────────
   const jumpToQuestion = React.useCallback(
-    (questionNumber: number, sectionIndex: number) => {
-      setActiveQuestionNumber(questionNumber)
+    (questionId: string, sectionIndex: number) => {
+      setActiveQuestionId(questionId)
       if (sectionIndex !== activeSectionIndex) {
-        setPendingScrollQNum(questionNumber)
+        setPendingScrollQuestionId(questionId)
         setActiveSectionIndex(sectionIndex)
       } else {
-        window.requestAnimationFrame(() => scrollToQuestion(questionNumber))
+        window.requestAnimationFrame(() => scrollToQuestion(questionId))
       }
     },
     [activeSectionIndex, setActiveSectionIndex]
@@ -237,19 +240,19 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   // After a section switch the question panel mounts asynchronously — scroll on
   // the next frame so the anchor element exists.
   React.useEffect(() => {
-    if (pendingScrollQNum == null) return
+    if (pendingScrollQuestionId == null) return
     let raf2 = 0
     const raf1 = window.requestAnimationFrame(() => {
       raf2 = window.requestAnimationFrame(() => {
-        scrollToQuestion(pendingScrollQNum)
-        setPendingScrollQNum(null)
+        scrollToQuestion(pendingScrollQuestionId)
+        setPendingScrollQuestionId(null)
       })
     })
     return () => {
       window.cancelAnimationFrame(raf1)
       window.cancelAnimationFrame(raf2)
     }
-  }, [pendingScrollQNum, activeSectionIndex])
+  }, [pendingScrollQuestionId, activeSectionIndex])
 
   // Keep the edge fades of the bottom question palette in sync with its
   // overflow, so long exams show that more question numbers are available.
@@ -619,6 +622,8 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
             onAnswer={(qid, v) => setAnswer(qid, v)}
             onToggleFlag={toggleFlag}
             uiTheme={ui.theme}
+            audioMode={exam?.kind === "practice" ? "practice" : "exam"}
+            audioScope={attemptId}
           />
         )}
         {currentSection.skill === "reading" && (
@@ -664,12 +669,13 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
                 const isFlag = !!flagged[q.id]
                 const isCurrentSec = q.sectionIndex === activeSectionIndex
                 const qNum = q.questionNumber ?? idx + 1
-                const isActiveQuestion = activeQuestionNumber === qNum
+                const isActiveQuestion = activeQuestionId === q.id
                 return (
                   <button
                     key={q.id}
-                    onClick={() => jumpToQuestion(qNum, q.sectionIndex)}
+                    onClick={() => jumpToQuestion(q.id, q.sectionIndex)}
                     aria-current={isActiveQuestion ? "true" : undefined}
+                    title={`Câu ${qNum}`}
                     className={cn(
                       "relative flex size-8 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold transition-all",
                       isAnswered
@@ -682,7 +688,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
                           : "opacity-80"
                     )}
                   >
-                    {idx + 1}
+                    {qNum}
                     {isFlag && (
                       <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-amber-500 ring-1 ring-background" />
                     )}
@@ -767,6 +773,10 @@ interface SectionProps {
   onToggleFlag: (questionId: string) => void
   uiTheme?: "white" | "cream"
   selectionDisabled?: boolean
+  /** `practice` cho phép phát/dừng/tua; `exam` chỉ nghe 1 lần như thi thật. */
+  audioMode?: ExamAudioMode
+  /** Phạm vi nhớ vị trí audio (attemptId) — tránh lẫn giữa các lượt thi. */
+  audioScope?: string
 }
 
 /**
@@ -902,95 +912,163 @@ function ListeningSection({
   onAnswer,
   onToggleFlag,
   uiTheme,
+  audioMode = "exam",
+  audioScope,
 }: SectionProps) {
   const audioMedia = section.media?.find((m) => m.type === "audio")
-  const audio = useExamAudioPlayer(audioMedia?.url ?? null, { autoplay: true })
+  const isPractice = audioMode === "practice"
+  const audio = useExamAudioPlayer(audioMedia?.url ?? null, {
+    mode: audioMode,
+    // Thi máy: audio tự chạy. Luyện tập: học sinh tự bấm phát.
+    autoplay: !isPractice,
+    // Cùng một file audio chỉ phát 1 lần trong một lượt thi.
+    scope: audioScope,
+  })
+
+  const progressPercent =
+    audio.duration > 0 ? (audio.position / audio.duration) * 100 : 0
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Sticky audio player */}
-      <div
-        className={cn(
-          "sticky top-0 z-20 flex items-center justify-between border-b px-8 py-3",
-          uiTheme === "cream"
-            ? "border-[#E8E4DD] bg-[#FAF8F5]/95"
-            : "border-border bg-card/95"
-        )}
-      >
-        <div className="flex max-w-2xl flex-1 items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "flex size-2.5 rounded-full",
-                audio.error ? "bg-destructive" : "animate-pulse bg-emerald-500"
-              )}
-            />
-            <span className="text-xs font-medium text-foreground">
-              {audio.error ? "Lỗi audio" : "Audio đang phát (Tự động)"}
-            </span>
-          </div>
-
-          <div className="flex-1 space-y-1">
-            <div className="flex justify-between font-mono text-[11px] text-muted-foreground">
-              <span>
-                {audioMedia?.originalName ?? `${section.title} audio`}
-              </span>
-              <span>
-                {formatDuration(Math.floor(audio.position))} /{" "}
-                {formatDuration(Math.floor(audio.duration))}
-              </span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{
-                  width:
-                    audio.duration > 0
-                      ? `${(audio.position / audio.duration) * 100}%`
-                      : "0%",
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 pl-4 text-xs text-muted-foreground">
-          {audio.error && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={audio.retry}
-              className="h-7 text-xs"
-            >
-              Thử lại
-            </Button>
+      {audioMedia?.url && (
+        <div
+          className={cn(
+            "sticky top-0 z-20 flex flex-col gap-2 border-b px-4 py-2.5 sm:flex-row sm:items-center sm:gap-4 sm:px-8 sm:py-3",
+            uiTheme === "cream"
+              ? "border-[#E8E4DD] bg-[#FAF8F5]/95"
+              : "border-border bg-card/95"
           )}
-          <button
-            type="button"
-            onClick={audio.toggleMute}
-            className="p-1 transition-colors hover:text-foreground"
-            title={audio.isMuted ? "Bật âm thanh" : "Tắt tiếng"}
-          >
-            <HugeiconsIcon
-              icon={VolumeHighIcon}
-              size={16}
-              className={audio.isMuted ? "text-destructive" : ""}
-            />
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={audio.isMuted ? 0 : Math.round(audio.volume * 100)}
-            onChange={(e) => audio.setVolume(Number(e.target.value) / 100)}
-            className="h-1.5 w-20 cursor-pointer rounded-lg bg-muted accent-primary sm:w-28"
-            title="Điều chỉnh âm lượng"
-          />
-          <span className="w-8 text-right font-mono text-xs">
-            {audio.isMuted ? "0%" : `${Math.round(audio.volume * 100)}%`}
-          </span>
+        >
+          {/* Điều khiển (chỉ có ở chế độ luyện tập) + tiến trình */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+            {isPractice && (
+              <div className="flex shrink-0 items-center">
+                <button
+                  type="button"
+                  onClick={audio.togglePlay}
+                  disabled={audio.error !== null}
+                  aria-label={audio.isPlaying ? "Tạm dừng" : "Phát"}
+                  title={audio.isPlaying ? "Tạm dừng" : "Phát"}
+                  className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                >
+                  <HugeiconsIcon
+                    icon={audio.isPlaying ? PauseIcon : PlayIcon}
+                    size={18}
+                  />
+                </button>
+              </div>
+            )}
+
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center justify-between gap-2 font-mono text-[11px] text-muted-foreground">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      audio.error
+                        ? "bg-destructive"
+                        : audio.isPlaying
+                          ? "animate-pulse bg-emerald-500"
+                          : "bg-muted-foreground/40"
+                    )}
+                  />
+                  {/* Không còn nhãn "Audio đang phát (Tự động)": chỉ hiện tên file. */}
+                  <span className="truncate text-xs font-medium text-foreground">
+                    {audioMedia.originalName || `${section.title} audio`}
+                  </span>
+                </span>
+                <span className="shrink-0">
+                  {formatDuration(Math.floor(audio.position))} /{" "}
+                  {formatDuration(Math.floor(audio.duration))}
+                </span>
+              </div>
+
+              {isPractice ? (
+                <input
+                  type="range"
+                  min={0}
+                  max={audio.duration > 0 ? audio.duration : 0}
+                  step={0.1}
+                  value={Math.min(audio.position, audio.duration || 0)}
+                  onChange={(e) => audio.seek(Number(e.target.value))}
+                  disabled={audio.duration <= 0 || audio.error !== null}
+                  aria-label="Tua audio"
+                  className="h-6 w-full cursor-pointer touch-none accent-primary disabled:cursor-not-allowed"
+                />
+              ) : (
+                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-all duration-300"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Âm lượng */}
+          <div className="flex shrink-0 items-center justify-end gap-2 text-xs text-muted-foreground sm:gap-3 sm:pl-4">
+            {audio.error && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={audio.retry}
+                className="h-7 text-xs"
+              >
+                Thử lại
+              </Button>
+            )}
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={audio.toggleMute}
+                aria-label={audio.isMuted ? "Bật âm thanh" : "Tắt tiếng"}
+                title={audio.isMuted ? "Bật âm thanh" : "Tắt tiếng"}
+                className="flex size-8 items-center justify-center rounded-full transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <HugeiconsIcon
+                  icon={
+                    audio.isMuted || !audio.volumeControlSupported
+                      ? VolumeOffIcon
+                      : VolumeHighIcon
+                  }
+                  size={16}
+                  className={audio.isMuted ? "text-destructive" : ""}
+                />
+              </button>
+
+              {audio.volumeControlSupported ? (
+                <>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={audio.isMuted ? 0 : Math.round(audio.volume * 100)}
+                    onChange={(e) =>
+                      audio.setVolume(Number(e.target.value) / 100)
+                    }
+                    aria-label="Điều chỉnh âm lượng"
+                    title="Điều chỉnh âm lượng"
+                    className="h-6 w-24 cursor-pointer touch-none accent-primary sm:w-28"
+                  />
+                  <span className="w-9 shrink-0 text-right font-mono text-xs">
+                    {audio.isMuted ? "0%" : `${Math.round(audio.volume * 100)}%`}
+                  </span>
+                </>
+              ) : (
+                // iOS không cho đổi âm lượng bằng JS → hướng dẫn thay vì thanh kéo chết.
+                <span className="text-[11px] leading-tight text-muted-foreground">
+                  Dùng phím âm lượng
+                  <br className="sm:hidden" /> của thiết bị
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Questions */}
       <div className="mx-auto w-full max-w-4xl space-y-8 p-4 sm:p-6 md:p-8">
@@ -1313,8 +1391,8 @@ function InlineBlank({
   const answerLocked = ctx.allowChangeAnswer === false && answer !== ""
   return (
     <span
-      id={`exam-q-${q.questionNumber}`}
-      data-question-number={q.questionNumber}
+      id={questionAnchorId(q.id)}
+      data-question-id={q.id}
       className={cn(
         "inline-flex items-center gap-1.5 align-baseline",
         compact ? "mx-0.5" : "mx-1.5 my-1"
@@ -1464,8 +1542,8 @@ function UnplacedQuestionsList({
         return (
           <div
             key={q.id}
-            id={`exam-q-${q.questionNumber}`}
-            data-question-number={q.questionNumber}
+            id={questionAnchorId(q.id)}
+            data-question-id={q.id}
             className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5"
           >
             <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-xs font-bold text-primary">
@@ -1726,13 +1804,11 @@ function MatchingFeaturesRenderer({
   const features =
     (config.featuresPool as Array<{ id: string; text: string }>) ?? []
   const allowReuse = (config.allowReuse as boolean | undefined) ?? true
-  const first = group.questions[0]?.questionNumber
-  const last = group.questions[group.questions.length - 1]?.questionNumber
 
   const header = (
     <div className="space-y-1">
       <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-        Questions {first}–{last}
+        {formatQuestionRange(group.questions)}
       </p>
       {group.instructionsDoc ? (
         <RichDocView
@@ -1794,8 +1870,8 @@ function MatchingFeaturesRenderer({
                 return (
                   <tr
                     key={q.id}
-                    id={`exam-q-${q.questionNumber}`}
-                    data-question-number={q.questionNumber}
+                    id={questionAnchorId(q.id)}
+                    data-question-id={q.id}
                     className="transition-colors hover:bg-muted/20"
                   >
                     <td className="sticky left-0 z-10 bg-card border-r border-border px-3.5 py-2.5 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
@@ -1893,8 +1969,8 @@ function MatchingFeaturesRenderer({
           return (
             <div
               key={q.id}
-              id={`exam-q-${q.questionNumber}`}
-              data-question-number={q.questionNumber}
+              id={questionAnchorId(q.id)}
+              data-question-id={q.id}
               className="space-y-2 rounded-lg border border-border p-3"
             >
               <div className="flex items-start gap-2.5">
@@ -2046,8 +2122,7 @@ function GroupRendererBody({
       <div className="space-y-4 rounded-xl border border-border bg-card p-5">
         <div className="space-y-1">
           <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Questions {group.questions[0]?.questionNumber}–
-            {group.questions[group.questions.length - 1]?.questionNumber}
+            {formatQuestionRange(group.questions)}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
             <RichText text={group.instructions} />
@@ -2106,8 +2181,8 @@ function GroupRendererBody({
               return (
                 <div
                   key={q.id}
-                  id={`exam-q-${q.questionNumber}`}
-                  data-question-number={q.questionNumber}
+                  id={questionAnchorId(q.id)}
+                  data-question-id={q.id}
                   className="flex items-center gap-1.5 rounded-md border border-border bg-muted/20 px-2 py-1 text-xs"
                 >
                   <span className="font-mono font-bold text-primary">
@@ -2151,8 +2226,7 @@ function GroupRendererBody({
       <div className="space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5">
         <div className="space-y-1">
           <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Questions {group.questions[0]?.questionNumber}–
-            {group.questions[group.questions.length - 1]?.questionNumber}
+            {formatQuestionRange(group.questions)}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
             <RichText text={group.instructions} />
@@ -2192,8 +2266,8 @@ function GroupRendererBody({
                 return (
                   <tr
                     key={q.id}
-                    id={`exam-q-${q.questionNumber}`}
-                    data-question-number={q.questionNumber}
+                    id={questionAnchorId(q.id)}
+                    data-question-id={q.id}
                     className="transition-colors hover:bg-muted/20"
                   >
                     <td className="sticky left-0 z-10 bg-card border-r border-border px-3.5 py-2.5 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
@@ -2289,8 +2363,7 @@ function GroupRendererBody({
       <div className="space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5">
         <div className="space-y-1">
           <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Questions {group.questions[0]?.questionNumber}–
-            {group.questions[group.questions.length - 1]?.questionNumber}
+            {formatQuestionRange(group.questions)}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
             <RichText text={group.instructions} />
@@ -2323,8 +2396,7 @@ function GroupRendererBody({
       <div className="space-y-4 rounded-xl border border-border bg-muted/10 p-4 sm:p-5">
         <div className="space-y-1">
           <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Questions {group.questions[0]?.questionNumber}–
-            {group.questions[group.questions.length - 1]?.questionNumber}
+            {formatQuestionRange(group.questions)}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
             <RichText text={group.instructions} />
@@ -2357,8 +2429,7 @@ function GroupRendererBody({
       <div className="space-y-4 rounded-xl border border-border bg-card p-5">
         <div className="space-y-1">
           <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Questions {group.questions[0]?.questionNumber}–
-            {group.questions[group.questions.length - 1]?.questionNumber}
+            {formatQuestionRange(group.questions)}
           </p>
           <p className="text-sm font-medium whitespace-pre-line text-foreground">
             <RichText text={group.instructions} />
@@ -2413,8 +2484,7 @@ function GroupRendererBody({
     <div className="space-y-5 rounded-xl border border-border bg-card p-4 sm:p-6">
       <div className="space-y-1.5">
         <p className="text-xs sm:text-sm font-semibold tracking-wide text-muted-foreground uppercase">
-          Questions {group.questions[0]?.questionNumber}–
-          {group.questions[group.questions.length - 1]?.questionNumber}
+          {formatQuestionRange(group.questions)}
         </p>
         <p className="text-sm sm:text-base font-semibold whitespace-pre-line text-foreground leading-relaxed">
           <RichText text={group.instructions} />
@@ -2481,8 +2551,8 @@ function GroupRendererBody({
           return (
             <div
               key={q.id}
-              id={`exam-q-${q.questionNumber}`}
-              data-question-number={q.questionNumber}
+              id={questionAnchorId(q.id)}
+              data-question-id={q.id}
               className="flex items-start gap-3 sm:gap-3.5"
             >
               <span className="mt-0.5 flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-xs sm:text-sm font-bold text-primary">

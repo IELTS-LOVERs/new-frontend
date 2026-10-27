@@ -57,6 +57,19 @@ export interface IndexedExamQuestion extends FlatQuestion {
   sectionIndex: number
 }
 
+/** Human label for a group's question range (single question → "Question 7"). */
+export function formatQuestionRange(
+  questions: ReadonlyArray<{ questionNumber?: number | null }>
+): string {
+  const numbers = questions
+    .map((q) => q.questionNumber)
+    .filter((n): n is number => typeof n === "number" && Number.isFinite(n))
+  if (numbers.length === 0) return "Questions"
+  const first = Math.min(...numbers)
+  const last = Math.max(...numbers)
+  return first === last ? `Question ${first}` : `Questions ${first}–${last}`
+}
+
 /** Flatten the whole exam into a linear list, tagging each question's section. */
 export function buildExamQuestionIndex(exam: CandidateExam): IndexedExamQuestion[] {
   return exam.sections.flatMap((section, sectionIndex) =>

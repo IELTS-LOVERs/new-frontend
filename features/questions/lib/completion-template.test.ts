@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { QuestionItem } from "@/lib/api/types"
 import {
+  alignTemplatePlaceholders,
   appendToken,
   buildSampleTable,
   extractTemplatePlaceholders,
@@ -8,6 +9,7 @@ import {
   nextBlankNumber,
   reconcileTemplateQuestions,
   removeTemplatePlaceholder,
+  rewriteTemplatePlaceholders,
 } from "./completion-template"
 
 function q(
@@ -44,6 +46,36 @@ describe("nextBlankNumber", () => {
     expect(
       nextBlankNumber([{ questionNumber: 14 }, { questionNumber: 16 }])
     ).toBe(17)
+  })
+})
+
+describe("rewriteTemplatePlaceholders / alignTemplatePlaceholders", () => {
+  it("đổi số ô trống và giữ cú pháp q", () => {
+    expect(
+      rewriteTemplatePlaceholders("A [1] B [q2] C {{1}} D {{q2}}", new Map([
+        [1, 6],
+        [2, 7],
+      ]))
+    ).toBe("A [6] B [q7] C {{6}} D {{q7}}")
+  })
+
+  it("căn template của nhóm ngân hàng theo số câu mới", () => {
+    expect(
+      alignTemplatePlaceholders(
+        "Name: [1]\nCity: [2]\nPhone: [3]",
+        [1, 2, 3],
+        [21, 22, 23]
+      )
+    ).toBe("Name: [21]\nCity: [22]\nPhone: [23]")
+  })
+
+  it("giữ nguyên template đã khớp và không đụng ô trống lạ", () => {
+    expect(
+      alignTemplatePlaceholders("Name: [21]\nCity: [22]", [21, 22], [21, 22])
+    ).toBe("Name: [21]\nCity: [22]")
+    expect(alignTemplatePlaceholders("[1] [2] [9]", [1, 2], [5, 6])).toBe(
+      "[5] [6] [9]"
+    )
   })
 })
 
@@ -93,6 +125,32 @@ describe("reconcileTemplateQuestions", () => {
     )
     expect(changed).toBe(false)
     expect(questions).toHaveLength(2)
+  })
+
+  it("addOnly chỉ thêm câu hỏi còn thiếu và giữ câu hỏi cũ", () => {
+    const existing = [q("a", 1, ["one"]), q("b", 2, ["two"]), q("c", 9)]
+    const { questions, changed } = reconcileTemplateQuestions(
+      "[1] [2] [3] [4]",
+      existing,
+      (n) => `new-${n}`,
+      { addOnly: true }
+    )
+
+    expect(changed).toBe(true)
+    expect(questions.map((item) => item.id)).toEqual(["a", "b", "c", "new-3", "new-4"])
+    expect(questions[0].acceptedAnswers).toEqual(["one"])
+  })
+
+  it("addOnly không báo thay đổi khi đã đủ câu hỏi", () => {
+    const existing = [q("a", 1), q("b", 2)]
+    const { questions, changed } = reconcileTemplateQuestions(
+      "[1] [2]",
+      existing,
+      (n) => `new-${n}`,
+      { addOnly: true }
+    )
+    expect(changed).toBe(false)
+    expect(questions).toBe(existing)
   })
 })
 

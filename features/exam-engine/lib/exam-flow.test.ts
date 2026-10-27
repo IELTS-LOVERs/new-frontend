@@ -14,6 +14,7 @@ import {
   countWords,
   findWritingQuestion,
   flattenSectionQuestions,
+  formatQuestionRange,
   getGroupViewMeta,
   isAnswered,
   parseInlineToken,
@@ -121,6 +122,26 @@ describe("buildExamQuestionIndex", () => {
       sections: [section({ questionGroups: [] })],
     }
     expect(buildExamQuestionIndex(exam)).toEqual([])
+  })
+})
+
+describe("formatQuestionRange", () => {
+  it("hiển thị khoảng câu và dạng một câu", () => {
+    expect(formatQuestionRange([item({ questionNumber: 1 }), item({ questionNumber: 2 })])).toBe(
+      "Questions 1–2"
+    )
+    expect(formatQuestionRange([item({ questionNumber: 7 })])).toBe("Question 7")
+  })
+
+  it("dùng min/max khi thứ tự câu bị đảo và bỏ qua số không hợp lệ", () => {
+    expect(
+      formatQuestionRange([
+        item({ questionNumber: 7 }),
+        item({ questionNumber: 3 }),
+        item({ questionNumber: undefined }),
+      ])
+    ).toBe("Questions 3–7")
+    expect(formatQuestionRange([])).toBe("Questions")
   })
 })
 

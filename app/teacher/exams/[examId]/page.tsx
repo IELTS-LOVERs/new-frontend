@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state"
 import { ExamStatusBadge, AssignmentStatusBadge } from "@/components/shared/status-badge"
 import { BarChart, HBarChart } from "@/components/shared/charts"
 import { AssignDialog } from "@/components/shared/assign-dialog"
+import { DeleteExamDialog } from "@/components/shared/delete-exam-dialog"
 import { EditExamButton } from "@/components/shared/edit-exam-button"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -24,16 +25,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
@@ -51,7 +42,6 @@ import {
 import { cn } from "@/lib/utils"
 import { ApiError } from "@/lib/api/client"
 import {
-  useDeleteExamMutation,
   useReopenExamMutation,
   useTeacherExamDetailQuery,
 } from "@/hooks/use-exams"
@@ -61,6 +51,7 @@ import { RichText } from "@/features/exam-engine/components/rich-text"
 import { SKILL_LABEL, formatDate, formatBand } from "@/lib/format"
 import type { SkillType } from "@/lib/api/types"
 import type { TeacherExamSection } from "@/lib/api/exams"
+import { useAuthStore } from "@/stores/auth.store"
 
 const SKILL_ICON: Record<SkillType, React.ComponentProps<typeof HugeiconsIcon>["icon"]> = {
   listening: HeadphonesIcon,
@@ -78,7 +69,8 @@ export default function TeacherExamDetailPage() {
 
   const examQuery = useTeacherExamDetailQuery(examId)
   const reopenMutation = useReopenExamMutation(examId)
-  const deleteMutation = useDeleteExamMutation()
+  const user = useAuthStore((state) => state.user)
+  const isAdmin = user?.role === "admin"
   // TODO(G3): GET /api/assignments chưa hỗ trợ filter examId — lấy tất cả rồi lọc client.
   // Gỡ fallback khi backend thêm filter examId.
   const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 100 })
@@ -119,15 +111,9 @@ export default function TeacherExamDetailPage() {
     }
   }
 
-  const handleDelete = async () => {
-    try {
-      await deleteMutation.mutateAsync(examId)
-      setDeleteOpen(false)
-      toast.success("Đã xoá đề thi")
-      router.push(exam?.kind === "practice" ? "/teacher/practices" : "/teacher/exams")
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Không thể xoá đề.")
-    }
+  const handleDelete = () => {
+    setDeleteOpen(false)
+    router.push(exam?.kind === "practice" ? "/teacher/practices" : "/teacher/exams")
   }
 
   if (isLoading) {
@@ -243,7 +229,7 @@ export default function TeacherExamDetailPage() {
                 <HugeiconsIcon icon={Task01Icon} size={15} /> Giao bài
               </Button>
             )}
-            {exam.status !== "published" && (
+            {(exam.status !== "published" || isAdmin) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -589,44 +575,24 @@ export default function TeacherExamDetailPage() {
 
       <AssignDialog open={assignOpen} onOpenChange={setAssignOpen} initialExamId={examId} />
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Xoá đề thi?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-xs text-muted-foreground">
-                <p>
-                  Đề &quot;{exam.title}&quot; sẽ bị xoá vĩnh viễn cùng toàn bộ phần
-                  thi và câu hỏi. Hành động này không thể hoàn tác.
-                </p>
-                {exam.hasAttempts && (
-                  <p className="font-medium text-destructive">
-                    Đề đã có học sinh làm bài nên sẽ không thể xoá.
-                  </p>
-                )}
-                {!exam.hasAttempts && exam.hasAssignments && (
-                  <p className="font-medium text-destructive">
-                    Đề đã được giao cho lớp nên sẽ không thể xoá.
-                  </p>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>Huỷ</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault()
-                void handleDelete()
-              }}
-              disabled={deleteMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleteMutation.isPending ? "Đang xoá…" : "Xoá vĩnh viễn"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteExamDialog
+        exam={
+          exam
+            ? {
+                id: examId,
+                title: exam.title,
+                status: exam.status,
+                kind: exam.kind,
+                hasAttempts: exam.hasAttempts,
+                hasAssignments: exam.hasAssignments,
+              }
+            : null
+        }
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onDeleted={handleDelete}
+        entityLabel={exam.kind === "practice" ? "bài luyện tập" : "đề thi"}
+      />
     </div>
   )
 }

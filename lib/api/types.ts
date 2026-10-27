@@ -317,10 +317,16 @@ export interface ExamListItem {
   status: "draft" | "published" | "closed"
   createdAt: string
   sectionsCount?: number
+  /** Distinct skills in the exam's sections, e.g. ["listening", "reading"]. */
+  skills?: SkillType[]
   kind?: ExamKind
   scoringMode?: ExamScoringMode
   bandConversion?: BandConversion
   curriculum?: IExamCurriculum
+  /** Teacher view: true when at least one student has attempted this exam. */
+  hasAttempts?: boolean
+  /** Teacher view: true when the exam is assigned to at least one class. */
+  hasAssignments?: boolean
 }
 
 export type SubmissionStatus = "not_started" | "in_progress" | "submitted" | "expired"

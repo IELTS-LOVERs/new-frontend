@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@testing-library/react"
-import { useExamAudioPlayer } from "./use-audio-player"
+import { resetExamAudioMemory, useExamAudioPlayer } from "./use-audio-player"
 
 /**
  * Minimal HTMLAudioElement stand-in. jsdom does not implement media playback,
@@ -9,13 +9,25 @@ import { useExamAudioPlayer } from "./use-audio-player"
 class FakeAudio {
   static instances: FakeAudio[] = []
   static playImpl: () => Promise<void> = () => Promise.resolve()
+  /** Bật để mô phỏng iOS: setter `volume` bị bỏ qua, đọc lại luôn bằng 1. */
+  static volumeLocked = false
 
   src: string
   preload = ""
-  volume = 1
+  private _volume = 1
   muted = false
   currentTime = 0
   duration = 0
+  ended = false
+  paused = true
+
+  get volume() {
+    return FakeAudio.volumeLocked ? 1 : this._volume
+  }
+
+  set volume(value: number) {
+    if (!FakeAudio.volumeLocked) this._volume = value
+  }
 
   play = vi.fn(() => FakeAudio.playImpl())
   pause = vi.fn()
@@ -48,7 +60,9 @@ class FakeAudio {
 describe("useExamAudioPlayer", () => {
   beforeEach(() => {
     FakeAudio.instances = []
+    FakeAudio.volumeLocked = false
     FakeAudio.playImpl = () => Promise.resolve()
+    resetExamAudioMemory()
     vi.stubGlobal("Audio", FakeAudio as unknown as typeof Audio)
   })
 
@@ -179,7 +193,7 @@ describe("useExamAudioPlayer", () => {
 
     await waitFor(() =>
       expect(result.current.error).toBe(
-        "Trình duyệt chặn phát tự động. Bấm nút Phát để bắt đầu."
+        "Trình duyệt chặn phát tự động. Bấm “Thử lại” để bắt đầu nghe."
       )
     )
   })
@@ -194,5 +208,200 @@ describe("useExamAudioPlayer", () => {
     expect(audio.pause).toHaveBeenCalled()
     expect(audio.listenerCount("timeupdate")).toBe(0)
     expect(audio.listenerCount("ended")).toBe(0)
+  })
+})
+
+describe("useExamAudioPlayer — chế độ luyện tập", () => {
+  beforeEach(() => {
+    FakeAudio.instances = []
+    FakeAudio.volumeLocked = false
+    FakeAudio.playImpl = () => Promise.resolve()
+    resetExamAudioMemory()
+    vi.stubGlobal("Audio", FakeAudio as unknown as typeof Audio)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("play() sau khi hết bài sẽ nghe lại từ đầu", async () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "practice" })
+    )
+    const audio = FakeAudio.instances[0]
+
+    act(() => {
+      audio.ended = true
+      audio.emit("ended")
+    })
+
+    await act(async () => {
+      result.current.play()
+    })
+
+    expect(audio.currentTime).toBe(0)
+    expect(audio.play).toHaveBeenCalled()
+    expect(result.current.ended).toBe(false)
+  })
+
+  it("togglePlay phát khi đang dừng và tạm dừng khi đang phát", () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "practice" })
+    )
+    const audio = FakeAudio.instances[0]
+
+    act(() => {
+      audio.paused = false
+      audio.emit("play")
+    })
+    expect(result.current.isPlaying).toBe(true)
+
+    act(() => result.current.togglePlay())
+    expect(audio.pause).toHaveBeenCalled()
+  })
+
+  it("seek đổi currentTime và kẹp trong khoảng 0..duration", () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "practice" })
+    )
+    const audio = FakeAudio.instances[0]
+
+    act(() => {
+      audio.duration = 400
+      audio.emit("loadedmetadata")
+    })
+
+    act(() => result.current.seek(120))
+    expect(audio.currentTime).toBe(120)
+
+    act(() => result.current.seek(-50))
+    expect(audio.currentTime).toBe(0)
+
+    act(() => result.current.seek(9999))
+    expect(audio.currentTime).toBe(400)
+  })
+})
+
+describe("useExamAudioPlayer — chế độ thi", () => {
+  beforeEach(() => {
+    FakeAudio.instances = []
+    FakeAudio.volumeLocked = false
+    FakeAudio.playImpl = () => Promise.resolve()
+    resetExamAudioMemory()
+    vi.stubGlobal("Audio", FakeAudio as unknown as typeof Audio)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("không cho tua và không cho phát/dừng bằng tay", () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "exam" })
+    )
+    const audio = FakeAudio.instances[0]
+
+    act(() => {
+      audio.duration = 400
+      audio.currentTime = 100
+      audio.emit("loadedmetadata")
+    })
+
+    act(() => result.current.seek(300))
+    expect(audio.currentTime).toBe(100)
+
+    act(() => result.current.togglePlay())
+    expect(audio.play).not.toHaveBeenCalled()
+    expect(audio.pause).not.toHaveBeenCalled()
+  })
+
+  it("vẫn tự phát khi bật autoplay", async () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "exam", autoplay: true })
+    )
+    const audio = FakeAudio.instances[0]
+
+    await waitFor(() => expect(result.current.started).toBe(true))
+    expect(audio.play).toHaveBeenCalled()
+  })
+
+  it("nghe dở tới đâu thì lần vào sau tiếp tục đúng chỗ đó (không phát lại từ đầu)", () => {
+    const { unmount } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "exam" })
+    )
+    const first = FakeAudio.instances[0]
+
+    act(() => {
+      first.duration = 300
+      first.currentTime = 120
+      first.emit("loadedmetadata")
+    })
+
+    unmount()
+
+    renderHook(() => useExamAudioPlayer("https://cdn/audio.mp3", { mode: "exam" }))
+    const second = FakeAudio.instances[1]
+
+    act(() => {
+      second.duration = 300
+      second.emit("loadedmetadata")
+    })
+
+    expect(second.currentTime).toBe(120)
+  })
+
+  it("bài đã nghe hết thì không autoplay lại khi quay lại part", () => {
+    const { unmount } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "exam" })
+    )
+    const first = FakeAudio.instances[0]
+
+    act(() => {
+      first.duration = 300
+      first.emit("loadedmetadata")
+      first.emit("ended")
+    })
+
+    unmount()
+
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "exam", autoplay: true })
+    )
+    const second = FakeAudio.instances[1]
+
+    act(() => {
+      second.duration = 300
+      second.emit("loadedmetadata")
+    })
+
+    expect(second.play).not.toHaveBeenCalled()
+    expect(result.current.ended).toBe(true)
+  })
+})
+
+describe("useExamAudioPlayer — âm lượng trên thiết bị không hỗ trợ (iOS)", () => {
+  beforeEach(() => {
+    FakeAudio.instances = []
+    FakeAudio.volumeLocked = false
+    FakeAudio.playImpl = () => Promise.resolve()
+    resetExamAudioMemory()
+    // Mô phỏng iOS Safari: gán volume xong đọc lại vẫn là 1.
+    FakeAudio.volumeLocked = true
+    vi.stubGlobal("Audio", FakeAudio as unknown as typeof Audio)
+  })
+
+  afterEach(() => {
+    FakeAudio.volumeLocked = false
+    vi.unstubAllGlobals()
+  })
+
+  it("phát hiện setter volume bị bỏ qua và không ghi đè state", async () => {
+    const { result } = renderHook(() => useExamAudioPlayer("https://cdn/audio.mp3"))
+
+    // Hook probe lúc tạo audio (cập nhật qua microtask) → nhận ra không đổi được.
+    await waitFor(() => expect(result.current.volumeControlSupported).toBe(false))
+
+    act(() => result.current.setVolume(0.2))
+    expect(result.current.volume).toBe(1)
   })
 })

@@ -132,9 +132,21 @@ export async function updateExamMetadataApi(id: string, payload: UpdateExamMetad
   return data
 }
 
-export async function deleteExamApi(id: string): Promise<string> {
-  const { data } = await apiClient<{ message: string }>(`/api/exams/${id}`, { method: "DELETE" })
-  return data.message
+export interface DeleteExamResult {
+  message: string
+  deletedAssignments: number
+  deletedAttempts: number
+}
+
+export async function deleteExamApi(
+  id: string,
+  options: { force?: boolean } = {}
+): Promise<DeleteExamResult> {
+  const qs = options.force ? "?force=true" : ""
+  const { data } = await apiClient<DeleteExamResult>(`/api/exams/${id}${qs}`, {
+    method: "DELETE",
+  })
+  return data
 }
 
 export async function cloneExamApi(id: string): Promise<{ id: string; title: string; status: "draft" }> {

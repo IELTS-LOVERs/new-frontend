@@ -44,10 +44,31 @@ export function nextBlankNumber(
 export function reconcileTemplateQuestions<T extends QuestionItem>(
   template: string,
   questions: T[],
-  createId: (num: number) => string
+  createId: (num: number) => string,
+  options: { addOnly?: boolean } = {}
 ): { questions: T[]; changed: boolean } {
   const numbers = extractTemplatePlaceholders(template)
   if (numbers.length === 0) return { questions, changed: false }
+
+  if (options.addOnly) {
+    const existingNumbers = new Set(questions.map((q) => q.questionNumber))
+    const missing = numbers
+      .filter((num) => !existingNumbers.has(num))
+      .map(
+        (num) =>
+          ({
+            id: createId(num),
+            questionNumber: num,
+            prompt: "",
+            acceptedAnswers: [],
+            points: 1,
+          }) as unknown as T
+      )
+    return {
+      questions: missing.length > 0 ? [...questions, ...missing] : questions,
+      changed: missing.length > 0,
+    }
+  }
 
   const byNumber = new Map<number, T>()
   for (const q of questions) byNumber.set(q.questionNumber, q)
@@ -82,6 +103,64 @@ export function removeTemplatePlaceholder(
     "gi"
   )
   return template.replace(re, "")
+}
+
+/** Rewrite template blanks using an old → new question-number map. */
+export function rewriteTemplatePlaceholders(
+  template: string,
+  remap: ReadonlyMap<number, number>
+): string {
+  if (!template || remap.size === 0) return template
+  return template.replace(PLACEHOLDER_RE, (match, braceNumber, bracketNumber) => {
+    const oldNumber = Number(braceNumber ?? bracketNumber)
+    const newNumber = remap.get(oldNumber)
+    if (newNumber === undefined) return match
+    const prefix = /q/i.test(match) ? "q" : ""
+    return match.startsWith("{{")
+      ? `{{${prefix}${newNumber}}}`
+      : `[${prefix}${newNumber}]`
+  })
+}
+
+/**
+ * Align a template with its group's questions. Exact old → new mapping wins;
+ * when the template still uses local group numbers (bank-inserted groups), the
+ * k-th blank is matched with the k-th question instead.
+ */
+export function alignTemplatePlaceholders(
+  template: string,
+  oldNumbers: ReadonlyArray<number | null | undefined>,
+  newNumbers: readonly number[]
+): string {
+  if (!template || newNumbers.length === 0) return template
+  const blanks = extractTemplatePlaceholders(template)
+  if (blanks.length === 0) return template
+
+  const remap = new Map<number, number>()
+  oldNumbers.forEach((oldNumber, index) => {
+    const newNumber = newNumbers[index]
+    if (
+      typeof oldNumber === "number" &&
+      newNumber !== undefined &&
+      !remap.has(oldNumber)
+    ) {
+      remap.set(oldNumber, newNumber)
+    }
+  })
+
+  if (
+    blanks.some((number) => !remap.has(number)) &&
+    blanks.length === newNumbers.length
+  ) {
+    return rewriteTemplatePlaceholders(
+      template,
+      new Map(
+        blanks.map((number, index) => [number, newNumbers[index]] as const)
+      )
+    )
+  }
+
+  return rewriteTemplatePlaceholders(template, remap)
 }
 
 /** Insert `token` at the given caret range, returning the new value + caret. */

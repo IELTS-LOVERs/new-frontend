@@ -85,9 +85,12 @@ export function useUpdateExamMetadataMutation(id: string) {
 export function useDeleteExamMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => deleteExamApi(id),
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      deleteExamApi(id, { force }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.assignments.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.practice.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.teacher() })
     },
   })

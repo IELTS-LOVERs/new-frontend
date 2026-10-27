@@ -9,6 +9,8 @@ export default defineConfig({
     globals: true,
     clearMocks: true,
     include: [
+      "app/**/*.test.{ts,tsx}",
+      "components/**/*.test.{ts,tsx}",
       "features/**/*.test.{ts,tsx}",
       "hooks/**/*.test.{ts,tsx}",
       "stores/**/*.test.{ts,tsx}",

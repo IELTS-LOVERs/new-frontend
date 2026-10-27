@@ -7,7 +7,9 @@ import { useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ExamStatusBadge } from "@/components/shared/status-badge"
+import { DeleteExamDialog } from "@/components/shared/delete-exam-dialog"
 import { EditExamButton } from "@/components/shared/edit-exam-button"
+import { SkillBadges } from "@/components/shared/skill-badges"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -62,11 +64,11 @@ import { ApiError } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
 import {
   useExamsQuery,
-  useDeleteExamMutation,
   useCloneExamMutation,
 } from "@/hooks/use-exams"
 import { publishExamApi, closeExamApi, reopenExamApi } from "@/lib/api/exams"
 import type { ExamListItem } from "@/lib/api/types"
+import { useAuthStore } from "@/stores/auth.store"
 
 const STATUS_TABS = [
   { value: "all", label: "Tất cả" },
@@ -79,6 +81,8 @@ const PAGE_SIZE = 20
 
 export default function TeacherPracticesPage() {
   const queryClient = useQueryClient()
+  const user = useAuthStore((state) => state.user)
+  const isAdmin = user?.role === "admin"
   const [status, setStatus] = useQueryState(
     "status",
     parseAsString.withDefault("all").withOptions({ shallow: true })
@@ -102,7 +106,6 @@ export default function TeacherPracticesPage() {
   )
 
   const examsQuery = useExamsQuery(queryParams, true)
-  const deleteMutation = useDeleteExamMutation()
   const cloneMutation = useCloneExamMutation()
 
   const items = examsQuery.data?.items ?? []
@@ -150,18 +153,6 @@ export default function TeacherPracticesPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.practice.all })
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Không thể đóng bài luyện tập.")
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    try {
-      await deleteMutation.mutateAsync(deleteTarget.id)
-      toast.success("Đã xóa bài luyện tập")
-      setDeleteTarget(null)
-      queryClient.invalidateQueries({ queryKey: queryKeys.practice.all })
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Không thể xóa bài luyện tập.")
     }
   }
 
@@ -261,6 +252,7 @@ export default function TeacherPracticesPage() {
               <TableRow className="border-border/60 hover:bg-transparent">
                 <TableHead className="w-[320px] text-xs font-semibold">Tên bài luyện tập</TableHead>
                 <TableHead className="text-xs font-semibold">Giáo trình & Phần thi</TableHead>
+                <TableHead className="w-[150px] text-xs font-semibold">Kỹ năng</TableHead>
                 <TableHead className="w-[100px] text-xs font-semibold text-center">Thời lượng</TableHead>
                 <TableHead className="w-[120px] text-xs font-semibold">Trạng thái</TableHead>
                 <TableHead className="w-[170px] text-right text-xs font-semibold">Thao tác</TableHead>
@@ -296,6 +288,10 @@ export default function TeacherPracticesPage() {
                     ) : (
                       <span>—</span>
                     )}
+                  </TableCell>
+
+                  <TableCell className="py-3">
+                    <SkillBadges skills={item.skills} emptyLabel="Chưa có phần thi" />
                   </TableCell>
 
                   <TableCell className="py-3 text-center font-mono">
@@ -376,7 +372,7 @@ export default function TeacherPracticesPage() {
                             </DropdownMenuItem>
                           )}
 
-                          {item.status !== "published" && (
+                          {(item.status !== "published" || isAdmin) && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
@@ -427,27 +423,12 @@ export default function TeacherPracticesPage() {
       )}
 
       {/* Delete Dialog */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="font-heading text-base font-semibold">
-              Xác nhận xóa bài luyện tập?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs">
-              Hành động này không thể hoàn tác. Bài luyện tập &quot;{deleteTarget?.title}&quot; sẽ bị xóa khỏi hệ thống.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="text-xs">Hủy</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive hover:bg-destructive/90 text-xs font-semibold"
-            >
-              Xóa vĩnh viễn
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteExamDialog
+        exam={deleteTarget}
+        open={!!deleteTarget}
+        onOpenChange={(next) => !next && setDeleteTarget(null)}
+        entityLabel="bài luyện tập"
+      />
 
       {/* Close Dialog */}
       <AlertDialog open={!!closeTarget} onOpenChange={(open) => !open && setCloseTarget(null)}>

@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ExamStatusBadge } from "@/components/shared/status-badge"
 import { AssignDialog } from "@/components/shared/assign-dialog"
+import { DeleteExamDialog, type DeleteExamTarget } from "@/components/shared/delete-exam-dialog"
 import { EditExamButton } from "@/components/shared/edit-exam-button"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -65,7 +66,6 @@ import { ApiError } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
 import {
   useExamsQuery,
-  useDeleteExamMutation,
   useCloneExamMutation,
   useReopenExamMutation,
   useCloseExamMutation,
@@ -78,6 +78,7 @@ import {
 } from "@/lib/api/exams"
 import { formatDateShort } from "@/lib/format"
 import type { ExamSummary } from "@/lib/api/types"
+import { useAuthStore } from "@/stores/auth.store"
 
 const STATUS_TABS = [
   { value: "all", label: "Tất cả" },
@@ -108,9 +109,12 @@ function SkillsCell({ exam }: { exam: Partial<ExamSummary> }) {
 
 export default function TeacherExamsPage() {
   const queryClient = useQueryClient()
+  const user = useAuthStore((state) => state.user)
+  const isAdmin = user?.role === "admin"
   const [status, setStatus] = useQueryState("status", parseAsString.withDefault("all"))
   const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1))
   const [assignExamId, setAssignExamId] = React.useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<DeleteExamTarget | null>(null)
 
   // Selection state
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
@@ -137,7 +141,6 @@ export default function TeacherExamsPage() {
   )
 
   const examsQuery = useExamsQuery(queryParams)
-  const deleteMutation = useDeleteExamMutation()
   const cloneMutation = useCloneExamMutation()
 
   const items = React.useMemo(() => examsQuery.data?.items ?? [], [examsQuery.data])
@@ -172,33 +175,36 @@ export default function TeacherExamsPage() {
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds]
   )
-  // #16: closed exams without attempts/assignments can be deleted directly too.
+  // #16/#18: only draft/closed exams without attempts can be bulk-deleted.
+  // Assignments are allowed and removed together with the exam.
   const selectedDeletable = React.useMemo(
-    () => selectedItems.filter((item) => item.status === "draft" || item.status === "closed"),
+    () =>
+      selectedItems.filter(
+        (item) =>
+          (item.status === "draft" || item.status === "closed") &&
+          !item.hasAttempts
+      ),
     [selectedItems]
   )
   const selectedPublished = React.useMemo(
     () => selectedItems.filter((item) => item.status === "published"),
     [selectedItems]
   )
-
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteMutation.mutateAsync(id)
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-      toast.success("Đã xoá đề thi")
-    } catch (err) {
-      if (err instanceof ApiError && err.code === "EXAM_CANNOT_EDIT_PUBLISHED") {
-        toast.error("Không thể xoá đề đã xuất bản.")
-      } else {
-        toast.error(err instanceof ApiError ? err.message : "Không thể xoá đề. Vui lòng thử lại.")
-      }
-    }
-  }
+  const selectedAssignedCount = React.useMemo(
+    () => selectedDeletable.filter((item) => item.hasAssignments).length,
+    [selectedDeletable]
+  )
+  const keptPublishedCount = React.useMemo(
+    () =>
+      selectedItems.filter(
+        (item) => item.status === "published" && !item.hasAttempts
+      ).length,
+    [selectedItems]
+  )
+  const keptAttemptsCount = React.useMemo(
+    () => selectedItems.filter((item) => item.hasAttempts).length,
+    [selectedItems]
+  )
 
   const handleClone = async (id: string) => {
     try {
@@ -213,7 +219,7 @@ export default function TeacherExamsPage() {
   const handleBulkDeleteConfirm = async () => {
     if (selectedDeletable.length === 0) {
       toast.error(
-        "Không có đề nháp hoặc đã đóng nào được chọn để xoá. Đề đã xuất bản cần chuyển về nháp trước."
+        "Không có đề nháp hoặc đã đóng nào có thể xoá. Đề đã xuất bản hoặc đã có bài làm cần xử lý riêng."
       )
       setBulkDeleteDialogOpen(false)
       return
@@ -225,10 +231,30 @@ export default function TeacherExamsPage() {
       const results = await Promise.allSettled(
         selectedDeletable.map((d) => deleteExamApi(d.id))
       )
-      const successCount = results.filter((r) => r.status === "fulfilled").length
-      const failCount = results.length - successCount
+      const fulfilled = results.filter(
+        (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof deleteExamApi>>> =>
+          r.status === "fulfilled"
+      )
+      const successCount = fulfilled.length
+      const deletedAssignments = fulfilled.reduce(
+        (sum, r) => sum + (r.value.deletedAssignments ?? 0),
+        0
+      )
+      const failures = results
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map((r) => r.reason)
+      const attemptsCount = failures.filter(
+        (e) => e instanceof ApiError && e.code === "EXAM_HAS_ATTEMPTS"
+      ).length
+      const otherFailCount = failures.length - attemptsCount
+      // #16/#18: nói rõ vì sao đề bị giữ lại thay vì chỉ báo "gặp lỗi".
+      const failReasons = [
+        attemptsCount > 0 ? `${attemptsCount} đề đã có học sinh làm bài` : null,
+        otherFailCount > 0 ? `${otherFailCount} đề gặp lỗi` : null,
+      ].filter(Boolean) as string[]
 
       queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.assignments.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.teacher() })
 
       // Clear deleted IDs from selection
@@ -243,19 +269,37 @@ export default function TeacherExamsPage() {
         return next
       })
 
-      const keptCount = selectedItems.length - selectedDeletable.length
+      const keptNotes: string[] = []
+      if (keptPublishedCount > 0) {
+        keptNotes.push(`${keptPublishedCount} đề đã xuất bản được giữ lại`)
+      }
+      if (keptAttemptsCount > 0) {
+        keptNotes.push(`${keptAttemptsCount} đề đã có học sinh làm bài được giữ lại`)
+      }
+      if (failReasons.length > 0) {
+        keptNotes.push(`không xoá được ${failReasons.join(", ")}`)
+      }
+      const description = [
+        deletedAssignments > 0
+          ? `Đã xoá kèm ${deletedAssignments} bài tập đã giao.`
+          : null,
+        keptNotes.length > 0 ? `${keptNotes.join("; ")}.` : null,
+      ]
+        .filter(Boolean)
+        .join(" ")
 
       if (successCount > 0) {
-        if (keptCount > 0) {
-          toast.info(
-            `Đã xoá ${successCount} đề. ${keptCount} đề đã xuất bản được giữ lại.`,
-            { description: failCount > 0 ? `${failCount} đề gặp lỗi khi xoá.` : undefined }
-          )
+        if (description) {
+          toast.info(`Đã xoá ${successCount} đề.`, { description })
         } else {
           toast.success(`Đã xoá thành công ${successCount} đề thi.`)
         }
       } else {
-        toast.error("Không thể xoá các đề thi đã chọn.")
+        toast.error(
+          failReasons.length > 0
+            ? `Không thể xoá đề đã chọn: ${failReasons.join(", ")}.`
+            : "Không thể xoá các đề thi đã chọn."
+        )
       }
     } finally {
       setIsBulkBusy(false)
@@ -446,11 +490,12 @@ export default function TeacherExamsPage() {
                 {items.map((ex) => (
                   <ExamRow
                     key={ex.id}
-                    exam={ex as Partial<ExamSummary> & { id: string; title: string; durationMinutes: number; status: "draft" | "published" | "closed"; createdAt: string }}
+                    exam={ex as Partial<ExamSummary> & { id: string; title: string; durationMinutes: number; status: "draft" | "published" | "closed"; createdAt: string; hasAttempts?: boolean; hasAssignments?: boolean }}
                     isSelected={selectedIds.has(ex.id)}
+                    isAdmin={isAdmin}
                     onToggleSelect={() => handleToggleOne(ex.id)}
                     onAssign={() => setAssignExamId(ex.id)}
-                    onDelete={() => handleDelete(ex.id)}
+                    onDelete={() => setDeleteTarget(ex)}
                     onClone={() => handleClone(ex.id)}
                   />
                 ))}
@@ -556,6 +601,12 @@ export default function TeacherExamsPage() {
               </span>
             </Button>
           </div>
+          {selectedDeletable.length === 0 && (
+            <p className="max-w-56 text-[11px] leading-snug text-muted-foreground">
+              Không có đề nháp/đã đóng nào có thể xoá. Đề đã xuất bản hoặc đã có
+              bài làm cần xử lý riêng.
+            </p>
+          )}
         </div>
       )}
 
@@ -570,11 +621,21 @@ export default function TeacherExamsPage() {
                   Bạn có chắc chắn muốn xoá <strong className="text-foreground">{selectedDeletable.length} đề thi</strong> đã chọn không?
                 </p>
                 <p className="text-rose-600 dark:text-rose-400 font-medium">
-                  Hành động này không thể hoàn tác. Các phần thi và câu hỏi liên quan sẽ bị xoá vĩnh viễn.
+                  Hành động này không thể hoàn tác. Các phần thi, câu hỏi và bài tập đã giao kèm sẽ bị xoá vĩnh viễn.
                 </p>
-                {selectedItems.length > selectedDeletable.length && (
+                {selectedAssignedCount > 0 && (
+                  <p className="rounded-lg bg-amber-500/10 p-2 text-amber-700 dark:text-amber-400">
+                    ⚠️ <strong>{selectedAssignedCount} đề đã giao cho lớp</strong> — các bài tập giao kèm cũng sẽ bị xoá theo.
+                  </p>
+                )}
+                {keptPublishedCount > 0 && (
                   <p className="rounded-lg bg-muted p-2 text-muted-foreground">
-                    ℹ️ Lưu ý: <strong>{selectedItems.length - selectedDeletable.length} đề đã xuất bản</strong> không thể xoá trực tiếp và sẽ được giữ lại an toàn. Hãy dùng “Sửa” để chuyển về nháp trước.
+                    ℹ️ <strong>{keptPublishedCount} đề đã xuất bản</strong> không thể xoá trực tiếp và sẽ được giữ lại an toàn. Hãy dùng “Sửa” để chuyển về nháp trước.
+                  </p>
+                )}
+                {keptAttemptsCount > 0 && (
+                  <p className="rounded-lg bg-muted p-2 text-muted-foreground">
+                    ℹ️ <strong>{keptAttemptsCount} đề đã có học sinh làm bài</strong> sẽ được giữ lại. Chỉ quản trị viên mới có thể xoá cứng từng đề.
                   </p>
                 )}
               </div>
@@ -593,6 +654,12 @@ export default function TeacherExamsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <DeleteExamDialog
+        exam={deleteTarget}
+        open={!!deleteTarget}
+        onOpenChange={(next) => !next && setDeleteTarget(null)}
+      />
+
       <AssignDialog
         open={!!assignExamId}
         onOpenChange={(v) => !v && setAssignExamId(null)}
@@ -605,13 +672,15 @@ export default function TeacherExamsPage() {
 function ExamRow({
   exam,
   isSelected,
+  isAdmin,
   onToggleSelect,
   onAssign,
   onDelete,
   onClone,
 }: {
-  exam: Partial<ExamSummary> & { id: string; title: string; durationMinutes: number; status: "draft" | "published" | "closed"; createdAt: string }
+  exam: Partial<ExamSummary> & { id: string; title: string; durationMinutes: number; status: "draft" | "published" | "closed"; createdAt: string; hasAttempts?: boolean; hasAssignments?: boolean }
   isSelected: boolean
+  isAdmin: boolean
   onToggleSelect: () => void
   onAssign: () => void
   onDelete: () => void
@@ -764,6 +833,14 @@ function ExamRow({
                   <DropdownMenuItem onClick={handleClose} disabled={closeMutation.isPending}>
                     <HugeiconsIcon icon={LockIcon} size={15} /> Đóng đề
                   </DropdownMenuItem>
+                  {isAdmin && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                        <HugeiconsIcon icon={Delete02Icon} size={15} /> Xoá
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </>
               )}
               {exam.status === "closed" && (

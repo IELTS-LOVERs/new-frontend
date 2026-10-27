@@ -127,7 +127,18 @@ export function QuestionGroupEditor({
     if (!templateInitialized.current) {
       templateInitialized.current = true
       lastSyncedTemplate.current = value
-      return
+      // Heal templates saved without their matching questions (e.g. the
+      // teacher pasted blanks and left before the debounce ran). Add missing
+      // questions only — never drop authored ones on open.
+      const { questions, changed } = reconcileTemplateQuestions(
+        value,
+        group.questions,
+        (num) => createClientId(`q-${num}`),
+        { addOnly: true }
+      )
+      if (!changed) return
+      const handle = setTimeout(() => onUpdateGroup({ questions }), 0)
+      return () => clearTimeout(handle)
     }
     if (value === lastSyncedTemplate.current) return
     const handle = setTimeout(() => {
@@ -370,8 +381,14 @@ export function QuestionGroupEditor({
   /** Resolved group-level image (config.imageMediaId) with a presigned URL. */
   const groupImage = (group.media ?? []).find((m) => m.type === "image")
 
-  const firstQ = group.questions[0]?.questionNumber
-  const lastQ = group.questions[group.questions.length - 1]?.questionNumber
+  const firstQuestion = group.questions[0]
+  const lastQuestion = group.questions[group.questions.length - 1]
+  const firstQ = firstQuestion
+    ? numbering.get(firstQuestion.id) ?? firstQuestion.questionNumber
+    : undefined
+  const lastQ = lastQuestion
+    ? numbering.get(lastQuestion.id) ?? lastQuestion.questionNumber
+    : undefined
   const qRangeText =
     firstQ && lastQ
       ? firstQ === lastQ

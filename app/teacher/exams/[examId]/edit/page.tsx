@@ -107,6 +107,7 @@ import type {
 } from "@/lib/api/types"
 import { QuestionGroupEditor } from "@/features/questions/question-group-editor"
 import { QuestionTypePickerDialog } from "@/features/questions/question-type-picker-dialog"
+import { alignTemplatePlaceholders } from "@/features/questions/lib/completion-template"
 import { ExamCurriculumDialog } from "@/features/exams/components/exam-curriculum-dialog"
 import { ExamResourcesDialog } from "@/features/exams/components/exam-resources-dialog"
 import { RichTextFormatBar } from "@/features/exam-engine/components/rich-text-format-bar"
@@ -196,17 +197,33 @@ function renumberAllQuestions(sections: CandidateSection[]): CandidateSection[] 
   return sections.map((section) => {
     let changed = false
     const questionGroups = (section.questionGroups ?? []).map((group) => {
+      const oldNumbers = group.questions.map((question) => question.questionNumber)
+      const newNumbers: number[] = []
       let groupChanged = false
       const questions = group.questions.map((question) => {
         counters[section.skill] += 1
         const questionNumber = counters[section.skill]
+        newNumbers.push(questionNumber)
         if (question.questionNumber === questionNumber) return question
         groupChanged = true
         return { ...question, questionNumber }
       })
+      const config = group.config
+      let nextConfig = config
+      if (typeof config?.template === "string") {
+        const template = alignTemplatePlaceholders(
+          config.template,
+          oldNumbers,
+          newNumbers
+        )
+        if (template !== config.template) {
+          nextConfig = { ...config, template }
+          groupChanged = true
+        }
+      }
       if (!groupChanged) return group
       changed = true
-      return { ...group, questions }
+      return { ...group, config: nextConfig, questions }
     })
     return changed ? { ...section, questionGroups } : section
   })
@@ -706,12 +723,23 @@ export default function ExamBuilderPage() {
           mediaIds: item.mediaIds ?? [],
         }
       })
+      const config = {
+        ...((bankGroup.config ?? {}) as Record<string, unknown>),
+      }
+      if (typeof config.template === "string") {
+        // Bank groups store local [1]…[n] blanks; the copy gets global numbers.
+        config.template = alignTemplatePlaceholders(
+          config.template,
+          bankGroup.questions.map((_, index) => index + 1),
+          questions.map((question) => question.questionNumber)
+        )
+      }
       return {
         id: createClientId("from-bank"),
         groupType: bankGroup.groupType,
         instructions: bankGroup.instructions ?? "",
         instructionsDoc: bankGroup.instructionsDoc ?? null,
-        config: (bankGroup.config ?? {}) as Record<string, unknown>,
+        config,
         questions,
       } as unknown as CandidateQuestionGroup
     })
