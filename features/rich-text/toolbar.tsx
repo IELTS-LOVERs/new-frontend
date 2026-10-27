@@ -11,7 +11,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { FONT_SIZE_OPTIONS, clampFontSize } from "./schema"
+import { FONT_SIZE_OPTIONS, clampFontSize, type TextAlignValue } from "./schema"
 
 function ToolbarButton({
   active,
@@ -53,6 +53,32 @@ function ToolbarButton({
 function Divider() {
   return <span className="mx-0.5 h-5 w-px shrink-0 bg-border" aria-hidden />
 }
+
+const ALIGN_OPTIONS: Array<{
+  value: TextAlignValue
+  title: string
+  label: string
+  className: string
+}> = [
+  {
+    value: "left",
+    title: "Canh trái",
+    label: "Trái",
+    className: "text-left",
+  },
+  {
+    value: "center",
+    title: "Canh giữa",
+    label: "Giữa",
+    className: "text-center",
+  },
+  {
+    value: "right",
+    title: "Canh phải",
+    label: "Phải",
+    className: "text-right",
+  },
+]
 
 export function RichTextToolbar({
   editor,
@@ -213,6 +239,42 @@ export function RichTextToolbar({
           </ToolbarButton>
         </>
       )}
+
+      <Divider />
+
+      {ALIGN_OPTIONS.map((option) => (
+        <ToolbarButton
+          key={option.value}
+          title={option.title}
+          active={editor.isActive({ textAlign: option.value })}
+          disabled={disabled}
+          onClick={() => {
+            // Left is the default flow, so store no attribute for it — that
+            // keeps the saved JSON identical to an un-aligned paragraph.
+            if (option.value === "left") {
+              chain().unsetTextAlign().run()
+              return
+            }
+            chain().setTextAlign(option.value).run()
+          }}
+          className="px-1.5"
+        >
+          <span className="flex w-4 flex-col gap-[3px]" aria-hidden>
+            {[0, 1, 2].map((row) => (
+              <span
+                key={row}
+                className={cn(
+                  "block h-[2px] w-full rounded-full bg-current opacity-70",
+                  option.value === "center" && row !== 2 && "mx-auto w-3/4",
+                  option.value === "right" && "ml-auto w-3/4",
+                  option.value === "left" && "w-3/4"
+                )}
+              />
+            ))}
+          </span>
+          <span className="sr-only">{option.title}</span>
+        </ToolbarButton>
+      ))}
 
       <Divider />
 

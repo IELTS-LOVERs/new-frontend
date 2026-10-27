@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ExamStatusBadge } from "@/components/shared/status-badge"
+import { AttemptsCell } from "@/components/shared/attempts-cell"
 import { AssignDialog } from "@/components/shared/assign-dialog"
 import { DeleteExamDialog, type DeleteExamTarget } from "@/components/shared/delete-exam-dialog"
 import { EditExamButton } from "@/components/shared/edit-exam-button"
@@ -58,7 +59,6 @@ import {
   Task01Icon,
   Analytics01Icon,
   LockIcon,
-  CheckmarkCircle02Icon,
 } from "@hugeicons/core-free-icons"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -482,6 +482,7 @@ export default function TeacherExamsPage() {
                   <TableHead>Kỹ năng</TableHead>
                   <TableHead className="font-mono">Thời lượng</TableHead>
                   <TableHead>Trạng thái</TableHead>
+                  <TableHead>Lượt làm</TableHead>
                   <TableHead>Ngày tạo</TableHead>
                   <TableHead className="text-right">Hành động</TableHead>
                 </TableRow>
@@ -490,7 +491,7 @@ export default function TeacherExamsPage() {
                 {items.map((ex) => (
                   <ExamRow
                     key={ex.id}
-                    exam={ex as Partial<ExamSummary> & { id: string; title: string; durationMinutes: number; status: "draft" | "published" | "closed"; createdAt: string; hasAttempts?: boolean; hasAssignments?: boolean }}
+                    exam={ex as Partial<ExamSummary> & { id: string; title: string; durationMinutes: number; status: "draft" | "published" | "closed"; createdAt: string; hasAttempts?: boolean; hasAssignments?: boolean; attemptsCount?: number; activeAttemptsCount?: number }}
                     isSelected={selectedIds.has(ex.id)}
                     isAdmin={isAdmin}
                     onToggleSelect={() => handleToggleOne(ex.id)}
@@ -678,7 +679,7 @@ function ExamRow({
   onDelete,
   onClone,
 }: {
-  exam: Partial<ExamSummary> & { id: string; title: string; durationMinutes: number; status: "draft" | "published" | "closed"; createdAt: string; hasAttempts?: boolean; hasAssignments?: boolean }
+  exam: Partial<ExamSummary> & { id: string; title: string; durationMinutes: number; status: "draft" | "published" | "closed"; createdAt: string; hasAttempts?: boolean; hasAssignments?: boolean; attemptsCount?: number; activeAttemptsCount?: number }
   isSelected: boolean
   isAdmin: boolean
   onToggleSelect: () => void
@@ -744,6 +745,12 @@ function ExamRow({
       </TableCell>
       <TableCell>
         <ExamStatusBadge status={exam.status} />
+      </TableCell>
+      <TableCell className="text-xs text-muted-foreground">
+        <AttemptsCell
+          attemptsCount={exam.attemptsCount ?? 0}
+          activeAttemptsCount={exam.activeAttemptsCount ?? 0}
+        />
       </TableCell>
       <TableCell className="text-xs text-muted-foreground">
         {formatDateShort(exam.createdAt)}

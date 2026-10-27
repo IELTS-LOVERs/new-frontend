@@ -117,6 +117,12 @@ function PracticeLobbyUI({
   const audioRef = React.useRef<HTMLAudioElement | null>(null)
 
   const hasListening = exam.sections.some((s) => s.skill === "listening")
+  const hasWriting = exam.sections.some((s) => s.skill === "writing")
+  const skillLabel = hasListening
+    ? "Listening"
+    : exam.sections.some((s) => s.skill === "reading")
+      ? "Reading"
+      : "Writing"
   const totalQuestions = exam.sections.reduce(
     (acc, s) =>
       acc + (s.questionGroups ?? []).reduce((gAcc, g) => gAcc + (g.questions?.length ?? 0), 0),
@@ -221,7 +227,7 @@ function PracticeLobbyUI({
                 <div>
                   <div className="text-[11px] text-muted-foreground">Kỹ năng</div>
                   <div className="text-sm font-semibold capitalize">
-                    {hasListening ? "Listening" : "Reading"}
+                    {skillLabel}
                   </div>
                 </div>
               </div>
@@ -231,8 +237,10 @@ function PracticeLobbyUI({
                   <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />
                 </div>
                 <div>
-                  <div className="text-[11px] text-muted-foreground">Số câu hỏi</div>
-                  <div className="text-sm font-semibold">{totalQuestions} câu</div>
+                  <div className="text-[11px] text-muted-foreground">{hasWriting ? "Số bài viết" : "Số câu hỏi"}</div>
+                  <div className="text-sm font-semibold">
+                    {hasWriting ? `${totalQuestions || 1} bài` : `${totalQuestions} câu`}
+                  </div>
                 </div>
               </div>
             </div>
@@ -268,7 +276,14 @@ function PracticeLobbyUI({
               <ul className="list-disc pl-4 space-y-1 text-[11px]">
                 <li>Bài luyện tập không áp dụng giám sát chống gian lận (Anti-cheat).</li>
                 <li>Bạn có thể làm bài ở chế độ cửa sổ thông thường, không ép buộc toàn màn hình.</li>
-                <li>Sau khi nộp bài, bạn sẽ xem ngay đáp án giải thích chi tiết và danh sách từ vựng.</li>
+                {hasWriting ? (
+                  <>
+                    <li>Bài Writing được giáo viên chấm và nhận xét sau khi bạn nộp bài.</li>
+                    <li>Sau khi nộp, bạn có thể xem lại đề bài và bài viết của mình.</li>
+                  </>
+                ) : (
+                  <li>Sau khi nộp bài, bạn sẽ xem ngay đáp án giải thích chi tiết và danh sách từ vựng.</li>
+                )}
               </ul>
             </div>
 

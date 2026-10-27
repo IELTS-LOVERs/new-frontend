@@ -59,6 +59,26 @@ function getExamPartInfo(
   item: PracticeCatalogItem,
   skill: "reading" | "listening" | "writing"
 ) {
+  if (skill === "writing") {
+    const tasks = Array.from(
+      new Set(
+        (item.sections ?? []).filter((s) => s.skill === "writing").map((s) => s.part)
+      )
+    ).sort((a, b) => a - b)
+    const isFull = tasks.length > 1
+    return {
+      parts: tasks,
+      isMultiPart: isFull,
+      isFull,
+      badgeLabel:
+        tasks.length === 0
+          ? "Writing Practice"
+          : isFull
+            ? "Full Writing (Task 1 + 2)"
+            : `Task ${tasks[0]}`,
+    }
+  }
+
   const skillSections = (item.sections ?? []).filter((s) => s.skill === skill)
   const partsFromSections = skillSections.map((s) => s.part)
   const allParts = Array.from(
@@ -136,6 +156,10 @@ function formatQuestionTypeLabel(type: string): string {
     case "form_completion":
     case "flow_chart_completion":
       return "Gap Filling"
+    case "writing_task_1":
+      return "Writing Task 1"
+    case "writing_task_2":
+      return "Writing Task 2"
     default:
       return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
   }
@@ -162,7 +186,7 @@ export default function StudentPracticePage() {
 
   // Fetch real items from backend API
   const catalogQuery = usePracticeCatalogQuery({
-    skill: activeSkill === "reading" || activeSkill === "listening" ? activeSkill : undefined,
+    skill: activeSkill,
     search: searchQuery.trim() || undefined,
   })
 
@@ -220,16 +244,14 @@ export default function StudentPracticePage() {
   // Count uncompleted and completed directly from real DB
   const uncompletedCount = React.useMemo(() => {
     return rawDbItems.filter((i) => {
-      if (activeSkill === "reading" && !i.skills.includes("reading")) return false
-      if (activeSkill === "listening" && !i.skills.includes("listening")) return false
+      if (!i.skills.includes(activeSkill)) return false
       return i.progress.status !== "completed"
     }).length
   }, [rawDbItems, activeSkill])
 
   const completedCount = React.useMemo(() => {
     return rawDbItems.filter((i) => {
-      if (activeSkill === "reading" && !i.skills.includes("reading")) return false
-      if (activeSkill === "listening" && !i.skills.includes("listening")) return false
+      if (!i.skills.includes(activeSkill)) return false
       return i.progress.status === "completed"
     }).length
   }, [rawDbItems, activeSkill])
@@ -600,8 +622,11 @@ export default function StudentPracticePage() {
               <div className="px-4 pb-3.5 text-xs text-muted-foreground font-medium">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="radio" checked readOnly className="accent-primary" />
-                  <span>Bài lẻ (Task 1 & 2)</span>
+                  <span>Bài lẻ (Task 1 / Task 2)</span>
                 </label>
+                <p className="pt-1.5 text-[11px] leading-relaxed">
+                  Bài viết được giáo viên chấm và nhận xét sau khi bạn nộp.
+                </p>
               </div>
             )}
           </div>
@@ -620,7 +645,8 @@ export default function StudentPracticePage() {
               {subPart > 0 ? (
                 <span className="text-muted-foreground font-normal">
                   {" "}
-                  · {activeSkill === "reading" ? `Passage ${subPart}` : `Part ${subPart}`}
+                  · {activeSkill === "reading" ? "Passage" : activeSkill === "writing" ? "Task" : "Part"}{" "}
+                  {subPart}
                 </span>
               ) : subPart === -1 ? (
                 <span className="text-muted-foreground font-normal"> · Nhiều phần (Full Test)</span>
@@ -656,10 +682,10 @@ export default function StudentPracticePage() {
               </div>
               <div className="space-y-1 max-w-md mx-auto">
                 <h4 className="font-heading text-base font-bold text-foreground">
-                  Phân hệ Writing đang được cập nhật
+                  Chưa có bài luyện Writing nào
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  Hệ thống đang hoàn thiện thêm các đề thi Writing mẫu. Bạn có thể chuyển sang luyện tập <strong>Reading</strong> hoặc <strong>Listening</strong> để bắt đầu ngay!
+                  Giáo viên chưa xuất bản bài luyện Writing. Trong khi chờ, bạn có thể luyện tập <strong>Reading</strong> hoặc <strong>Listening</strong>.
                 </p>
               </div>
               <div className="flex items-center justify-center gap-3 pt-2">
@@ -781,21 +807,25 @@ export default function StudentPracticePage() {
                             <span
                               className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-1 ring-inset ring-black/5 dark:ring-white/10"
                               title={
-                                item.progress.correctCount !== undefined
-                                  ? `Đúng ${item.progress.correctCount} · Sai ${item.progress.wrongCount ?? 0} · Bỏ trống ${item.progress.blankCount ?? 0}`
-                                  : undefined
+                                (item.questionCount ?? 0) === 0
+                                  ? "Bài viết — giáo viên chấm và nhận xét"
+                                  : item.progress.correctCount !== undefined
+                                    ? `Đúng ${item.progress.correctCount} · Sai ${item.progress.wrongCount ?? 0} · Bỏ trống ${item.progress.blankCount ?? 0}`
+                                    : undefined
                               }
                             >
                               <span className="size-1.5 rounded-full bg-current" />
-                              {item.progress.correctCount !== undefined
-                                ? `${item.progress.correctCount}/${
-                                    (item.progress.correctCount ?? 0) +
-                                    (item.progress.wrongCount ?? 0) +
-                                    (item.progress.blankCount ?? 0)
-                                  }`
-                                : item.progress.rawScore !== undefined
-                                  ? `${item.progress.rawScore}/${item.progress.totalPoints ?? item.totalPoints ?? item.questionCount}`
-                                  : "Đã làm"}
+                              {(item.questionCount ?? 0) === 0
+                                ? "Đã nộp"
+                                : item.progress.correctCount !== undefined
+                                  ? `${item.progress.correctCount}/${
+                                      (item.progress.correctCount ?? 0) +
+                                      (item.progress.wrongCount ?? 0) +
+                                      (item.progress.blankCount ?? 0)
+                                    }`
+                                  : item.progress.rawScore !== undefined
+                                    ? `${item.progress.rawScore}/${item.progress.totalPoints ?? item.totalPoints ?? item.questionCount}`
+                                    : "Đã làm"}
                             </span>
                             {item.progress.attemptId && (
                               <Button

@@ -4,8 +4,10 @@ import {
   alignTemplatePlaceholders,
   appendToken,
   buildSampleTable,
+  compactTemplateQuestions,
   extractTemplatePlaceholders,
   insertTokenAtCursor,
+  isPartialTemplate,
   nextBlankNumber,
   reconcileTemplateQuestions,
   removeTemplatePlaceholder,
@@ -188,8 +190,71 @@ describe("appendToken", () => {
   })
 })
 
-describe("buildSampleTable", () => {
-  it("tạo bảng markdown 3 cột với các ô trống liên tiếp từ số bắt đầu", () => {
+describe("isPartialTemplate", () => {
+  it("coi template rỗng là đang chỉnh dở (không được xoá đáp án)", () => {
+    expect(isPartialTemplate("")).toBe(true)
+    expect(isPartialTemplate("   \n ")).toBe(true)
+  })
+
+  it("nhận ra `[` hoặc `{{` chưa đóng", () => {
+    expect(isPartialTemplate("Tea in [1] and [")).toBe(true)
+    expect(isPartialTemplate("Tea in [12")).toBe(true)
+    expect(isPartialTemplate("Tea in {{q1")).toBe(true)
+  })
+
+  it("template hoàn chỉnh thì không phải đang chỉnh dở", () => {
+    expect(isPartialTemplate("Tea in [1] and [2]")).toBe(false)
+    expect(isPartialTemplate("Tea in {{q1}} and [2]")).toBe(false)
+    expect(isPartialTemplate("no blanks")).toBe(false)
+  })
+})
+
+describe("compactTemplateQuestions", () => {
+  it("dồn số ô trống và số câu hỏi thành liên tiếp sau khi xoá [2]", () => {
+    const existing = [q("a", 1, ["one"]), q("c", 3, ["three"])]
+    const result = compactTemplateQuestions("Tea in [1] and [3] here", existing)
+
+    expect(result.template).toBe("Tea in [1] and [2] here")
+    expect(result.questions.map((item) => item.questionNumber)).toEqual([1, 2])
+    expect(result.questions[1].id).toBe("c")
+    expect(result.questions[1].acceptedAnswers).toEqual(["three"])
+  })
+
+  it("giữ nguyên câu hỏi khi đã liên tiếp (không tạo object mới)", () => {
+    const existing = [q("a", 1), q("b", 2)]
+    const result = compactTemplateQuestions("[1] [2]", existing)
+    expect(result.template).toBe("[1] [2]")
+    expect(result.questions).toHaveLength(2)
+    expect(result.questions[0]).toBe(existing[0])
+    expect(result.questions[1]).toBe(existing[1])
+  })
+
+  it("giữ cú pháp q khi đánh số lại", () => {
+    const result = compactTemplateQuestions("A [q1] B [q3]", [
+      q("a", 1),
+      q("c", 3),
+    ])
+    expect(result.template).toBe("A [q1] B [q2]")
+  })
+
+  it("bắt đầu từ ô trống nhỏ nhất trong template (nhóm ngân hàng)", () => {
+    const result = compactTemplateQuestions("Name [21] City [23]", [
+      q("a", 21),
+      q("c", 23),
+    ])
+    expect(result.template).toBe("Name [21] City [22]")
+    expect(result.questions.map((item) => item.questionNumber)).toEqual([21, 22])
+  })
+
+  it("không đụng gì khi template không có ô trống", () => {
+    const existing = [q("a", 1)]
+    const result = compactTemplateQuestions("", existing)
+    expect(result.questions).toBe(existing)
+    expect(result.template).toBe("")
+  })
+})
+
+describe("buildSampleTable", () => {  it("tạo bảng markdown 3 cột với các ô trống liên tiếp từ số bắt đầu", () => {
     const table = buildSampleTable(5)
     expect(table).toBe(
       [

@@ -154,6 +154,36 @@ const PRACTICE_TEMPLATES: ExamTemplate[] = [
     buildSections: () => [listeningSection(1)],
   },
   {
+    id: "practice_writing_full",
+    name: "Writing (Task 1 + Task 2)",
+    description:
+      "Luyện cả 2 bài viết như thi thật: Task 1 (≥150 từ) và Task 2 (≥250 từ), thời gian 60 phút. Giáo viên chấm và nhận xét.",
+    duration: 60,
+    sections: "2 phần Writing",
+    icon: PenTool01Icon,
+    buildSections: () => [1, 2].map(writingSection),
+  },
+  {
+    id: "practice_writing_task1",
+    name: "Writing Task 1",
+    description:
+      "Luyện mô tả biểu đồ/bảng/quy trình (≥150 từ), thời gian 20 phút. Giáo viên chấm và nhận xét.",
+    duration: 20,
+    sections: "1 phần Writing",
+    icon: PenTool01Icon,
+    buildSections: () => [writingSection(1)],
+  },
+  {
+    id: "practice_writing_task2",
+    name: "Writing Task 2",
+    description:
+      "Luyện viết luận nghị luận (≥250 từ), thời gian 40 phút. Giáo viên chấm và nhận xét.",
+    duration: 40,
+    sections: "1 phần Writing",
+    icon: PenTool01Icon,
+    buildSections: () => [writingSection(2)],
+  },
+  {
     id: "practice_custom",
     name: "Tuỳ chỉnh nhiều phần",
     description: "Tạo bài luyện tập trống, cho phép tự do thêm nhiều Part/Passage tuỳ ý.",

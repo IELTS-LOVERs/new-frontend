@@ -22,7 +22,10 @@ import { cn, createClientId } from "@/lib/utils"
 import {
   appendToken,
   buildSampleTable,
+  compactTemplateQuestions,
+  extractTemplatePlaceholders,
   insertTokenAtCursor,
+  isPartialTemplate,
   nextBlankNumber,
   reconcileTemplateQuestions,
   removeTemplatePlaceholder,
@@ -117,8 +120,39 @@ export function QuestionGroupEditor({
   const lastSyncedTemplate = React.useRef<string | null>(null)
   const templateInitialized = React.useRef(false)
 
-  // Realtime (debounced) two-way sync: adding/removing a `[X]` blank in the
-  // template reconciles the answer rows below automatically — no manual button.
+  /**
+   * The template and the answer rows below change together synchronously (insert
+   * a blank / delete a row), so this remembers the rows of our latest update.
+   * The parent re-renders a moment later with them; in between, the next click
+   * (e.g. a fast double-click on "Chèn ô trống") must not read the stale list,
+   * which used to produce `[3] [3]`.
+   */
+  const pendingQuestionsRef = React.useRef<{
+    template: string
+    questions: QuestionItem[]
+  } | null>(null)
+
+  // Runs after every commit: once the parent re-renders, drop the local copy.
+  React.useEffect(() => {
+    pendingQuestionsRef.current = null
+  })
+
+  /** Rows to build on: our in-flight update, otherwise the rendered group. */
+  const readQuestions = (): QuestionItem[] => {
+    const pending = pendingQuestionsRef.current
+    return pending && pending.template === templateValue
+      ? pending.questions
+      : group.questions
+  }
+
+  /** Update the template and its answer rows in the same `onUpdateGroup` call. */
+  const applyTemplate = (template: string, questions: QuestionItem[]) => {
+    pendingQuestionsRef.current = { template, questions }
+    onUpdateGroup({ config: { ...config, template }, questions })
+  }
+
+  // Realtime two-way sync: adding/removing a `[X]` blank in the template
+  // reconciles the answer rows below automatically — no manual button.
   // The first run only records the loaded template so opening an existing exam
   // never rewrites authored questions.
   React.useEffect(() => {
@@ -141,6 +175,9 @@ export function QuestionGroupEditor({
       return () => clearTimeout(handle)
     }
     if (value === lastSyncedTemplate.current) return
+    // While the teacher is still typing a blank (`[1`), do nothing — otherwise
+    // the half-typed token looks like a removed blank and its row disappears.
+    if (isPartialTemplate(value)) return
     const handle = setTimeout(() => {
       lastSyncedTemplate.current = value
       const currentConfig = (group.config || {}) as Record<string, any>
@@ -148,12 +185,23 @@ export function QuestionGroupEditor({
         typeof currentConfig.template === "string" ? currentConfig.template : ""
       const { questions, changed } = reconcileTemplateQuestions(
         currentTemplate,
-        group.questions,
+        readQuestions(),
         (num) => createClientId(`q-${num}`)
       )
-      if (changed) onUpdateGroup({ questions })
-    }, 500)
+      if (!changed) return
+      // Keep answer numbering consecutive: deleting `[2]` out of `[1] [2] [3]`
+      // leaves `[1] [3]`, which is renumbered to `[1] [2]` along with the row.
+      const compacted = compactTemplateQuestions(currentTemplate, questions)
+      if (compacted.template !== currentTemplate) {
+        applyTemplate(compacted.template, compacted.questions)
+        lastSyncedTemplate.current = compacted.template
+        return
+      }
+      applyTemplate(currentTemplate, questions)
+    }, 400)
     return () => clearTimeout(handle)
+    // `readQuestions`/`applyTemplate` only read the latest render's values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.template, isTemplateCompletion, group, onUpdateGroup])
 
   const nextBlank = nextBlankNumber(group.questions)
@@ -162,11 +210,30 @@ export function QuestionGroupEditor({
    * Insert a snippet at the caret (when the textarea is focused) or append it
    * to the end otherwise. `block` snippets (e.g. a Markdown table) are placed on
    * their own paragraph.
+   *
+   * The matching answer rows are created in the same update, so "Chèn ô trống"
+   * shows the new row immediately and the button label moves to the next number
+   * without waiting for the debounced sync.
    */
   const insertTemplateText = (snippet: string, block = false) => {
     const el = textareaRef.current
     const isFocused =
       !!el && typeof document !== "undefined" && document.activeElement === el
+    const currentQuestions = readQuestions()
+
+    /** Apply template + new rows; the next `[X]` starts after the inserted blanks. */
+    const commit = (value: string) => {
+      const { questions: withBlanks } = reconcileTemplateQuestions(
+        value,
+        currentQuestions,
+        (num) => createClientId(`q-${num}`),
+        { addOnly: true }
+      )
+      const compacted = compactTemplateQuestions(value, withBlanks)
+      applyTemplate(compacted.template, compacted.questions)
+      return compacted.template
+    }
+
     if (isFocused && el) {
       const { value, caret } = insertTokenAtCursor(
         templateValue,
@@ -174,12 +241,13 @@ export function QuestionGroupEditor({
         el.selectionStart ?? templateValue.length,
         el.selectionEnd ?? el.selectionStart ?? templateValue.length
       )
-      updateConfig({ template: value })
+      const nextTemplate = commit(value)
       requestAnimationFrame(() => {
         const node = textareaRef.current
         if (node) {
           node.focus()
-          node.setSelectionRange(caret, caret)
+          const offset = nextTemplate.length - value.length
+          node.setSelectionRange(caret + offset, caret + offset)
         }
       })
       return
@@ -194,7 +262,7 @@ export function QuestionGroupEditor({
     } else {
       nextValue = appendToken(templateValue, snippet).value
     }
-    updateConfig({ template: nextValue })
+    commit(nextValue)
   }
 
   /** Insert the next `[X]` blank at the caret (or append when unfocused). */
@@ -207,16 +275,16 @@ export function QuestionGroupEditor({
     insertTemplateText(buildSampleTable(nextBlank), true)
   }
 
-  /** Remove a blank row and its matching `[X]` blank together. */
+  /**
+   * Remove a blank row and its matching `[X]` blank together, then renumber the
+   * rest to stay consecutive (`[1] [2] [3]` → delete 2 → `[1] [2]`).
+   */
   const handleRemoveBlankQuestion = (q: QuestionItem) => {
-    const nextTemplate = removeTemplatePlaceholder(
-      templateValue,
-      q.questionNumber
+    const nextTemplate = compactTemplateQuestions(
+      removeTemplatePlaceholder(templateValue, q.questionNumber),
+      readQuestions().filter((item) => item.id !== q.id)
     )
-    onUpdateGroup({
-      config: { ...config, template: nextTemplate },
-      questions: group.questions.filter((item) => item.id !== q.id),
-    })
+    applyTemplate(nextTemplate.template, nextTemplate.questions)
   }
 
   // -------------------------------------------------------------------------
@@ -1895,6 +1963,26 @@ function CompletionAnswerTable({
   onRemoveBlank: (q: QuestionItem) => void
 }) {
   const questions = group.questions
+  /**
+   * Vị trí hiển thị của từng ô trống.
+   *
+   * Ưu tiên số ô trống trong template (`[1] [2]` → 1, 2) vì template mới là thứ
+   * học sinh đọc. Lấy `questionNumber` thô thì sau khi xoá một ô, bảng đáp án
+   * vẫn hiện số cũ cho tới lần đồng bộ kế tiếp. Khi số ô trống không khớp số
+   * câu hỏi (đang gõ dở) thì rơi về `numbering` như trước.
+   */
+  const positionByQuestionId = React.useMemo(() => {
+    const template =
+      typeof (group.config as Record<string, any> | undefined)?.template === "string"
+        ? ((group.config as Record<string, any>).template as string)
+        : ""
+    const blanks = extractTemplatePlaceholders(template)
+    const map = new Map<string, number>()
+    if (blanks.length === questions.length) {
+      questions.forEach((q, index) => map.set(q.id, blanks[index]))
+    }
+    return map
+  }, [group.config, questions])
 
   return (
     <div className="space-y-2 pt-1">
@@ -1950,7 +2038,10 @@ function CompletionAnswerTable({
             </thead>
             <tbody>
               {questions.map((q) => {
-                const qNum = numbering.get(q.id) ?? q.questionNumber
+                const qNum =
+                  positionByQuestionId.get(q.id) ??
+                  numbering.get(q.id) ??
+                  q.questionNumber
                 const accepted: string[] = (q as any).acceptedAnswers ?? []
                 const points = (q as any).points ?? 1
                 return (

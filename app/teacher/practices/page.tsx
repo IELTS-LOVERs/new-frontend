@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ExamStatusBadge } from "@/components/shared/status-badge"
+import { AttemptsCell } from "@/components/shared/attempts-cell"
 import { DeleteExamDialog } from "@/components/shared/delete-exam-dialog"
 import { EditExamButton } from "@/components/shared/edit-exam-button"
 import { SkillBadges } from "@/components/shared/skill-badges"
@@ -235,7 +236,7 @@ export default function TeacherPracticesPage() {
         <EmptyState
           icon={Book02Icon}
           title="Chưa có bài luyện tập nào"
-          description="Bắt đầu tạo bài luyện tập Listening hoặc Reading theo lộ trình để học sinh tự do ôn luyện."
+          description="Bắt đầu tạo bài luyện tập Listening, Reading hoặc Writing theo lộ trình để học sinh tự do ôn luyện."
           action={
             <Button size="sm" asChild>
               <Link href="/teacher/exams/new?kind=practice">
@@ -255,6 +256,7 @@ export default function TeacherPracticesPage() {
                 <TableHead className="w-[150px] text-xs font-semibold">Kỹ năng</TableHead>
                 <TableHead className="w-[100px] text-xs font-semibold text-center">Thời lượng</TableHead>
                 <TableHead className="w-[120px] text-xs font-semibold">Trạng thái</TableHead>
+                <TableHead className="w-[120px] text-xs font-semibold">Lượt làm</TableHead>
                 <TableHead className="w-[170px] text-right text-xs font-semibold">Thao tác</TableHead>
               </TableRow>
             </TableHeader>
@@ -300,6 +302,13 @@ export default function TeacherPracticesPage() {
 
                   <TableCell className="py-3">
                     <ExamStatusBadge status={item.status} />
+                  </TableCell>
+
+                  <TableCell className="py-3 text-muted-foreground">
+                    <AttemptsCell
+                      attemptsCount={item.attemptsCount ?? 0}
+                      activeAttemptsCount={item.activeAttemptsCount ?? 0}
+                    />
                   </TableCell>
 
                   <TableCell className="py-3">

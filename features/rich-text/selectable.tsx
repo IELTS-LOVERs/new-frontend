@@ -12,6 +12,7 @@ import {
   type ExamHighlightItem,
 } from "@/features/exam-engine/lib/highlight"
 import { applyMarks } from "./render"
+import { textAlignStyle } from "./schema"
 
 const EMPTY_ITEMS: ExamHighlightItem[] = []
 
@@ -112,7 +113,9 @@ export function SelectableRichDoc({
         switch (node.type) {
           case "paragraph":
             rendered = (
-              <p key={key}>{child.nodes.length > 0 ? child.nodes : <br />}</p>
+              <p key={key} style={textAlignStyle(node.attrs?.textAlign)}>
+                {child.nodes.length > 0 ? child.nodes : <br />}
+              </p>
             )
             break
           case "heading": {
@@ -121,7 +124,11 @@ export function SelectableRichDoc({
               3,
               Math.max(1, Number.isFinite(rawLevel) ? rawLevel : 1)
             )
-            rendered = React.createElement(`h${level}`, { key }, ...child.nodes)
+            rendered = React.createElement(
+              `h${level}`,
+              { key, style: textAlignStyle(node.attrs?.textAlign) },
+              ...child.nodes
+            )
             break
           }
           case "bulletList":

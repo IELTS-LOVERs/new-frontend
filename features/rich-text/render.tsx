@@ -4,7 +4,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 import type { RichDoc, RichTextNodeJSON } from "@/lib/api/types"
-import { clampFontSize } from "./schema"
+import { clampFontSize, textAlignStyle } from "./schema"
 
 const ALLOWED_LINK_PROTOCOLS = ["http:", "https:", "mailto:"]
 
@@ -108,7 +108,7 @@ function renderNode(
     case "paragraph": {
       const children = renderChildren(node, key)
       return (
-        <p key={key}>
+        <p key={key} style={textAlignStyle(node.attrs?.textAlign)}>
           {children.length > 0 ? children : <br />}
         </p>
       )
@@ -118,7 +118,7 @@ function renderNode(
       const level = Math.min(3, Math.max(1, Number.isFinite(rawLevel) ? rawLevel : 1))
       return React.createElement(
         `h${level}`,
-        { key },
+        { key, style: textAlignStyle(node.attrs?.textAlign) },
         ...renderChildren(node, key)
       )
     }

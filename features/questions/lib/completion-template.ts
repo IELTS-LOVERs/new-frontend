@@ -105,6 +105,54 @@ export function removeTemplatePlaceholder(
   return template.replace(re, "")
 }
 
+/**
+ * True while the teacher is mid-edit: the template is empty or ends with an
+ * unclosed `[` / `{{` (e.g. `[1` while typing `[12]`). Blanks are not
+ * reconciled in this state, otherwise deleting `[2]` would momentarily read as
+ * "blank 2 is gone" and drop its answer row.
+ */
+export function isPartialTemplate(template: string): boolean {
+  if (template.trim().length === 0) return true
+  const lastBracket = template.lastIndexOf("[")
+  if (lastBracket > template.lastIndexOf("]")) return true
+  const lastBrace = template.lastIndexOf("{{")
+  if (lastBrace > template.lastIndexOf("}}")) return true
+  return false
+}
+
+/**
+ * Renumber `questions` to consecutive numbers starting at `start`, rewriting
+ * both `questionNumber` and the template blanks so the answer table never keeps
+ * a stale `[2]` after `[2]` was deleted from the template.
+ */
+export function compactTemplateQuestions<T extends QuestionItem>(
+  template: string,
+  questions: T[]
+): { questions: T[]; template: string } {
+  const blanks = extractTemplatePlaceholders(template)
+  if (questions.length === 0 || blanks.length === 0) {
+    return { questions, template }
+  }
+
+  const start = blanks[0]
+  const sorted = [...questions].sort(
+    (a, b) => a.questionNumber - b.questionNumber
+  )
+  const remap = new Map<number, number>()
+  const next = sorted.map((question, index) => {
+    const questionNumber = start + index
+    remap.set(question.questionNumber, questionNumber)
+    return question.questionNumber === questionNumber
+      ? question
+      : { ...question, questionNumber }
+  })
+
+  return {
+    questions: next,
+    template: rewriteTemplatePlaceholders(template, remap),
+  }
+}
+
 /** Rewrite template blanks using an old → new question-number map. */
 export function rewriteTemplatePlaceholders(
   template: string,

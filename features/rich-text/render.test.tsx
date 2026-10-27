@@ -58,6 +58,48 @@ describe("RichDocView", () => {
     const { container } = render(<RichDocView doc={null} />)
     expect(container.firstChild).toBeNull()
   })
+
+  it("applies paragraph and heading alignment, ignoring unknown values", () => {
+    const { container } = render(
+      <RichDocView
+        doc={{
+          type: "doc",
+          content: [
+            {
+              type: "heading",
+              attrs: { level: 1, textAlign: "center" },
+              content: [{ type: "text", text: "Title" }],
+            },
+            {
+              type: "paragraph",
+              attrs: { textAlign: "right" },
+              content: [{ type: "text", text: "Right" }],
+            },
+            {
+              type: "paragraph",
+              attrs: { textAlign: "left" },
+              content: [{ type: "text", text: "Left" }],
+            },
+            {
+              type: "paragraph",
+              attrs: { textAlign: "sideways" },
+              content: [{ type: "text", text: "Bogus" }],
+            },
+          ],
+        }}
+      />
+    )
+
+    const heading = container.querySelector("h1") as HTMLElement
+    const [right, left, bogus] = Array.from(
+      container.querySelectorAll("p")
+    ) as HTMLElement[]
+
+    expect(heading.style.textAlign).toBe("center")
+    expect(right.style.textAlign).toBe("right")
+    expect(left.style.textAlign).toBe("left")
+    expect(bogus.style.textAlign).toBe("")
+  })
 })
 
 describe("RichDocInline", () => {

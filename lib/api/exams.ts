@@ -274,6 +274,12 @@ export interface TeacherExamDetail {
   hasAttempts?: boolean
   /** Teacher view: true when the exam is assigned to at least one class. */
   hasAssignments?: boolean
+  /** Total attempts ever started (teacher view). */
+  attemptsCount?: number
+  /** Attempts currently in progress (teacher view). */
+  activeAttemptsCount?: number
+  /** Bumped when candidate-visible content changes. */
+  contentRevision?: number
 }
 
 export async function getTeacherExamDetailApi(examId: string): Promise<TeacherExamDetail> {

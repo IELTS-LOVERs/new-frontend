@@ -39,5 +39,14 @@ describe("RichTextEditor", () => {
     expect(
       container.querySelector('[role="toolbar"] button[aria-label="Danh sách đánh số"]')
     ).not.toBeNull()
+    expect(
+      container.querySelector('[role="toolbar"] button[aria-label="Canh trái"]')
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[role="toolbar"] button[aria-label="Canh giữa"]')
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[role="toolbar"] button[aria-label="Canh phải"]')
+    ).not.toBeNull()
   })
 })

@@ -293,6 +293,7 @@ export default function TeacherClassWeeklyReportPage() {
                     {row.days.map((day) => {
                       const hasL = day.listening > 0
                       const hasR = day.reading > 0
+                      const hasW = (day.writing ?? 0) > 0
                       const status = day.status
 
                       let cellText = "—"
@@ -302,13 +303,15 @@ export default function TeacherClassWeeklyReportPage() {
                         cellText = `L${day.listening}`
                       } else if (hasR) {
                         cellText = `R${day.reading}`
+                      } else if (hasW) {
+                        cellText = `W${day.writing}`
                       } else if (day.mockCount > 0) {
                         cellText = `M${day.mockCount}`
                       }
 
                       return (
                         <TableCell key={day.date} className="text-center py-2.5">
-                          {status === "none" && day.mockCount === 0 ? (
+                          {status === "none" && !hasW && day.mockCount === 0 ? (
                             <span className="text-muted-foreground/40 text-[11px]">—</span>
                           ) : (
                             <span

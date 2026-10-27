@@ -82,6 +82,10 @@ import { useExamSessionStore } from "@/stores/exam-session.store"
 import { useExamTimer } from "@/features/exam-engine/hooks/use-exam-timer"
 import { useAutosave } from "@/features/exam-engine/hooks/use-autosave"
 import { useExamRecovery } from "@/features/exam-engine/hooks/use-recovery"
+import {
+  useExamContentSync,
+  type ExamContentUpdateEvent,
+} from "@/features/exam-engine/hooks/use-exam-content-sync"
 import { useAntiCheat } from "@/features/exam-engine/hooks/use-anti-cheat"
 import { useClipboardGuard } from "@/features/exam-engine/hooks/use-clipboard-guard"
 import { useExamAudioPlayer, type ExamAudioMode } from "@/features/exam-engine/hooks/use-audio-player"
@@ -120,6 +124,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const activeSectionIndex = useExamSessionStore((s) => s.activeSectionIndex)
   const setAnswer = useExamSessionStore((s) => s.setAnswer)
   const toggleFlag = useExamSessionStore((s) => s.toggleFlag)
+  const setStoreActiveQuestion = useExamSessionStore((s) => s.setActiveQuestion)
   const setPhase = useExamSessionStore((s) => s.setPhase)
   const increaseFontScale = useExamSessionStore((s) => s.increaseFontScale)
   const decreaseFontScale = useExamSessionStore((s) => s.decreaseFontScale)
@@ -139,6 +144,8 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const [activeQuestionId, setActiveQuestionId] = React.useState<
     string | null
   >(null)
+  const [contentUpdate, setContentUpdate] =
+    React.useState<ExamContentUpdateEvent | null>(null)
   const [pendingScrollQuestionId, setPendingScrollQuestionId] = React.useState<
     string | null
   >(null)
@@ -170,6 +177,42 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   // #10: mock exams already block + log clipboard events in useAntiCheat.
   // Practice exams block clipboard only when the teacher disabled selection.
   useClipboardGuard(selectionBlocked && !isMock)
+
+  // ─── Live content sync (teacher edited the exam while we are taking it) ───
+  const handleExamContentUpdate = React.useCallback(
+    (event: ExamContentUpdateEvent) => {
+      setContentUpdate(event)
+      if (event.activeQuestionRemoved) {
+        // `applyExamUpdate` already picked the nearest surviving question.
+        setActiveQuestionId(useExamSessionStore.getState().activeQuestionId)
+        toast.warning(
+          "Câu bạn đang làm đã được giáo viên xoá. Bài làm đã chuyển sang câu gần nhất."
+        )
+      }
+
+      const time = new Date(event.at).toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+      const changes = [
+        event.addedQuestions > 0 ? `thêm ${event.addedQuestions} câu` : null,
+        event.removedQuestions > 0 ? `xoá ${event.removedQuestions} câu` : null,
+      ]
+        .filter(Boolean)
+        .join(", ")
+      toast.info(
+        `Giáo viên vừa cập nhật đề lúc ${time}. Nội dung mới đã được áp dụng${
+          changes ? ` (${changes})` : ""
+        }.`
+      )
+    },
+    []
+  )
+
+  useExamContentSync(attemptId, {
+    enabled: phase === "active" || phase === "offline",
+    onUpdate: handleExamContentUpdate,
+  })
 
   // ─── Submit ────────────────────────────────────────────────
   const handleSubmit = async (auto = false) => {
@@ -227,6 +270,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
   const jumpToQuestion = React.useCallback(
     (questionId: string, sectionIndex: number) => {
       setActiveQuestionId(questionId)
+      setStoreActiveQuestion(questionId)
       if (sectionIndex !== activeSectionIndex) {
         setPendingScrollQuestionId(questionId)
         setActiveSectionIndex(sectionIndex)
@@ -234,7 +278,7 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
         window.requestAnimationFrame(() => scrollToQuestion(questionId))
       }
     },
-    [activeSectionIndex, setActiveSectionIndex]
+    [activeSectionIndex, setActiveSectionIndex, setStoreActiveQuestion]
   )
 
   // After a section switch the question panel mounts asynchronously — scroll on
@@ -516,6 +560,43 @@ function RealExamEngine({ attemptId }: { attemptId: string }) {
           </Button>
         </div>
       </header>
+
+      {contentUpdate && (
+        <div className="flex items-start gap-2 border-b border-primary/20 bg-primary/5 px-3 py-2 sm:px-6">
+          <HugeiconsIcon
+            icon={RefreshIcon}
+            size={16}
+            className="mt-0.5 shrink-0 text-primary"
+          />
+          <div className="min-w-0 flex-1 text-xs">
+            <p className="font-medium text-foreground">
+              Giáo viên vừa cập nhật đề lúc{" "}
+              {new Date(contentUpdate.at).toLocaleTimeString("vi-VN", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+              . Nội dung mới đã được áp dụng.
+            </p>
+            {(contentUpdate.addedQuestions > 0 ||
+              contentUpdate.removedQuestions > 0) && (
+              <p className="text-muted-foreground">
+                {contentUpdate.addedQuestions > 0 &&
+                  `Thêm ${contentUpdate.addedQuestions} câu. `}
+                {contentUpdate.removedQuestions > 0 &&
+                  `Xoá ${contentUpdate.removedQuestions} câu. `}
+                Đồng hồ và các câu trả lời còn lại không thay đổi.
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setContentUpdate(null)}
+            className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Đóng
+          </button>
+        </div>
+      )}
 
       <Sheet open={isDisplaySettingsOpen} onOpenChange={setIsDisplaySettingsOpen}>
         <SheetContent
@@ -1232,10 +1313,14 @@ function WritingSection({
 }) {
   const task1Q = findWritingQuestion(section, "writing_task_1")
   const task2Q = findWritingQuestion(section, "writing_task_2")
-  const currentQ = writingTask === "task1" ? task1Q : task2Q
+  // Đề luyện tập Writing có thể chỉ có Task 1 hoặc chỉ Task 2; mặc định
+  // "task1" không được để trống editor khi section thiếu task đó.
+  const effectiveTask: "task1" | "task2" =
+    writingTask === "task1" && !task1Q && task2Q ? "task2" : writingTask
+  const currentQ = effectiveTask === "task1" ? task1Q : task2Q
   const text = currentQ ? (answers[currentQ.id]?.value ?? "") : ""
   const wordCount = countWords(text)
-  const minWords = writingTask === "task1" ? 150 : 250
+  const minWords = effectiveTask === "task1" ? 150 : 250
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -1275,7 +1360,7 @@ function WritingSection({
             <div className="space-y-4">
               <div className="rounded-xl border border-border bg-muted/20 p-4">
                 <h3 className="mb-1 font-heading text-sm font-bold text-foreground">
-                  {writingTask === "task1"
+                  {effectiveTask === "task1"
                     ? "Task 1 Instructions"
                     : "Task 2 Instructions"}
                 </h3>
@@ -1333,7 +1418,7 @@ function WritingSection({
               <Textarea
                 value={text}
                 onChange={(e) => onAnswer(currentQ.id, e.target.value)}
-                placeholder={`Bắt đầu gõ bài viết ${writingTask === "task1" ? "Task 1" : "Task 2"} của bạn tại đây...`}
+                placeholder={`Bắt đầu gõ bài viết ${effectiveTask === "task1" ? "Task 1" : "Task 2"} của bạn tại đây...`}
                 spellCheck={false}
                 className="h-full w-full resize-none border-0 font-serif text-sm leading-[1.8] select-text focus-visible:ring-0"
               />
@@ -1673,7 +1758,10 @@ function TableCompletionRenderer({
   const bodyRows = parsed.rows.map((row, r) => (
     <tr key={r} className="align-top transition-colors hover:bg-muted/20">
       {row.map((cell, c) => (
-        <td key={c} className="border border-border p-2.5 align-top sm:p-3">
+        <td
+          key={c}
+          className="border border-border p-2.5 align-top text-[15px] leading-relaxed text-foreground sm:p-3 sm:text-base md:text-[17px]"
+        >
           {renderInlineBlanks(cell, ctx, `td-${r}-${c}`, true)}
         </td>
       ))}
@@ -1693,7 +1781,7 @@ function TableCompletionRenderer({
       )}
 
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[480px] border-collapse text-sm">
+        <table className="w-full min-w-[480px] border-collapse">
           <thead>
             <tr>{headerCells}</tr>
           </thead>
@@ -1760,7 +1848,7 @@ function FlowChartRenderer({
           <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-[11px] font-bold text-primary">
             {i + 1}
           </span>
-          <div className="flex-1 text-sm leading-relaxed text-foreground">
+          <div className="flex-1 text-[15px] leading-relaxed text-foreground sm:text-base md:text-[17px]">
             {renderInlineBlanks(step, ctx, `step-${i}`)}
           </div>
         </div>

@@ -248,3 +248,133 @@ describe("collectAllQuestionIds", () => {
     expect(collectAllQuestionIds(makeExam([legacySection]))).toEqual([])
   })
 })
+
+describe("applyExamUpdate", () => {
+  afterEach(() => {
+    useExamSessionStore.getState().reset()
+  })
+
+  it("swaps content while keeping answers, flags, highlights and the deadline", () => {
+    useExamSessionStore.getState().init("attempt-1", makeExam([readingSection]), 300, 3)
+    const store = useExamSessionStore.getState()
+    store.setAnswer("q1", "one")
+    store.toggleFlag("q1")
+    store.setHighlights([
+      {
+        id: "hl-1",
+        sectionIndex: 0,
+        targetId: "q-q1",
+        start: 0,
+        end: 3,
+        text: "one",
+        createdAt: 1,
+      },
+    ])
+    const deadlineBefore = useExamSessionStore.getState().deadlineMono
+
+    const updatedSection: CandidateSection = {
+      ...readingSection,
+      title: "Reading 1 (edited)",
+    }
+    const summary = useExamSessionStore
+      .getState()
+      .applyExamUpdate(makeExam([updatedSection]), 4)
+
+    const s = useExamSessionStore.getState()
+    expect(summary).toMatchObject({
+      addedQuestions: 0,
+      removedQuestions: 0,
+      sectionsChanged: false,
+      activeQuestionRemoved: false,
+    })
+    expect(s.exam?.sections[0].title).toBe("Reading 1 (edited)")
+    expect(s.examRevision).toBe(4)
+    expect(s.answers.q1?.value).toBe("one")
+    expect(s.flagged.q1).toBe(true)
+    expect(s.highlights).toHaveLength(1)
+    expect(s.deadlineMono).toBe(deadlineBefore)
+  })
+
+  it("drops answers/flags/highlights for removed questions", () => {
+    useExamSessionStore.getState().init("attempt-1", makeExam([readingSection]), 300, 1)
+    const store = useExamSessionStore.getState()
+    store.setAnswer("q1", "one")
+    store.setAnswer("q2", "two")
+    store.toggleFlag("q2")
+    store.setHighlights([
+      {
+        id: "hl-1",
+        sectionIndex: 0,
+        targetId: "q-q2",
+        start: 0,
+        end: 3,
+        text: "two",
+        createdAt: 1,
+      },
+      {
+        id: "hl-2",
+        sectionIndex: 0,
+        targetId: "passage",
+        start: 0,
+        end: 3,
+        text: "txt",
+        createdAt: 1,
+      },
+    ])
+
+    const shortened: CandidateSection = {
+      ...readingSection,
+      questionGroups: [
+        {
+          ...readingSection.questionGroups![0],
+          questions: [{ id: "q1", questionNumber: 1, prompt: "One" }],
+        },
+      ],
+    }
+    const summary = useExamSessionStore
+      .getState()
+      .applyExamUpdate(makeExam([shortened]), 2)
+
+    const s = useExamSessionStore.getState()
+    expect(summary.removedQuestions).toBe(1)
+    expect(s.answers.q1?.value).toBe("one")
+    expect(s.answers.q2).toBeUndefined()
+    expect(s.flagged.q2).toBeUndefined()
+    expect(s.highlights.map((h) => h.id)).toEqual(["hl-2"])
+  })
+
+  it("reports and moves away from a removed active question", () => {
+    useExamSessionStore.getState().init("attempt-1", makeExam([readingSection]), 300, 1)
+    useExamSessionStore.getState().setActiveQuestion("q2")
+
+    const shortened: CandidateSection = {
+      ...readingSection,
+      questionGroups: [
+        {
+          ...readingSection.questionGroups![0],
+          questions: [{ id: "q1", questionNumber: 1, prompt: "One" }],
+        },
+      ],
+    }
+    const summary = useExamSessionStore
+      .getState()
+      .applyExamUpdate(makeExam([shortened]), 2)
+
+    expect(summary.activeQuestionRemoved).toBe(true)
+    expect(useExamSessionStore.getState().activeQuestionId).toBe("q1")
+  })
+
+  it("clamps the active section when sections are removed", () => {
+    useExamSessionStore
+      .getState()
+      .init("attempt-1", makeExam([readingSection, legacySection]), 300, 1)
+    useExamSessionStore.getState().setActiveSectionIndex(1)
+
+    const summary = useExamSessionStore
+      .getState()
+      .applyExamUpdate(makeExam([readingSection]), 2)
+
+    expect(summary.sectionsChanged).toBe(true)
+    expect(useExamSessionStore.getState().activeSectionIndex).toBe(0)
+  })
+})

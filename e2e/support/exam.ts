@@ -56,14 +56,17 @@ export async function readTimerSeconds(page: Page): Promise<number> {
   return parts[0] * 60 + parts[1]
 }
 
+/** Placeholder ô trả lời dạng text trong phòng thi (xem app/exam/[attemptId]/page.tsx). */
+const TEXT_ANSWER_PLACEHOLDER = "Nhập câu trả lời..."
+
 /** Giá trị hiện tại của tất cả ô trả lời dạng text trong section đang hiển thị. */
 export async function readTextAnswers(page: Page): Promise<string[]> {
-  const inputs = page.getByPlaceholder("Nhập câu trả lời của bạn...")
+  const inputs = page.getByPlaceholder(TEXT_ANSWER_PLACEHOLDER)
   return inputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value))
 }
 
 export async function fillTextAnswer(page: Page, index: number, value: string) {
-  const input = page.getByPlaceholder("Nhập câu trả lời của bạn...").nth(index)
+  const input = page.getByPlaceholder(TEXT_ANSWER_PLACEHOLDER).nth(index)
   await input.fill(value)
 }
 

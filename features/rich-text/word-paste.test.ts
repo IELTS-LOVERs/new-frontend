@@ -60,8 +60,7 @@ describe("normalizePastedHtml", () => {
     expect(html).toContain("font-size:28px")
   })
 
-  it("removes images, scripts and Word noise", () => {
-    const html = normalizePastedHtml(
+  it("removes images, scripts and Word noise", () => {    const html = normalizePastedHtml(
       `<html><head><style>p{color:red}</style></head><body>
         <script>alert(1)</script>
         <p>Hello<img src="x.png"><o:p></o:p></p>
@@ -73,10 +72,25 @@ describe("normalizePastedHtml", () => {
     expect(html).not.toContain("<img")
     expect(html).not.toContain("<style")
   })
+
+  it("keeps paragraph alignment from Word on the surviving paragraphs", () => {
+    const parsed = new DOMParser().parseFromString(
+      normalizePastedHtml(`
+        <p style="text-align:center">Centered</p>
+        <p class="MsoRightAlign">Right</p>
+        <p style="text-align: left">Left</p>
+      `),
+      "text/html"
+    )
+    const paragraphs = Array.from(parsed.querySelectorAll("p"))
+
+    expect(paragraphs[0].style.textAlign).toBe("center")
+    expect(paragraphs[1].style.textAlign).toBe("right")
+    expect(paragraphs[2].style.textAlign).toBe("left")
+  })
 })
 
-describe("cleanPastedHtml", () => {
-  it("sanitizes the normalized clipboard HTML", () => {
+describe("cleanPastedHtml", () => {  it("sanitizes the normalized clipboard HTML", () => {
     const html = cleanPastedHtml(
       `<p onclick="alert(1)">Safe <a href="javascript:alert(1)">link</a></p>`
     )

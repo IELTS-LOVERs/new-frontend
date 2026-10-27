@@ -54,21 +54,21 @@ test.describe("Flow 4 — Reading hai panel", () => {
     await expect(page.getByText("Passage 1 question")).toBeVisible()
 
     // Trả lời ở Passage 1.
-    await page.getByPlaceholder("Nhập câu trả lời của bạn...").fill("answer-one")
+    await page.getByPlaceholder("Nhập câu trả lời...").fill("answer-one")
 
     // Chuyển sang Passage 2 bằng palette câu hỏi số 2.
     await page.getByRole("button", { name: "2", exact: true }).click()
     await expect(page.getByText(/PASSAGE_TWO_CONTENT/)).toBeVisible()
     await expect(page.getByText("Passage 2 question")).toBeVisible()
-    await page.getByPlaceholder("Nhập câu trả lời của bạn...").fill("answer-two")
+    await page.getByPlaceholder("Nhập câu trả lời...").fill("answer-two")
 
     // Quay lại Passage 1 → đáp án cũ còn nguyên.
     await page.getByRole("button", { name: "1", exact: true }).click()
     await expect(page.getByText(/PASSAGE_ONE_CONTENT/)).toBeVisible()
-    await expect(page.getByPlaceholder("Nhập câu trả lời của bạn...")).toHaveValue("answer-one")
+    await expect(page.getByPlaceholder("Nhập câu trả lời...")).toHaveValue("answer-one")
 
     // Quay lại Passage 2 → đáp án cũng còn nguyên.
     await page.getByRole("button", { name: "2", exact: true }).click()
-    await expect(page.getByPlaceholder("Nhập câu trả lời của bạn...")).toHaveValue("answer-two")
+    await expect(page.getByPlaceholder("Nhập câu trả lời...")).toHaveValue("answer-two")
   })
 })

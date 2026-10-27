@@ -1,7 +1,9 @@
 import { apiClient } from "./client"
 import type {
   AntiCheatEvent,
+  AttemptExamResponse,
   AttemptResult,
+  AttemptRevisionResponse,
   CandidateExam,
   StartAttemptResponse,
   AttemptRecoveryResponse,
@@ -70,6 +72,29 @@ export async function getMyAttemptsApi(
 
 export async function getAttemptRecoveryApi(attemptId: string): Promise<AttemptRecoveryResponse> {
   const { data } = await apiClient<AttemptRecoveryResponse>(`/api/attempts/${attemptId}`)
+  return data
+}
+
+/**
+ * Cheap content-version poll used while a student is taking the exam.
+ * The caller should only fetch the full exam when `revision` changes.
+ */
+export async function getAttemptRevisionApi(
+  attemptId: string
+): Promise<AttemptRevisionResponse> {
+  const { data } = await apiClient<AttemptRevisionResponse>(
+    `/api/attempts/${attemptId}/revision`,
+    { timeoutMs: 10000 }
+  )
+  return data
+}
+
+/** Fetch the current candidate exam content after a revision change. */
+export async function getAttemptExamApi(attemptId: string): Promise<AttemptExamResponse> {
+  const { data } = await apiClient<AttemptExamResponse>(
+    `/api/attempts/${attemptId}/exam`,
+    { timeoutMs: 30000 }
+  )
   return data
 }
 

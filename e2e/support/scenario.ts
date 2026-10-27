@@ -26,6 +26,37 @@ export interface SectionSpec {
   instructions?: string
   passageText?: string
   questions: QuestionSpec[]
+  /**
+   * Optional extra groups, appended after the auto-generated group of
+   * `questions`. Dùng khi đề cần trộn nhiều dạng nhóm câu trong 1 section
+   * (vd. gap-fill + multiple choice).
+   */
+  extraGroups?: Array<{ type: string; config?: Record<string, unknown>; questions: QuestionSpec[] }>
+}
+
+/** Một nhóm câu hỏi đã chuẩn hóa (1 groupType + các câu của nó). */
+interface ResolvedGroup {
+  groupType: string
+  config: Record<string, unknown>
+  questions: QuestionSpec[]
+}
+
+function resolveGroups(section: SectionSpec): ResolvedGroup[] {
+  const groups: ResolvedGroup[] = [
+    {
+      groupType: groupTypeFor(section),
+      config: section.questions[0]?.data ?? {},
+      questions: section.questions,
+    },
+  ]
+  for (const extra of section.extraGroups ?? []) {
+    groups.push({
+      groupType: LEGACY_TYPE_TO_GROUP[extra.type] ?? extra.type,
+      config: extra.config ?? extra.questions[0]?.data ?? {},
+      questions: extra.questions,
+    })
+  }
+  return groups
 }
 
 export interface CreateScenarioOptions {
@@ -81,23 +112,25 @@ export async function createScenario(
   const suffix = uniqueSuffix("e2e")
   const teacher = await loginViaApi(api, TEACHER.email, TEACHER.password)
 
-  // 1. Tạo một Question Group cho mỗi section (mỗi nhóm chứa các câu của section).
+  // 1. Tạo Question Group cho mỗi nhóm trong section (bank dùng lại được).
   for (const section of options.sections) {
-    await apiPost(api, "/api/questions", teacher.token, {
-      skill: section.skill,
-      part: section.part,
-      groupType: groupTypeFor(section),
-      instructions: section.instructions ?? "",
-      config: section.questions[0]?.data ?? {},
-      questions: section.questions.map((q) => ({
-        prompt: `${q.prompt} [${suffix}]`,
-        acceptedAnswers: q.acceptedAnswers ?? [],
-        points: 1,
-      })),
-    })
+    for (const group of resolveGroups(section)) {
+      await apiPost(api, "/api/questions", teacher.token, {
+        skill: section.skill,
+        part: section.part,
+        groupType: group.groupType,
+        instructions: section.instructions ?? "",
+        config: group.config,
+        questions: group.questions.map((q) => ({
+          prompt: `${q.prompt} [${suffix}]`,
+          acceptedAnswers: q.acceptedAnswers ?? [],
+          points: 1,
+        })),
+      })
+    }
   }
 
-  // 2. Tạo đề nháp: mỗi section nhúng một bản sao Question Group.
+  // 2. Tạo đề nháp: mỗi section nhúng bản sao các Question Group (giữ thứ tự).
   const examTitle = `${options.titlePrefix} ${suffix}`
   const exam = await apiPost(api, "/api/exams", teacher.token, {
     title: examTitle,
@@ -112,19 +145,17 @@ export async function createScenario(
         instructions: section.instructions ?? "",
         passageText: section.passageText ?? "",
         mediaIds: [],
-        questionGroups: [
-          {
-            groupType: groupTypeFor(section),
-            instructions: section.instructions ?? "",
-            config: section.questions[0]?.data ?? {},
-            questions: section.questions.map((q) => ({
-              questionNumber: questionNumber++,
-              prompt: `${q.prompt} [${suffix}]`,
-              acceptedAnswers: q.acceptedAnswers ?? [],
-              points: 1,
-            })),
-          },
-        ],
+        questionGroups: resolveGroups(section).map((group) => ({
+          groupType: group.groupType,
+          instructions: section.instructions ?? "",
+          config: group.config,
+          questions: group.questions.map((q) => ({
+            questionNumber: questionNumber++,
+            prompt: `${q.prompt} [${suffix}]`,
+            acceptedAnswers: q.acceptedAnswers ?? [],
+            points: 1,
+          })),
+        })),
       }
     }),
   })

@@ -83,8 +83,9 @@ export function PracticeHeatmap({ data, isLoading }: PracticeHeatmapProps) {
     for (const day of days) {
       const lCount = day.listening || 0
       const rCount = day.reading || 0
-      practicesCount += lCount + rCount
-      if (day.status !== "none") {
+      const wCount = day.writing || 0
+      practicesCount += lCount + rCount + wCount
+      if (day.status !== "none" || wCount > 0) {
         activeCount += 1
       }
 
@@ -146,7 +147,7 @@ export function PracticeHeatmap({ data, isLoading }: PracticeHeatmapProps) {
   }, [days])
 
   const getCellClass = (day: PracticeHeatmapDay | null) => {
-    if (!day || day.status === "none") {
+    if (!day || (day.status === "none" && (day.writing ?? 0) === 0)) {
       return "bg-muted/70 dark:bg-muted/30 border border-border/40 hover:border-foreground/30"
     }
 
@@ -162,7 +163,8 @@ export function PracticeHeatmap({ data, isLoading }: PracticeHeatmapProps) {
       return "bg-emerald-500 border border-emerald-600 text-white"
     }
 
-    return "bg-muted/70 border border-border/40"
+    // Writing-only day: teacher-graded practice, shown in violet.
+    return "bg-violet-500 border border-violet-600 text-white"
   }
 
   return (
@@ -240,7 +242,8 @@ export function PracticeHeatmap({ data, isLoading }: PracticeHeatmapProps) {
 
                             const dayName = getDayOfWeekNameVi(dIdx)
                             const formattedDate = formatDateDisplayVi(day.date)
-                            const hasActivity = day.status !== "none"
+                            const hasWriting = (day.writing ?? 0) > 0
+                            const hasActivity = day.status !== "none" || hasWriting
 
                             return (
                               <Tooltip key={dIdx}>
@@ -272,7 +275,9 @@ export function PracticeHeatmap({ data, isLoading }: PracticeHeatmapProps) {
                                               ? "bg-primary"
                                               : day.status === "listening_only"
                                                 ? "bg-sky-500"
-                                                : "bg-emerald-500"
+                                                : day.status === "reading_only"
+                                                  ? "bg-emerald-500"
+                                                  : "bg-violet-500"
                                           )}
                                         />
                                         <span className="font-medium text-foreground">
@@ -280,13 +285,19 @@ export function PracticeHeatmap({ data, isLoading }: PracticeHeatmapProps) {
                                             ? "Hoàn thành cả Nghe & Đọc"
                                             : day.status === "listening_only"
                                               ? "Chỉ hoàn thành Listening"
-                                              : "Chỉ hoàn thành Reading"}
+                                              : day.status === "reading_only"
+                                                ? "Chỉ hoàn thành Reading"
+                                                : "Chỉ hoàn thành Writing"}
                                         </span>
                                       </div>
-                                      <div className="flex items-center gap-2 pl-3.5 font-mono text-[11px]">
-                                        <span>🎧 Nghe: {day.listening} bài</span>
-                                        <span>·</span>
-                                        <span>📖 Đọc: {day.reading} bài</span>
+                                      <div className="flex flex-wrap items-center gap-2 pl-3.5 font-mono text-[11px]">
+                                        {day.listening > 0 && <span>🎧 Nghe: {day.listening} bài</span>}
+                                        {day.listening > 0 && day.reading > 0 && <span>·</span>}
+                                        {day.reading > 0 && <span>📖 Đọc: {day.reading} bài</span>}
+                                        {hasWriting && (day.listening > 0 || day.reading > 0) && (
+                                          <span>·</span>
+                                        )}
+                                        {hasWriting && <span>✍️ Viết: {day.writing} bài</span>}
                                       </div>
                                     </div>
                                   ) : (

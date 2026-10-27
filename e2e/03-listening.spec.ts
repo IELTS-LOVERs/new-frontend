@@ -31,19 +31,27 @@ test.describe("Flow 3 — Listening", () => {
               prompt: "The city is",
               acceptedAnswers: ["london"],
             },
+          ],
+          // Multiple choice cần nhóm riêng (group type mới render danh sách lựa chọn).
+          extraGroups: [
             {
-              skill: "listening",
-              type: "multiple_choice",
-              part: 1,
-              prompt: "What time does the tour start?",
-              data: {
+              type: "multiple_choice_single",
+              config: {
                 options: [
                   { id: "A", text: "9:00" },
                   { id: "B", text: "10:30" },
                   { id: "C", text: "14:00" },
                 ],
               },
-              acceptedAnswers: ["B"],
+              questions: [
+                {
+                  skill: "listening",
+                  type: "multiple_choice_single",
+                  part: 1,
+                  prompt: "What time does the tour start?",
+                  acceptedAnswers: ["B"],
+                },
+              ],
             },
           ],
         },

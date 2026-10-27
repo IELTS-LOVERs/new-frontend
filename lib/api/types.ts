@@ -327,6 +327,12 @@ export interface ExamListItem {
   hasAttempts?: boolean
   /** Teacher view: true when the exam is assigned to at least one class. */
   hasAssignments?: boolean
+  /** Total attempts ever started (teacher view). */
+  attemptsCount?: number
+  /** Attempts currently in progress (teacher view). */
+  activeAttemptsCount?: number
+  /** Bumped when candidate-visible content changes. */
+  contentRevision?: number
 }
 
 export type SubmissionStatus = "not_started" | "in_progress" | "submitted" | "expired"
@@ -365,6 +371,8 @@ export interface StartAttemptResponse {
   remainingSeconds: number
   status: "in_progress"
   exam: CandidateExam
+  /** Content revision of the exam when this attempt was started/resumed. */
+  revision: number
 }
 
 export interface AttemptRecoveryResponse {
@@ -373,6 +381,23 @@ export interface AttemptRecoveryResponse {
   remainingSeconds: number
   answers: Array<{ questionId: string; value: string }>
   exam: CandidateExam
+  /** Current content revision of the exam. */
+  revision: number
+}
+
+/** Lightweight poll response used while the student is taking the exam. */
+export interface AttemptRevisionResponse {
+  revision: number
+  status: "in_progress" | "submitted" | "expired"
+  remainingSeconds: number
+}
+
+/** Full exam content response used after a revision change. */
+export interface AttemptExamResponse {
+  exam: CandidateExam
+  revision: number
+  remainingSeconds: number
+  updatedAt: string
 }
 
 export interface WritingReview {
@@ -391,10 +416,16 @@ export interface AttemptResultDetail {
   questionId: string
   questionNumber?: number
   groupType?: string
+  /** Skill of the question; Writing is teacher-graded and has no answer key. */
+  skill?: SkillType
   studentAnswer: string
   acceptedAnswers: string[]
   isCorrect: boolean
   explanation?: string | null
+  /** Maximum points of the question at snapshot time. */
+  points?: number
+  /** Question prompt frozen at submit time (survives later exam edits). */
+  prompt?: string
 }
 
 export interface AttemptResult {
@@ -514,6 +545,16 @@ export interface ExamSummary {
   closeAt?: string | null
   createdAt: string
   updatedAt?: string
+  /** Teacher view: true when at least one student has attempted this exam. */
+  hasAttempts?: boolean
+  /** Teacher view: true when the exam is assigned to at least one class. */
+  hasAssignments?: boolean
+  /** Total attempts ever started (teacher view). */
+  attemptsCount?: number
+  /** Attempts currently in progress (teacher view). */
+  activeAttemptsCount?: number
+  /** Bumped when candidate-visible content changes. */
+  contentRevision?: number
 }
 
 export interface ClassRosterStudent {
@@ -682,6 +723,8 @@ export interface PracticeHeatmapDay {
   status: DailyPracticeStatus
   listening: number
   reading: number
+  /** Writing practice attempts on that day (teacher-graded). */
+  writing?: number
 }
 
 export interface PracticeHeatmapResponse {
@@ -702,6 +745,8 @@ export interface WeeklyReportDayCell {
   status: DailyPracticeStatus
   listening: number
   reading: number
+  /** Writing practice attempts on that day (teacher-graded). */
+  writing?: number
   practiceCount: number
   mockCount: number
 }

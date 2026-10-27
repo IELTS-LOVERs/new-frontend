@@ -45,7 +45,7 @@ export function useExamRecovery(attemptId: string | null) {
         }
 
         // Merge: server answers trước
-        init(attemptId!, server.exam, server.remainingSeconds)
+        init(attemptId!, server.exam, server.remainingSeconds, server.revision)
         for (const a of server.answers) {
           setAnswer(a.questionId, a.value)
           // mark synced ngay

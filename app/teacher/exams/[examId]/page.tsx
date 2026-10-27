@@ -180,6 +180,11 @@ export default function TeacherExamDetailPage() {
             </span>
             <span>· {totalQuestions} câu hỏi</span>
             <span>· {exam.skills.map((s) => SKILL_LABEL[s]).join(", ")}</span>
+            <span>
+              · {exam.attemptsCount ?? 0} lượt làm
+              {(exam.activeAttemptsCount ?? 0) > 0 &&
+                ` (${exam.activeAttemptsCount} đang làm)`}
+            </span>
             {exam.openAt && <span>· Mở {formatDate(exam.openAt)}</span>}
             {exam.closeAt && <span>· Đóng {formatDate(exam.closeAt)}</span>}
           </span>

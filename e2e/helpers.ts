@@ -22,7 +22,9 @@ const ROLE_HOME = {
 
 /**
  * Đăng nhập qua API rồi bơm token vào sessionStorage (app lưu access token ở
- * sessionStorage key `ielts_access_token` + `ielts_user`; AuthGate đọc lại).
+ * sessionStorage key `ielts_access_token` + `ielts_user`; AuthGate đọc lại)
+ * và vào cookie (`ielts_access_token` + `ielts_user_role`) vì middleware chặn
+ * route bảo vệ dựa trên cookie (xem stores/auth.store.ts → setAuth).
  */
 export async function loginAs(page: Page, key: AccountKey) {
   const { email, password } = ACCOUNTS[key]
@@ -30,32 +32,55 @@ export async function loginAs(page: Page, key: AccountKey) {
     data: { email, password },
   })
   if (!res.ok()) throw new Error(`Đăng nhập API thất bại (${res.status()}) cho ${email}`)
-  const json = (await res.json()) as { data: { accessToken: string; user: unknown } }
+  const json = (await res.json()) as { data: { accessToken: string; user: { role: string } } }
   const token = json.data.accessToken
   const user = JSON.stringify(json.data.user)
+  const role = json.data.user.role
 
   await page.addInitScript(
-    ([t, u]) => {
+    ([t, u, r]) => {
       sessionStorage.setItem("ielts_access_token", t as string)
       sessionStorage.setItem("ielts_user", u as string)
+      if (r) document.cookie = `ielts_user_role=${encodeURIComponent(r as string)}; path=/; SameSite=Lax`
     },
-    [token, user]
+    [token, user, role]
   )
+  // Session cookie (không đặt max-age) → sống trong suốt phiên test.
+  await page.context().addCookies(cookiesFor(page, token, role))
 
   await page.goto(ROLE_HOME[key])
   await expect(page).toHaveURL(new RegExp(ROLE_HOME[key].replace("/", "\\/")))
   return { token, user: json.data.user }
 }
 
+/** Cookie auth cho origin của web app (giống setAuth trong auth.store.ts). */
+function cookiesFor(
+  page: Page,
+  token: string,
+  role?: string
+): Array<{ name: string; value: string; url: string }> {
+  const configured = process.env.E2E_BASE_URL ?? page.url() ?? "http://127.0.0.1:3000"
+  const origin = new URL(configured).origin
+  const cookies = [{ name: "ielts_access_token", value: encodeURIComponent(token), url: origin }]
+  if (role) {
+    cookies.push({ name: "ielts_user_role", value: encodeURIComponent(role), url: origin })
+  }
+  return cookies
+}
+
 /** Bơm token thủ công (khi đã có token từ nơi khác). */
 export async function seedSession(page: Page, token: string, user: unknown) {
+  const role = (user as { role?: string } | null)?.role
   await page.addInitScript(
-    ([t, u]) => {
+    ([t, u, r]) => {
       sessionStorage.setItem("ielts_access_token", t as string)
       sessionStorage.setItem("ielts_user", u as string)
+      if (r) document.cookie = `ielts_user_role=${encodeURIComponent(r as string)}; path=/; SameSite=Lax`
     },
-    [token, JSON.stringify(user)]
+    [token, JSON.stringify(user), role ?? ""]
   )
+
+  await page.context().addCookies(cookiesFor(page, token, role ?? undefined))
 }
 
 /**

@@ -56,6 +56,8 @@ export const apiPost = (api: APIRequestContext, path: string, token: string | un
   apiRequest(api, "POST", path, token, data)
 export const apiPatch = (api: APIRequestContext, path: string, token: string | undefined, data?: unknown) =>
   apiRequest(api, "PATCH", path, token, data)
+export const apiPut = (api: APIRequestContext, path: string, token: string | undefined, data?: unknown) =>
+  apiRequest(api, "PUT", path, token, data)
 export const apiDelete = (api: APIRequestContext, path: string, token?: string) =>
   apiRequest(api, "DELETE", path, token)
 

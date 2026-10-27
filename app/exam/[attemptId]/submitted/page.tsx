@@ -16,6 +16,7 @@ import {
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { formatBand, formatDate } from "@/lib/format"
 import { useAttemptResultQuery } from "@/hooks/use-attempts"
+import type { AttemptResultDetail } from "@/lib/api/types"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export default function ExamSubmittedPage() {
@@ -64,17 +65,21 @@ function RealSubmitted({ attemptId }: { attemptId: string }) {
   const isPractice = result.examKind === "practice"
   const isRawResult = isPractice || result.scoreMode === "raw"
   const rawTotal = result.totalPoints ?? result.questionCount ?? 0
+  const isWritingDetail = (d: AttemptResultDetail) =>
+    d.skill === "writing" || d.groupType?.startsWith("writing")
+  const writingDetails = result.details.filter(isWritingDetail)
+  const objectiveCount = result.details.length - writingDetails.length
+  // Bài luyện tập chỉ có Writing (không có câu khách quan) → 0/0 vô nghĩa.
+  const writingOnly = writingDetails.length > 0 && objectiveCount === 0
   const fallbackCorrect = result.details.filter(
-    (d) => !d.groupType?.startsWith("writing") && d.isCorrect
+    (d) => !isWritingDetail(d) && d.isCorrect
   ).length
   const fallbackBlank = result.details.filter(
-    (d) =>
-      !d.groupType?.startsWith("writing") &&
-      (!d.studentAnswer || d.studentAnswer.trim() === "")
+    (d) => !isWritingDetail(d) && (!d.studentAnswer || d.studentAnswer.trim() === "")
   ).length
   const fallbackWrong = result.details.filter(
     (d) =>
-      !d.groupType?.startsWith("writing") &&
+      !isWritingDetail(d) &&
       !!d.studentAnswer &&
       d.studentAnswer.trim() !== "" &&
       !d.isCorrect
@@ -87,10 +92,7 @@ function RealSubmitted({ attemptId }: { attemptId: string }) {
   const homeLabel = isPractice ? "Về mục luyện tập" : "Về danh sách đề thi"
 
   const writingGraded = !!result.writingReview
-  const hasWriting =
-    result.scores?.writingBand !== undefined ||
-    result.writingReview !== null ||
-    result.details?.length === 0
+  const hasWriting = writingDetails.length > 0 || result.writingReview != null
   const submittedAt = formatDate((result as any).submittedAt ?? null)
   const examTitle = (result as any).examTitle ?? "Bài thi"
 
@@ -142,7 +144,19 @@ function RealSubmitted({ attemptId }: { attemptId: string }) {
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {isPractice ? "Kết quả luyện tập" : "Điểm nhanh"}
             </p>
-            {isRawResult ? (
+            {isRawResult && writingOnly ? (
+              <div className="flex flex-col items-center gap-1 rounded-xl border border-border bg-card py-6">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  Số bài viết
+                </span>
+                <span className="font-mono text-xl font-extrabold text-primary">
+                  {writingDetails.length}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  Giáo viên chấm
+                </span>
+              </div>
+            ) : isRawResult ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="flex flex-col items-center gap-1 rounded-xl border border-border bg-card py-3">
                   <span className="text-[11px] text-muted-foreground">Số câu đúng</span>
@@ -192,7 +206,7 @@ function RealSubmitted({ attemptId }: { attemptId: string }) {
               </div>
             )}
 
-            {!isPractice && hasWriting && !writingGraded && (
+            {hasWriting && !writingGraded && (
               <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
                 <HugeiconsIcon icon={Clock01Icon} size={16} className="mt-0.5 text-amber-600" />
                 <p className="text-xs text-foreground/90">
@@ -201,7 +215,7 @@ function RealSubmitted({ attemptId }: { attemptId: string }) {
                 </p>
               </div>
             )}
-            {!isPractice && hasWriting && writingGraded && (
+            {hasWriting && writingGraded && (
               <div className="flex items-start gap-2.5 rounded-xl border border-primary/20 bg-primary/5 p-3.5">
                 <HugeiconsIcon icon={Award01Icon} size={16} className="mt-0.5 text-primary" />
                 <p className="text-xs text-foreground/90">

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -60,7 +60,6 @@ import {
   MinimizeScreenIcon,
   MusicNote01Icon,
   PenTool01Icon,
-  PencilEdit02Icon,
   RefreshIcon,
   Search01Icon,
   SparklesIcon,
@@ -75,10 +74,7 @@ import { ApiError } from "@/lib/api/client"
 import {
   useTeacherExamDetailQuery,
   useUpdateExamMutation,
-  useUpdateExamMetadataMutation,
   usePublishExamMutation,
-  useConvertExamToDraftMutation,
-  useCloneExamMutation,
 } from "@/hooks/use-exams"
 import { useQuestionsQuery, useCreateQuestionMutation } from "@/hooks/use-questions"
 import { type CreateBankGroupPayload } from "@/lib/api/questions"
@@ -98,7 +94,6 @@ import type {
   CandidateExam,
   CandidateQuestionGroup,
   CandidateSection,
-  IExamCurriculum,
   IExamPostSubmissionResources,
   MediaItem,
   QuestionGroupType,
@@ -406,10 +401,7 @@ export default function ExamBuilderPage() {
 
   const examQuery = useTeacherExamDetailQuery(examId)
   const updateMutation = useUpdateExamMutation(examId)
-  const updateMetadataMutation = useUpdateExamMetadataMutation(examId)
   const publishMutation = usePublishExamMutation(examId)
-  const convertToDraftMutation = useConvertExamToDraftMutation(examId)
-  const cloneMutation = useCloneExamMutation()
   const createQuestionMutation = useCreateQuestionMutation()
 
   // ----- Local builder state (source of truth khi đang soạn) -----
@@ -418,10 +410,11 @@ export default function ExamBuilderPage() {
   const [openAt, setOpenAt] = React.useState<string>("")
   const [closeAt, setCloseAt] = React.useState<string>("")
   const [activeIndex, setActiveIndex] = React.useState(0)
-  const [saveStatus, setSaveStatus] = React.useState<"saved" | "saving" | "error">("saved")
+  const [saveStatus, setSaveStatus] = React.useState<
+    "saved" | "saving" | "error" | "pending"
+  >("saved")
   const [lastSavedAt, setLastSavedAt] = React.useState<Date | null>(null)
-  const [hasAttemptsError, setHasAttemptsError] = React.useState(false)
-  const [cloneDialogOpen, setCloneDialogOpen] = React.useState(false)
+  const [saveConfirmOpen, setSaveConfirmOpen] = React.useState(false)
 
   const [bankOpen, setBankOpen] = React.useState(false)
   const [mediaPickerOpen, setMediaPickerOpen] = React.useState(false)
@@ -451,6 +444,9 @@ export default function ExamBuilderPage() {
   // instead of closing over `exam`, which otherwise makes the debounced autosave
   // persist data that is one edit behind (the last keystroke is dropped).
   const latestRef = React.useRef({ exam, openAt, closeAt, status })
+  // Latest validation issues; `doSave` reads this so published/closed exams are
+  // never saved in a broken state (the old content keeps serving students).
+  const issuesRef = React.useRef<Issue[]>([])
 
   // Hydrate local state khi query về (chỉ lần đầu / khi id đổi)
   const hydratedFor = React.useRef<string | null>(null)
@@ -497,44 +493,50 @@ export default function ExamBuilderPage() {
   }, [])
 
   // ----- Autosave (debounce 1.5s) -----
-  const doSave = React.useCallback(async () => {
-    const snapshot = latestRef.current
-    if (!snapshot.exam) return
-    if (snapshot.status !== "draft") {
-      // Đề đã xuất bản/đóng: chỉ metadata (tên, mô tả, thời gian) được sửa.
+  // Every status is editable now. Drafts save whatever is typed; published and
+  // closed exams are live, so they only save when the content is valid and no
+  // student is mid-attempt (those changes require an explicit confirmation).
+  const attemptsCount = examQuery.data?.attemptsCount ?? 0
+  const activeAttemptsCount = examQuery.data?.activeAttemptsCount ?? 0
+
+  const doSave = React.useCallback(
+    async (options: { force?: boolean } = {}) => {
+      const snapshot = latestRef.current
+      if (!snapshot.exam) return
+
+      const isLive = snapshot.status !== "draft"
+      if (isLive && !options.force && activeAttemptsCount > 0) {
+        // Wait for the teacher to confirm via "Lưu thay đổi".
+        setSaveStatus("pending")
+        return
+      }
+
+      if (isLive) {
+        if (issuesRef.current.some((issue) => issue.level === "error")) {
+          setSaveStatus("error")
+          return
+        }
+      } else {
+        // Avoid guaranteed 400s while the title/duration is being typed.
+        const draftIssue = firstDraftValidationIssue(snapshot.exam)
+        if (draftIssue) {
+          setSaveStatus("error")
+          return
+        }
+      }
+
+      const payload = toUpdatePayload(snapshot.exam, snapshot.openAt, snapshot.closeAt)
       try {
-        await updateMetadataMutation.mutateAsync({
-          title: snapshot.exam.title,
-          description: snapshot.exam.description ?? undefined,
-          bannerUrl: snapshot.exam.bannerUrl ?? undefined,
-          disableTextSelection: snapshot.exam.disableTextSelection ?? false,
-          openAt: toIsoOrUndefined(snapshot.openAt),
-          closeAt: toIsoOrUndefined(snapshot.closeAt),
-        })
+        await updateMutation.mutateAsync(payload)
         setSaveStatus("saved")
         setLastSavedAt(new Date())
       } catch (err) {
         setSaveStatus("error")
-        reportSaveError(err, "Lưu thông tin đề thất bại.")
+        reportSaveError(err, "Lưu đề thất bại.")
       }
-      return
-    }
-    // Tránh gọi API với dữ liệu chắc chắn 400 (đang gõ tiêu đề / xoá thời lượng).
-    const draftIssue = firstDraftValidationIssue(snapshot.exam)
-    if (draftIssue) {
-      setSaveStatus("error")
-      return
-    }
-    const payload = toUpdatePayload(snapshot.exam, snapshot.openAt, snapshot.closeAt)
-    try {
-      await updateMutation.mutateAsync(payload)
-      setSaveStatus("saved")
-      setLastSavedAt(new Date())
-    } catch (err) {
-      setSaveStatus("error")
-      reportSaveError(err, "Lưu đề thất bại.")
-    }
-  }, [updateMutation, updateMetadataMutation, reportSaveError])
+    },
+    [updateMutation, reportSaveError, activeAttemptsCount]
+  )
 
   const markDirty = React.useCallback(() => {
     setSaveStatus("saving")
@@ -544,7 +546,31 @@ export default function ExamBuilderPage() {
     }, 1500)
   }, [doSave])
 
-  const examReadonly = status !== "draft"
+  /**
+   * Explicit "Lưu thay đổi" click. Live exams with students mid-attempt ask for
+   * confirmation because the new content reaches those students immediately.
+   */
+  const handleExplicitSave = React.useCallback(async () => {
+    const isLive = latestRef.current.status !== "draft"
+    if (isLive && issuesRef.current.some((issue) => issue.level === "error")) {
+      setErrorsOpen(true)
+      return
+    }
+    if (isLive && activeAttemptsCount > 0) {
+      setSaveConfirmOpen(true)
+      return
+    }
+    await doSave({ force: true })
+  }, [doSave, activeAttemptsCount])
+
+  const confirmSave = React.useCallback(async () => {
+    setSaveConfirmOpen(false)
+    await doSave({ force: true })
+  }, [doSave])
+
+  // Content is editable in every status (draft/published/closed). The flag is
+  // kept so child components still receive an explicit boolean.
+  const examReadonly = false
   const active = exam?.sections[activeIndex] as CandidateSection | undefined
   const activeMedia = active?.media ?? []
   const activeAudio = activeMedia.filter((m) => m.type === "audio")
@@ -604,19 +630,11 @@ export default function ExamBuilderPage() {
           message: "Bài luyện tập phải có ít nhất 1 phần thi (section).",
         })
       } else {
-        exam.sections.forEach((sec, sIdx) => {
-          if (sec.skill !== "listening" && sec.skill !== "reading") {
-            list.push({
-              level: "error",
-              message: `${sec.title || `Phần ${sIdx + 1}`}: Bài luyện tập chỉ hỗ trợ kỹ năng Listening hoặc Reading.`,
-              sectionIndex: sIdx,
-            })
-          }
-        })
         if (
           exam.curriculum?.part !== undefined &&
           exam.sections.length === 1 &&
           exam.sections[0].part !== undefined &&
+          exam.sections[0].skill !== "writing" &&
           exam.curriculum.part !== exam.sections[0].part
         ) {
           list.push({
@@ -696,6 +714,10 @@ export default function ExamBuilderPage() {
 
   const errors = issues.filter((i) => i.level === "error")
   const warnings = issues.filter((i) => i.level === "warning")
+
+  React.useEffect(() => {
+    issuesRef.current = issues
+  }, [issues])
 
   /** Insert copies of bank question groups into the active section (renumbered). */
   const addGroupsFromBank = (bankGroups: BankQuestionGroup[]) => {
@@ -1079,39 +1101,6 @@ export default function ExamBuilderPage() {
     }
   }
 
-  // #17: published/closed → draft via a dedicated endpoint. Blocked when the
-  // exam already has attempts, in which case we offer a clone instead.
-  const handleEdit = async () => {
-    try {
-      await convertToDraftMutation.mutateAsync()
-      setStatus("draft")
-      setHasAttemptsError(false)
-      toast.success("Đã chuyển đề về nháp. Bạn có thể chỉnh sửa nội dung.")
-      hydratedFor.current = null
-      await examQuery.refetch()
-    } catch (err) {
-      if (err instanceof ApiError && err.code === "EXAM_HAS_ATTEMPTS") {
-        setHasAttemptsError(true)
-        setCloneDialogOpen(true)
-      } else {
-        toast.error(err instanceof ApiError ? err.message : "Không thể chuyển đề về nháp.")
-      }
-    }
-  }
-
-  const router = useRouter()
-
-  const handleClone = async () => {
-    try {
-      const cloned = await cloneMutation.mutateAsync(examId)
-      setCloneDialogOpen(false)
-      toast.success("Đã nhân bản đề thi", { description: "Đang mở bản sao ở chế độ chỉnh sửa." })
-      router.push(`/teacher/exams/${cloned.id}/edit`)
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Không thể nhân bản đề.")
-    }
-  }
-
   const grouped = SKILL_ORDER.map((skill) => ({
     skill,
     sections: (exam?.sections ?? [])
@@ -1202,7 +1191,6 @@ export default function ExamBuilderPage() {
             <Input
               value={exam.title}
               onChange={(e) => updateExam({ title: e.target.value })}
-              disabled={status === "closed"}
               className="h-8 max-w-sm border-transparent bg-transparent px-1 font-heading text-lg font-bold shadow-none hover:border-border focus-visible:border-border"
             />
             <div className="flex items-center gap-2 pl-1">
@@ -1217,10 +1205,18 @@ export default function ExamBuilderPage() {
                   <>
                     <HugeiconsIcon icon={SparklesIcon} size={11} className="animate-pulse" /> Đang lưu…
                   </>
+                ) : saveStatus === "pending" ? (
+                  <button
+                    type="button"
+                    onClick={() => setSaveConfirmOpen(true)}
+                    className="flex items-center gap-1 text-amber-600 hover:underline"
+                  >
+                    <HugeiconsIcon icon={Alert02Icon} size={11} /> Có thay đổi chưa lưu
+                  </button>
                 ) : saveStatus === "error" ? (
                   <button
                     type="button"
-                    onClick={() => void doSave()}
+                    onClick={() => void handleExplicitSave()}
                     className="flex items-center gap-1 text-amber-600 hover:underline"
                   >
                     <HugeiconsIcon icon={Alert02Icon} size={11} /> Chưa lưu · Thử lại
@@ -1296,7 +1292,7 @@ export default function ExamBuilderPage() {
               <HugeiconsIcon icon={EyeIcon} size={15} /> Xem trước
             </Link>
           </Button>
-          {!examReadonly && (
+          {status === "draft" ? (
             <Button
               variant="default"
               size="sm"
@@ -1307,61 +1303,56 @@ export default function ExamBuilderPage() {
               <HugeiconsIcon icon={Upload04Icon} size={15} />
               {publishMutation.isPending ? "Đang xuất bản…" : "Xuất bản đề"}
             </Button>
+          ) : (
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-1.5 font-semibold"
+              onClick={() => void handleExplicitSave()}
+              disabled={updateMutation.isPending}
+            >
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={15} />
+              {updateMutation.isPending ? "Đang lưu…" : "Lưu thay đổi"}
+            </Button>
           )}
         </div>
       </div>
 
-      {examReadonly && (
-        <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+      {status !== "draft" && (
+        <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
-            <HugeiconsIcon icon={Alert02Icon} size={18} className="mt-0.5 text-amber-600" />
-            <div>
-              {hasAttemptsError ? (
-                <>
-                  <p className="text-sm font-semibold text-foreground">
-                    Đã có học sinh làm đề này, không thể sửa câu hỏi/đáp án.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Hãy nhân bản để tạo phiên bản mới.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm font-semibold text-foreground">
-                    {status === "closed"
-                      ? "Đề đã đóng nên cấu trúc đang bị khóa"
-                      : "Đề đang xuất bản nên cấu trúc đang bị khóa"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Cho phép sửa Tên đề & Mô tả. Bấm “Sửa” để chuyển đề về nháp và
-                    chỉnh sửa toàn bộ nội dung.
-                  </p>
-                </>
+            <HugeiconsIcon icon={Alert02Icon} size={18} className="mt-0.5 text-primary" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">
+                {status === "closed"
+                  ? "Đề đã đóng nhưng vẫn có thể chỉnh sửa"
+                  : "Đề đang xuất bản — chỉnh sửa áp dụng ngay"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {attemptsCount > 0
+                  ? `${attemptsCount} lượt làm bài đã bắt đầu. Kết quả đã nộp được giữ nguyên (ảnh chụp lúc nộp), nội dung mới chỉ áp dụng cho lượt đang làm và lượt sau.`
+                  : "Chưa có học sinh làm bài. Nội dung mới áp dụng cho mọi lượt làm sau khi lưu."}
+              </p>
+              {activeAttemptsCount > 0 && (
+                <p className="flex items-start gap-1.5 text-xs font-medium text-amber-600">
+                  <HugeiconsIcon icon={Alert02Icon} size={13} className="mt-0.5 shrink-0" />
+                  {activeAttemptsCount} học sinh đang làm bài. Thay đổi nội dung sẽ hiển thị
+                  ngay trên máy của họ; bấm “Lưu thay đổi” để xác nhận.
+                </p>
               )}
             </div>
           </div>
-          <div className="flex gap-2">
-            {!hasAttemptsError && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleEdit}
-                disabled={convertToDraftMutation.isPending}
-              >
-                <HugeiconsIcon icon={PencilEdit02Icon} size={14} className="mr-1" />
-                {convertToDraftMutation.isPending ? "Đang chuyển…" : "Sửa"}
-              </Button>
-            )}
+          {saveStatus === "pending" && (
             <Button
               size="sm"
-              className="gap-1.5"
-              onClick={() => setCloneDialogOpen(true)}
-              disabled={cloneMutation.isPending}
+              className="shrink-0 gap-1.5"
+              onClick={() => void handleExplicitSave()}
+              disabled={updateMutation.isPending}
             >
-              <HugeiconsIcon icon={Copy01Icon} size={14} />
-              {cloneMutation.isPending ? "Đang nhân bản…" : "Nhân bản"}
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
+              Lưu thay đổi
             </Button>
-          </div>
+          )}
         </div>
       )}
 
@@ -1503,9 +1494,7 @@ export default function ExamBuilderPage() {
               <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Thêm phần
               </p>
-              {SKILL_ORDER.filter(
-                (skill) => exam.kind !== "practice" || skill !== "writing"
-              ).map((skill) => {
+              {SKILL_ORDER.map((skill) => {
                 const atMax = (exam.sections.filter((s) => s.skill === skill).length ?? 0) >= MAX_PARTS[skill]
                 return (
                   <Button
@@ -2300,34 +2289,38 @@ export default function ExamBuilderPage() {
 
       <AssignDialog open={assignOpen} onOpenChange={setAssignOpen} initialExamId={examId} />
 
-      {/* #17: exam already has attempts → edit by cloning */}
-      <AlertDialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen}>
+      {/* Live exam + students mid-attempt: saving pushes content to them at once. */}
+      <AlertDialog open={saveConfirmOpen} onOpenChange={setSaveConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Đề đã có học sinh làm bài</AlertDialogTitle>
+            <AlertDialogTitle>Lưu thay đổi khi đang có học sinh làm bài?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-xs text-muted-foreground">
                 <p>
-                  Không thể chuyển đề đã có lượt làm bài về nháp vì sẽ làm thay đổi
-                  nội dung và kết quả đã chấm.
+                  Hiện có <span className="font-semibold text-foreground">{activeAttemptsCount}</span>{" "}
+                  học sinh đang làm bài. Nội dung mới sẽ được áp dụng ngay trên màn hình
+                  của các em, nhưng đồng hồ và các câu trả lời đã nhập vẫn được giữ nguyên.
+                </p>
+                <p>
+                  Câu hỏi bị xoá sẽ làm mất câu trả lời tương ứng của học sinh đang làm.
+                  Kết quả đã nộp trước đó không bị ảnh hưởng.
                 </p>
                 <p className="font-medium text-foreground">
-                  Bạn có muốn nhân bản đề để chỉnh sửa không? Bản gốc được giữ nguyên.
+                  Bạn có chắc muốn lưu nội dung mới?
                 </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={cloneMutation.isPending}>Huỷ</AlertDialogCancel>
+            <AlertDialogCancel disabled={updateMutation.isPending}>Huỷ</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault()
-                void handleClone()
+                void confirmSave()
               }}
-              disabled={cloneMutation.isPending}
+              disabled={updateMutation.isPending}
             >
-              <HugeiconsIcon icon={Copy01Icon} size={14} className="mr-1" />
-              {cloneMutation.isPending ? "Đang nhân bản…" : "Nhân bản để sửa"}
+              {updateMutation.isPending ? "Đang lưu…" : "Lưu và áp dụng ngay"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

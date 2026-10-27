@@ -69,6 +69,7 @@ describe("useExamRecovery", () => {
         { questionId: "q3", value: "server-3" },
       ],
       exam,
+      revision: 1,
     })
 
     const { result } = renderHook(() => useExamRecovery("attempt-1"))
@@ -110,6 +111,7 @@ describe("useExamRecovery", () => {
       remainingSeconds: 0,
       answers: [],
       exam,
+      revision: 1,
     })
 
     const { result } = renderHook(() => useExamRecovery("attempt-1"))

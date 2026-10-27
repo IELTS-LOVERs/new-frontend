@@ -44,6 +44,40 @@ function isOrderedWordList(el: Element): boolean {
   return /^(?:\d+|[a-zA-Z])[.)]\s/.test(text)
 }
 
+/**
+ * Map a Word `text-align` (inline style, `align` attribute or `MsoXAlign`
+ * class) onto the `text-align` inline style the TipTap text-align extension
+ * reads when parsing pasted HTML.
+ */
+function applyWordAlignment(el: Element): void {
+  if (el.tagName.toLowerCase() === "li") return
+  const style = el.getAttribute("style") ?? ""
+  const className = el.getAttribute("class") ?? ""
+  const raw =
+    /text-align\s*:\s*([a-z-]+)/i.exec(style)?.[1] ??
+    el.getAttribute("align") ??
+    (/Mso(?:Center|Right|Justify)Align/i.exec(className)?.[0] ?? "")
+
+  const value = raw.toLowerCase()
+  const align =
+    value.includes("center")
+      ? "center"
+      : value.includes("right")
+        ? "right"
+        : value.includes("justify")
+          ? "justify"
+          : value.includes("left")
+            ? "left"
+            : null
+  if (!align) return
+
+  const nextStyle = style.replace(/text-align\s*:[^;]*;?/gi, "").trim().replace(/;$/, "")
+  el.setAttribute(
+    "style",
+    nextStyle.length > 0 ? `${nextStyle}; text-align: ${align}` : `text-align: ${align}`
+  )
+}
+
 function stripWordListMarker(el: Element): void {
   const marker = el.querySelector(
     'span[style*="mso-list:Ignore"], span[style*="mso-list: ignore"]'
@@ -113,8 +147,7 @@ function convertWordLists(doc: Document): void {
   }
 }
 
-/** Rewrite Word's inline style spans into semantic marks. */
-function normalizeInlineStyles(doc: Document): void {
+/** Rewrite Word's inline style spans into semantic marks. */function normalizeInlineStyles(doc: Document): void {
   doc.querySelectorAll("span").forEach((span) => {
     const style = span.getAttribute("style") ?? ""
     const fontSize = parseFontSize(style)
@@ -186,6 +219,9 @@ export function normalizePastedHtml(html: string): string {
 
   convertWordLists(doc)
   normalizeInlineStyles(doc)
+  doc
+    .querySelectorAll("p, h1, h2, h3, h4, h5, h6, td, th")
+    .forEach(applyWordAlignment)
 
   doc.querySelectorAll("h4, h5, h6").forEach((heading) => {
     const h3 = doc.createElement("h3")

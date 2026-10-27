@@ -159,17 +159,21 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
 
   const rowsBySkill: Record<SkillType, Row[]> = { listening: [], reading: [], writing: [] }
   if (exam) {
-    let order = 0
+    // Numbering is canonical per skill (see backend normalizeExamSectionNumbering),
+    // so a mixed practice (e.g. Reading + Writing) keeps 1..N inside each skill.
+    const skillOrder: Record<SkillType, number> = { listening: 0, reading: 0, writing: 0 }
     exam.sections.forEach((sec) => {
       const skill = sec.skill as SkillType
 
       ;(sec.questionGroups ?? []).forEach((g) => {
         g.questions.forEach((q) => {
-          order += 1
+          skillOrder[skill] = (skillOrder[skill] ?? 0) + 1
           rowsBySkill[skill]?.push({
             questionId: q.id,
-            order: q.questionNumber ?? order,
-            prompt: q.prompt,
+            order: q.questionNumber ?? skillOrder[skill],
+            // The snapshot holds the prompt the candidate actually saw; fall back
+            // to the live exam only for legacy attempts without a snapshot.
+            prompt: detailByQuestionId.get(q.id)?.prompt || q.prompt,
             groupType: g.groupType,
             groupInstructions: g.instructions,
             detail: detailByQuestionId.get(q.id),
@@ -182,12 +186,17 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
   // Fallback: nếu exam không có (chưa tải được) → dựng rows trực tiếp từ details
   if (!exam && result.details.length > 0) {
     result.details.forEach((d, idx) => {
-      const isWriting = d.groupType?.startsWith("writing_")
-      const targetSkill: SkillType = isWriting ? "writing" : "listening"
+      const isWriting =
+        d.skill === "writing" || d.groupType?.startsWith("writing_")
+      const targetSkill: SkillType = isWriting
+        ? "writing"
+        : d.skill === "reading"
+          ? "reading"
+          : "listening"
       rowsBySkill[targetSkill].push({
         questionId: d.questionId,
         order: d.questionNumber ?? idx + 1,
-        prompt: d.questionId,
+        prompt: d.prompt || d.questionId,
         groupType: d.groupType,
         detail: d,
       })
@@ -240,6 +249,15 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
   const wrongCount = result.wrongCount ?? fallbackWrong
   const blankCount = result.blankCount ?? fallbackBlank
   const countTotal = correctCount + wrongCount + blankCount
+
+  // Writing-only practice has no auto-gradable questions, so the correct/wrong
+  // cards would read "0/0" (or "0/1" — practice attempts persist a
+  // questionCount that still includes writing). Those results show the
+  // teacher-graded status instead.
+  const objectiveDetails = result.details.filter(
+    (d) => !(d.skill === "writing" || d.groupType?.startsWith("writing"))
+  )
+  const isObjectiveEmpty = isRawDisplay && objectiveDetails.length === 0
 
   const backHref = isPractice ? "/student/practice" : "/student/exams"
   const backLabel = isPractice ? "Quay lại luyện tập" : "Quay lại đề thi"
@@ -327,7 +345,25 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
       </div>
 
       {/* Score Cards */}
-      {isRawDisplay ? (
+      {isObjectiveEmpty ? (
+        <Card className="border-border bg-card">
+          <CardContent className="flex items-start gap-3 p-5 text-sm">
+            <HugeiconsIcon icon={Clock01Icon} size={16} className="mt-0.5 shrink-0 text-amber-600" />
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">
+                {isWritingGraded
+                  ? "Bài Writing đã được giáo viên chấm"
+                  : "Bài Writing đang chờ giáo viên chấm"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {isWritingGraded
+                  ? "Xem nhận xét và điểm chi tiết bên dưới."
+                  : "Bài viết không chấm tự động. Giáo viên sẽ nhận xét và cho điểm sau khi xem bài của bạn."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : isRawDisplay ? (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
           <Card className="border-border bg-card">
             <CardHeader className="p-4 pb-1">
@@ -589,7 +625,8 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
         </div>
 
         {/* Filter */}
-        <div className="flex flex-wrap items-center gap-2">
+        {!(availableSkills.length === 1 && availableSkills[0] === "writing") && (
+          <div className="flex flex-wrap items-center gap-2">
           {FILTERS.map((f) => (
             <button
               key={f.value}
@@ -607,6 +644,7 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
             </button>
           ))}
         </div>
+        )}
 
         {/* Question rows */}
         <div className="rounded-xl border border-border divide-y divide-border bg-card overflow-hidden">
@@ -619,6 +657,8 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
               const d = row.detail
               const isBlank = !d || !d.studentAnswer
               const isCorrect = d?.isCorrect ?? false
+              const isWritingRow =
+                d?.skill === "writing" || !!row.groupType?.startsWith("writing_")
 
               return (
                 <div
@@ -635,7 +675,11 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
                           {QUESTION_GROUP_TYPE_LABEL[row.groupType as keyof typeof QUESTION_GROUP_TYPE_LABEL] ?? row.groupType}
                         </Badge>
                       )}
-                      {isBlank ? (
+                      {isWritingRow ? (
+                        <Badge variant="secondary" withDot className="text-[11px]">
+                          Giáo viên chấm
+                        </Badge>
+                      ) : isBlank ? (
                         <Badge variant="secondary" withDot className="text-[11px]">
                           Bỏ trống
                         </Badge>
@@ -665,7 +709,7 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
                     </p>
                   )}
 
-                  {d && (
+                  {d && !isWritingRow && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-0.5">
                       <div>
                         <span className="text-muted-foreground">Đáp án của bạn: </span>
