@@ -15,16 +15,9 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { ApiError } from "@/lib/api/client"
 import { useUpdateExamCurriculumMutation } from "@/hooks/use-practice"
+import { useCollectionsQuery } from "@/hooks/use-collections"
 import type { IExamCurriculum } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
-
-/** Nhóm bộ đề phổ biến để giáo viên chọn nhanh. */
-const QUICK_COLLECTIONS = [
-  "Cambridge",
-  "Vol",
-  "Road to IELTS",
-  "Actual Test",
-] as const
 
 interface ExamCurriculumDialogProps {
   open: boolean
@@ -67,6 +60,29 @@ export function ExamCurriculumDialog({
     }
   }
 
+  // Fetch real collections from database
+  const { data: collectionsData } = useCollectionsQuery({ limit: 50 }, open)
+
+  const collectionSuggestions = React.useMemo(() => {
+    const list: string[] = []
+    if (collectionsData?.items) {
+      for (const item of collectionsData.items) {
+        if (item.name && !list.includes(item.name)) {
+          list.push(item.name)
+        }
+      }
+    }
+    if (list.length === 0) {
+      return [
+        "Cambridge IELTS 18",
+        "Cambridge IELTS 19",
+        "IELTS Recent Actual / Vol",
+        "Road to IELTS",
+      ]
+    }
+    return list
+  }, [collectionsData?.items])
+
   const mutation = useUpdateExamCurriculumMutation()
 
   const handleSave = async (e: React.FormEvent) => {
@@ -84,7 +100,7 @@ export function ExamCurriculumDialog({
         examId,
         payload,
       })
-      toast.success("Cập nhật thông tin lộ trình thành công!")
+      toast.success("Cập nhật thông tin bộ đề thành công!")
       onSuccess?.({
         collectionName: collectionName.trim() || undefined,
         testNumber: testNumber ? parseInt(testNumber, 10) : undefined,
@@ -94,7 +110,7 @@ export function ExamCurriculumDialog({
       onOpenChange(false)
     } catch (err) {
       toast.error(
-        err instanceof ApiError ? err.message : "Không thể cập nhật lộ trình."
+        err instanceof ApiError ? err.message : "Không thể cập nhật bộ đề."
       )
     }
   }
@@ -105,24 +121,24 @@ export function ExamCurriculumDialog({
         <form onSubmit={handleSave} className="space-y-4">
           <DialogHeader>
             <DialogTitle className="font-heading text-base font-semibold">
-              Cài đặt lộ trình giáo trình (Curriculum)
+              Cài đặt Bộ đề & Vị trí bài thi
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Định vị bài luyện tập theo bộ sách hoặc lộ trình (ví dụ: Cambridge IELTS 18, Test 1, Passage 1)
+              Định vị bài luyện tập theo bộ đề cụ thể (ví dụ: Cambridge IELTS 18, Test 1, Passage 1)
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-2 text-xs">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Bộ đề / Giáo trình</Label>
+              <Label className="text-xs font-medium">Thuộc bộ đề thi nào</Label>
               <Input
                 value={collectionName}
                 onChange={(e) => setCollectionName(e.target.value)}
-                placeholder="Ví dụ: Cambridge IELTS 18"
+                placeholder="Ví dụ: Cambridge IELTS 18, Vol 6..."
                 className="h-9 text-xs"
               />
-              <div className="flex flex-wrap gap-1.5 pt-0.5">
-                {QUICK_COLLECTIONS.map((option) => (
+              <div className="flex flex-wrap gap-1.5 pt-0.5 max-h-24 overflow-y-auto">
+                {collectionSuggestions.map((option) => (
                   <button
                     key={option}
                     type="button"
@@ -194,7 +210,7 @@ export function ExamCurriculumDialog({
               disabled={mutation.isPending}
               className="text-xs font-medium"
             >
-              {mutation.isPending ? "Đang lưu..." : "Lưu lộ trình"}
+              {mutation.isPending ? "Đang lưu..." : "Lưu cài đặt"}
             </Button>
           </DialogFooter>
         </form>

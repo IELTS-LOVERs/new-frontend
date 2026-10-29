@@ -787,7 +787,7 @@ export interface WeeklyReportResponse {
   }
 }
 
-export type CollectionCategory = "cambridge" | "vol" | "road_to_ielts" | "custom" | "other"
+export type CollectionCategory = string
 
 export interface CollectionItem {
   _id: string

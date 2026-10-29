@@ -54,23 +54,36 @@ import {
   useDeleteCollectionMutation,
   useUpdateCollectionMutation,
 } from "@/hooks/use-collections"
-import type { CollectionCategory, CollectionItem } from "@/lib/api/types"
+import type { CollectionItem } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 
-const CATEGORY_LABELS: Record<CollectionCategory, string> = {
-  cambridge: "Cambridge IELTS",
-  vol: "IELTS Recent Actual / Vol",
-  road_to_ielts: "Road to IELTS",
-  custom: "Giáo trình trung tâm",
-  other: "Khác",
-}
+const CATEGORY_PRESETS = [
+  { label: "Cambridge", value: "Cambridge" },
+  { label: "Vol / Actual", value: "IELTS Recent Actual / Vol" },
+  { label: "Road to IELTS", value: "Road to IELTS" },
+  { label: "Forecast", value: "Forecast" },
+  { label: "Practice Plus", value: "IELTS Practice Plus" },
+  { label: "Giáo trình nội bộ", value: "Giáo trình nội bộ" },
+]
 
-const CATEGORY_COLORS: Record<CollectionCategory, string> = {
-  cambridge: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900",
-  vol: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-900",
-  road_to_ielts: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900",
-  custom: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900",
-  other: "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700",
+function getCategoryBadgeStyle(category: string): string {
+  const lower = (category || "").toLowerCase()
+  if (lower.includes("cambridge")) {
+    return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900"
+  }
+  if (lower.includes("vol") || lower.includes("actual")) {
+    return "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-900"
+  }
+  if (lower.includes("road")) {
+    return "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900"
+  }
+  if (lower.includes("forecast")) {
+    return "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900"
+  }
+  if (lower.includes("plus") || lower.includes("collins")) {
+    return "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-900"
+  }
+  return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900"
 }
 
 export default function CollectionsPage() {
@@ -88,15 +101,14 @@ export default function CollectionsPage() {
 
   const { data, isLoading } = useCollectionsQuery({
     search: debouncedSearch.trim() || undefined,
-    category:
-      categoryFilter !== "all" ? (categoryFilter as CollectionCategory) : undefined,
+    category: categoryFilter !== "all" ? categoryFilter : undefined,
   })
 
   // Create / Edit modal states
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingCollection, setEditingCollection] = React.useState<CollectionItem | null>(null)
   const [formName, setFormName] = React.useState("")
-  const [formCategory, setFormCategory] = React.useState<CollectionCategory>("custom")
+  const [formCategory, setFormCategory] = React.useState("Cambridge")
   const [formDescription, setFormDescription] = React.useState("")
   const [formOrderIndex, setFormOrderIndex] = React.useState("0")
 
@@ -110,7 +122,7 @@ export default function CollectionsPage() {
   const handleOpenCreate = () => {
     setEditingCollection(null)
     setFormName("")
-    setFormCategory("cambridge")
+    setFormCategory("Cambridge")
     setFormDescription("")
     setFormOrderIndex("0")
     setDialogOpen(true)
@@ -119,7 +131,7 @@ export default function CollectionsPage() {
   const handleOpenEdit = (col: CollectionItem) => {
     setEditingCollection(col)
     setFormName(col.name)
-    setFormCategory(col.category)
+    setFormCategory(col.category || "Cambridge")
     setFormDescription(col.description || "")
     setFormOrderIndex(String(col.orderIndex ?? 0))
     setDialogOpen(true)
@@ -128,7 +140,12 @@ export default function CollectionsPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formName.trim()) {
-      toast.error("Vui lòng nhập tên nhóm bộ đề")
+      toast.error("Vui lòng nhập tên bộ đề")
+      return
+    }
+
+    if (!formCategory.trim()) {
+      toast.error("Vui lòng nhập dòng giáo trình / thể loại")
       return
     }
 
@@ -138,27 +155,27 @@ export default function CollectionsPage() {
           id: editingCollection._id,
           payload: {
             name: formName.trim(),
-            category: formCategory,
+            category: formCategory.trim(),
             description: formDescription.trim() || null,
             orderIndex: parseInt(formOrderIndex, 10) || 0,
           },
         })
-        toast.success("Cập nhật nhóm bộ đề thành công")
+        toast.success("Cập nhật bộ đề thành công")
       } else {
         await createMutation.mutateAsync({
           name: formName.trim(),
-          category: formCategory,
+          category: formCategory.trim(),
           description: formDescription.trim() || undefined,
           orderIndex: parseInt(formOrderIndex, 10) || 0,
         })
-        toast.success("Tạo nhóm bộ đề thành công")
+        toast.success("Tạo bộ đề thành công")
       }
       setDialogOpen(false)
     } catch (err) {
       if (err instanceof ApiError) {
         toast.error(err.message)
       } else {
-        toast.error("Không thể lưu nhóm bộ đề")
+        toast.error("Không thể lưu bộ đề")
       }
     }
   }
@@ -167,24 +184,38 @@ export default function CollectionsPage() {
     if (!deletingCollection) return
     try {
       await deleteMutation.mutateAsync(deletingCollection._id)
-      toast.success("Đã xoá nhóm bộ đề. Các đề thi đã được giải phóng.")
+      toast.success("Đã xoá bộ đề. Các đề thi đã được giải phóng an toàn.")
       setDeletingCollection(null)
     } catch (err) {
       if (err instanceof ApiError) {
         toast.error(err.message)
       } else {
-        toast.error("Không thể xoá nhóm bộ đề")
+        toast.error("Không thể xoá bộ đề")
       }
     }
   }
 
   const collections = data?.items || []
 
+  // Dynamic category list from backend + current collections
+  const availableCategories = React.useMemo(() => {
+    const set = new Set<string>()
+    if (data?.allCategories && Array.isArray(data.allCategories)) {
+      for (const cat of data.allCategories) {
+        if (cat) set.add(cat)
+      }
+    }
+    for (const c of collections) {
+      if (c.category) set.add(c.category)
+    }
+    return Array.from(set)
+  }, [data?.allCategories, collections])
+
   return (
     <div className="space-y-6 p-6">
       <PageHeader
         title="Quản lý nhóm bộ đề (Series & Collections)"
-        description="Quản lý các bộ sách đề thi IELTS (Cambridge, Vol, Road to IELTS...) và phân loại đề thi theo bộ đề."
+        description="Quản lý các bộ sách đề thi IELTS (Cambridge, Vol, Road to IELTS, Forecast...) và phân loại đề thi theo từng bộ."
         actions={
           <Button onClick={handleOpenCreate} className="gap-2">
             <HugeiconsIcon icon={Add01Icon} className="size-4" />
@@ -196,12 +227,13 @@ export default function CollectionsPage() {
       {/* Filter Tabs & Search */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <Tabs value={categoryFilter} onValueChange={setCategoryFilter}>
-          <TabsList className="h-10">
+          <TabsList className="h-10 flex-wrap">
             <TabsTrigger value="all">Tất cả</TabsTrigger>
-            <TabsTrigger value="cambridge">Cambridge</TabsTrigger>
-            <TabsTrigger value="vol">Vol / Actual</TabsTrigger>
-            <TabsTrigger value="road_to_ielts">Road to IELTS</TabsTrigger>
-            <TabsTrigger value="custom">Tuỳ chỉnh</TabsTrigger>
+            {availableCategories.map((cat) => (
+              <TabsTrigger key={cat} value={cat}>
+                {cat}
+              </TabsTrigger>
+            ))}
           </TabsList>
         </Tabs>
 
@@ -261,11 +293,11 @@ export default function CollectionsPage() {
                   <div className="space-y-1.5 flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
-                        className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${
-                          CATEGORY_COLORS[col.category] || CATEGORY_COLORS.other
-                        }`}
+                        className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${getCategoryBadgeStyle(
+                          col.category
+                        )}`}
                       >
-                        {CATEGORY_LABELS[col.category] || col.category}
+                        {col.category}
                       </span>
                     </div>
                     <Link
@@ -368,83 +400,61 @@ export default function CollectionsPage() {
               </DialogTitle>
               <DialogDescription>
                 {editingCollection
-                  ? "Cập nhật tên hoặc phân loại bộ đề. Các đề thi sẽ tự động được cập nhật đồng bộ."
+                  ? "Cập nhật tên hoặc dòng giáo trình của bộ đề. Các đề thi sẽ tự động được cập nhật đồng bộ."
                   : "Thêm một nhóm bộ đề thi mới vào danh mục để phân loại các bài thi IELTS."}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-2">
-              <div className="space-y-2">
-                <Label htmlFor="col-name">Tên nhóm bộ đề *</Label>
+              {/* Field 1: Tên bộ đề cụ thể */}
+              <div className="space-y-1.5">
+                <Label htmlFor="col-name">Tên bộ đề (Tập / Quyển cụ thể) *</Label>
                 <Input
                   id="col-name"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="Ví dụ: Cambridge IELTS 19, Vol 6..."
+                  placeholder="Ví dụ: Cambridge IELTS 19, Vol 6, Forecast Q1/2026..."
                   required
                 />
               </div>
 
-              {/* Quick Preset Buttons */}
+              {/* Field 2: Dòng giáo trình / Thể loại cha */}
               <div className="space-y-2">
-                <Label>Gợi ý nhanh tên & phân loại</Label>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-xs h-7"
-                    onClick={() => {
-                      setFormName("Cambridge IELTS ")
-                      setFormCategory("cambridge")
-                    }}
-                  >
-                    Cambridge
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-xs h-7"
-                    onClick={() => {
-                      setFormName("IELTS Recent Actual Tests Vol ")
-                      setFormCategory("vol")
-                    }}
-                  >
-                    Vol / Actual
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-xs h-7"
-                    onClick={() => {
-                      setFormName("Road to IELTS ")
-                      setFormCategory("road_to_ielts")
-                    }}
-                  >
-                    Road to IELTS
-                  </Button>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="col-category">
+                    Dòng giáo trình / Thể loại (Dùng để gom nhóm) *
+                  </Label>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="col-category">Thể loại / Nhóm phân loại</Label>
-                <select
+                {/* Quick Preset Buttons */}
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {CATEGORY_PRESETS.map((p) => (
+                    <Button
+                      key={p.value}
+                      type="button"
+                      variant={formCategory === p.value ? "secondary" : "outline"}
+                      size="sm"
+                      className="text-xs h-7 px-2.5"
+                      onClick={() => setFormCategory(p.value)}
+                    >
+                      {p.label}
+                    </Button>
+                  ))}
+                </div>
+
+                <Input
                   id="col-category"
                   value={formCategory}
-                  onChange={(e) => setFormCategory(e.target.value as CollectionCategory)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option value="cambridge">Cambridge IELTS</option>
-                  <option value="vol">IELTS Recent Actual / Vol</option>
-                  <option value="road_to_ielts">Road to IELTS</option>
-                  <option value="custom">Giáo trình trung tâm / Tuỳ chỉnh</option>
-                  <option value="other">Khác</option>
-                </select>
+                  onChange={(e) => setFormCategory(e.target.value)}
+                  placeholder="Gõ tên thể loại tuỳ ý (hoặc bấm chọn gợi ý bên trên)..."
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Gom các quyển có cùng thể loại lại chung một nhóm khi học sinh & giáo viên lọc bài thi.
+                </p>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <Label htmlFor="col-desc">Mô tả (tuỳ chọn)</Label>
                 <Textarea
                   id="col-desc"
@@ -455,7 +465,7 @@ export default function CollectionsPage() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <Label htmlFor="col-order">Thứ tự hiển thị (ưu tiên số nhỏ hơn)</Label>
                 <Input
                   id="col-order"

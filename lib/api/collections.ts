@@ -15,6 +15,7 @@ export interface ListCollectionsParams {
 
 export interface ListCollectionsResult {
   items: CollectionItem[]
+  allCategories?: string[]
   meta?: PaginatedMeta
 }
 
@@ -68,7 +69,8 @@ export async function getCollectionsApi(
   const { data, meta } = await apiClient<CollectionItem[]>(
     `/api/collections${qs ? `?${qs}` : ""}`
   )
-  return { items: data, meta: meta as PaginatedMeta | undefined }
+  const metaObj = meta as (PaginatedMeta & { allCategories?: string[] }) | undefined
+  return { items: data, allCategories: metaObj?.allCategories, meta: metaObj }
 }
 
 export async function getCollectionDetailApi(id: string): Promise<CollectionDetailResponse> {
