@@ -111,10 +111,10 @@ describe("resolvePracticeBookGroup", () => {
     expect(group.key).toBe("custom:actual test")
   })
 
-  it("bài chưa phân nhóm rơi vào Bộ đề khác", () => {
+  it("bài chưa phân nhóm rơi vào Chưa phân nhóm", () => {
     expect(resolvePracticeBookGroup(item("Reading Practice 1"))).toMatchObject({
       key: "other",
-      label: "Bộ đề khác",
+      label: "Chưa phân nhóm",
     })
   })
 })
@@ -191,7 +191,7 @@ describe("groupPracticeItemsByBook", () => {
       "Vol",
       "Road to IELTS",
       "Actual Test",
-      "Bộ đề khác",
+      "Chưa phân nhóm",
     ])
   })
 

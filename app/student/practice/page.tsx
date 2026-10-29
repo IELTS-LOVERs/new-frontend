@@ -870,7 +870,7 @@ export default function StudentPracticePage() {
                   size={16}
                   className="text-muted-foreground"
                 />
-                <span>Nhóm bộ đề (Giáo trình)</span>
+                <span>Nhóm bộ đề</span>
               </div>
 
               <div className="px-3 pb-3.5 space-y-1 text-[11px]">

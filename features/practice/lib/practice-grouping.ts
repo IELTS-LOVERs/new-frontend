@@ -41,7 +41,7 @@ export interface PracticeBookFacet {
 
 export const OTHER_BOOK_GROUP: PracticeBookGroup = {
   key: "other",
-  label: "Bộ đề khác",
+  label: "Chưa phân nhóm",
 }
 
 const GROUP_PRIORITY: Record<string, number> = {

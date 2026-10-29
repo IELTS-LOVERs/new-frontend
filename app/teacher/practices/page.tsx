@@ -109,7 +109,7 @@ const SORT_OPTIONS = [
   { value: "date_asc", label: "Ngày đăng: Cũ nhất" },
   { value: "title_asc", label: "Alphabet: A → Z" },
   { value: "title_desc", label: "Alphabet: Z → A" },
-  { value: "collection_asc", label: "Giáo trình (A → Z)" },
+  { value: "collection_asc", label: "Bộ đề (A → Z)" },
 ] as const
 
 /** Nhóm bộ đề phổ biến luôn có trong bộ lọc, kể cả khi trang hiện tại trống. */
@@ -407,7 +407,7 @@ export default function TeacherPracticesPage() {
                 className="gap-2"
               >
                 <HugeiconsIcon icon={Settings02Icon} size={14} />
-                <span>Cài đặt nhóm / Giáo trình</span>
+                <span>Cài đặt Bộ đề</span>
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />
@@ -469,7 +469,7 @@ export default function TeacherPracticesPage() {
           { label: "Bài luyện tập" },
         ]}
         title="Quản lý bài luyện tập (Practice)"
-        description="Tạo và quản lý các bài luyện tập IELTS theo từng kỹ năng, bộ đề và giáo trình."
+        description="Tạo và quản lý các bài luyện tập IELTS theo từng kỹ năng và nhóm bộ đề."
         actions={
           <Button asChild size="sm" className="gap-1.5 text-xs font-semibold">
             <Link href="/teacher/exams/new?kind=practice">
@@ -539,7 +539,7 @@ export default function TeacherPracticesPage() {
               <Input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Tìm theo tên bài / giáo trình..."
+                placeholder="Tìm theo tên bài / bộ đề..."
                 maxLength={200}
                 className="h-9 pl-9 text-xs"
               />
@@ -653,7 +653,7 @@ export default function TeacherPracticesPage() {
             <TableHeader>
               <TableRow className="border-border/60 hover:bg-transparent">
                 <TableHead className="w-[300px] text-xs font-semibold">Tên bài luyện tập</TableHead>
-                <TableHead className="text-xs font-semibold">Giáo trình & Phần thi</TableHead>
+                <TableHead className="text-xs font-semibold">Bộ đề & Phần thi</TableHead>
                 <TableHead className="w-[140px] text-xs font-semibold">Kỹ năng</TableHead>
                 <TableHead className="w-[100px] text-xs font-semibold text-center">Thời lượng</TableHead>
                 <TableHead className="w-[110px] text-xs font-semibold">Ngày đăng</TableHead>
