@@ -59,4 +59,9 @@ export const queryKeys = {
     weeklyReport: (classId: string, params?: Record<string, any>) =>
       ["practice", "weeklyReport", classId, params] as const,
   },
+  collections: {
+    all: ["collections"] as const,
+    list: (filters?: Record<string, any>) => ["collections", "list", filters] as const,
+    detail: (id: string) => ["collections", "detail", id] as const,
+  },
 }

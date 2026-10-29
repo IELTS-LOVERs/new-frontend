@@ -60,6 +60,7 @@ const navGroups = [
     title: "Nội dung học liệu",
     items: [
       { label: "Bài luyện tập", href: "/teacher/practices", icon: Book02Icon },
+      { label: "Nhóm bộ đề", href: "/teacher/collections", icon: Folder02Icon },
       { label: "Đề thi", href: "/teacher/exams", icon: PencilEdit02Icon },
       { label: "Ngân hàng câu hỏi", href: "/teacher/questions", icon: Folder02Icon },
       { label: "Thư viện Media", href: "/teacher/media", icon: Folder02Icon },

@@ -787,3 +787,54 @@ export interface WeeklyReportResponse {
   }
 }
 
+export type CollectionCategory = "cambridge" | "vol" | "road_to_ielts" | "custom" | "other"
+
+export interface CollectionItem {
+  _id: string
+  name: string
+  category: CollectionCategory
+  description?: string
+  bannerUrl?: string
+  orderIndex: number
+  examCount: number
+  readingCount: number
+  listeningCount: number
+  writingCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CollectionDetailExam {
+  _id: string
+  title: string
+  kind: ExamKind
+  scoringMode: ExamScoringMode
+  status: "draft" | "published" | "closed"
+  durationMinutes: number
+  sections: Array<{
+    _id: string
+    skill: "listening" | "reading" | "writing"
+    part: number
+    title?: string
+  }>
+  curriculum?: IExamCurriculum
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CollectionDetailResponse {
+  collection: {
+    _id: string
+    name: string
+    category: CollectionCategory
+    description?: string
+    bannerUrl?: string
+    orderIndex: number
+    createdBy: string
+    createdAt: string
+    updatedAt: string
+  }
+  exams: CollectionDetailExam[]
+}
+
+
