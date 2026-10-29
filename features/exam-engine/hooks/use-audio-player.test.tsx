@@ -20,6 +20,8 @@ class FakeAudio {
   duration = 0
   ended = false
   paused = true
+  playbackRate = 1
+  preservesPitch = true
 
   get volume() {
     return FakeAudio.volumeLocked ? 1 : this._volume
@@ -63,6 +65,7 @@ describe("useExamAudioPlayer", () => {
     FakeAudio.volumeLocked = false
     FakeAudio.playImpl = () => Promise.resolve()
     resetExamAudioMemory()
+    window.localStorage.clear()
     vi.stubGlobal("Audio", FakeAudio as unknown as typeof Audio)
   })
 
@@ -403,5 +406,93 @@ describe("useExamAudioPlayer — âm lượng trên thiết bị không hỗ tr�
 
     act(() => result.current.setVolume(0.2))
     expect(result.current.volume).toBe(1)
+  })
+})
+
+describe("useExamAudioPlayer — tốc độ phát (chỉ luyện tập)", () => {
+  beforeEach(() => {
+    FakeAudio.instances = []
+    FakeAudio.volumeLocked = false
+    FakeAudio.playImpl = () => Promise.resolve()
+    resetExamAudioMemory()
+    window.localStorage.clear()
+    vi.stubGlobal("Audio", FakeAudio as unknown as typeof Audio)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("mặc định 1× và giữ nguyên giọng đọc", () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "practice" })
+    )
+    const audio = FakeAudio.instances[0]
+
+    expect(result.current.rate).toBe(1)
+    expect(audio.playbackRate).toBe(1)
+    expect(audio.preservesPitch).toBe(true)
+  })
+
+  it("setRate đổi tốc độ của phần tử audio và nhớ cho lần sau", () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "practice" })
+    )
+    const audio = FakeAudio.instances[0]
+
+    act(() => result.current.setRate(0.75))
+
+    expect(result.current.rate).toBe(0.75)
+    expect(audio.playbackRate).toBe(0.75)
+    expect(window.localStorage.getItem("ielts:audio-rate")).toBe("0.75")
+  })
+
+  it("khôi phục tốc độ đã lưu từ lần trước", () => {
+    window.localStorage.setItem("ielts:audio-rate", "1.25")
+
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "practice" })
+    )
+
+    expect(result.current.rate).toBe(1.25)
+    expect(FakeAudio.instances[0].playbackRate).toBe(1.25)
+  })
+
+  it("áp lại tốc độ đã chọn khi chuyển sang part khác", () => {
+    const { result, rerender } = renderHook(
+      ({ src }: { src: string }) =>
+        useExamAudioPlayer(src, { mode: "practice" }),
+      { initialProps: { src: "https://cdn/part-1.mp3" } }
+    )
+
+    act(() => result.current.setRate(1.5))
+    rerender({ src: "https://cdn/part-2.mp3" })
+
+    expect(FakeAudio.instances[1].playbackRate).toBe(1.5)
+    expect(result.current.rate).toBe(1.5)
+  })
+
+  it("chế độ thi bỏ qua setRate và luôn phát 1×", () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "exam" })
+    )
+    const audio = FakeAudio.instances[0]
+
+    act(() => result.current.setRate(0.5))
+
+    expect(result.current.rate).toBe(1)
+    expect(audio.playbackRate).toBe(1)
+  })
+
+  it("kẹp tốc độ ngoài khoảng cho phép", () => {
+    const { result } = renderHook(() =>
+      useExamAudioPlayer("https://cdn/audio.mp3", { mode: "practice" })
+    )
+
+    act(() => result.current.setRate(0.1))
+    expect(result.current.rate).toBe(0.5)
+
+    act(() => result.current.setRate(9))
+    expect(result.current.rate).toBe(2)
   })
 })

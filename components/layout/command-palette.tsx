@@ -52,6 +52,7 @@ const STUDENT_PAGES: CommandItem[] = [
 const TEACHER_PAGES: CommandItem[] = [
   { id: "t-home", label: "Tổng quan", group: "Điều hướng", href: "/teacher", icon: DashboardSquare01Icon },
   { id: "t-classes", label: "Lớp học", group: "Điều hướng", href: "/teacher/classes", icon: UserIcon },
+  { id: "t-students", label: "Học viên", group: "Điều hướng", href: "/teacher/students", icon: UserGroupIcon },
   { id: "t-assign", label: "Đợt giao bài", group: "Điều hướng", href: "/teacher/assignments", icon: Book02Icon },
   { id: "t-submissions", label: "Bài nộp & Chấm điểm", group: "Điều hướng", href: "/teacher/submissions", icon: Award01Icon },
   { id: "t-practice", label: "Bài luyện tập", group: "Điều hướng", href: "/teacher/practices", icon: Book02Icon },

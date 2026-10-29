@@ -25,6 +25,25 @@ export interface ExamAudioPlayerOptions {
 
 const DEFAULT_VOLUME = 0.8
 
+/**
+ * Tốc độ phát cho phép ở chế độ luyện tập. Thi thật luôn 1× (giống phòng thi
+ * máy), nên chế độ `exam` bỏ qua hoàn toàn các giá trị này.
+ */
+export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
+
+const RATE_STORAGE_KEY = "ielts:audio-rate"
+
+/** Nhớ tốc độ đã chọn giữa các lần vào (đổi part, tải lại trang). */
+function readStoredRate(): number {
+  if (typeof window === "undefined") return 1
+  try {
+    const parsed = Number(window.localStorage.getItem(RATE_STORAGE_KEY))
+    return (PLAYBACK_RATES as readonly number[]).includes(parsed) ? parsed : 1
+  } catch {
+    return 1
+  }
+}
+
 interface PlaybackMemory {
   position: number
   ended: boolean
@@ -66,6 +85,14 @@ export function useExamAudioPlayer(
    * kéo "chết" — đây chính là lỗi thanh âm lượng không hoạt động trên điện thoại.
    */
   const [volumeControlSupported, setVolumeControlSupported] = React.useState(true)
+  /**
+   * Chỉ chế độ luyện tập mới được đổi tốc độ; thi thật luôn 1×. Khởi tạo 1× rồi
+   * đọc lựa chọn đã lưu trong effect (localStorage không có lúc SSR → tránh
+   * lệch hydration).
+   */
+  const [rate, setRateState] = React.useState(1)
+  /** Giữ tốc độ hiện tại để áp lại khi phần tử audio được tạo lại (đổi part). */
+  const rateRef = React.useRef(1)
 
   const initialVolume = options?.initialVolume ?? DEFAULT_VOLUME
   const autoplay = options?.autoplay ?? false
@@ -76,6 +103,18 @@ export function useExamAudioPlayer(
     audioRef.current = audio
     audio.preload = "auto"
     audio.volume = initialVolume
+    // Giữ giọng đọc tự nhiên khi nghe chậm/tua nhanh (mặc định của trình duyệt
+    // là true, nhưng đặt tường minh để không bị đổi giọng trên một số bản cũ).
+    audio.preservesPitch = true
+    if (isPractice) {
+      // Lựa chọn đã lưu (nếu có) được áp lại mỗi khi phần tử audio được tạo.
+      // `rateRef` thắng khi storage bị chặn (chế độ riêng tư) để tốc độ không
+      // tự nhảy về 1× lúc chuyển part.
+      const storedRate = rateRef.current !== 1 ? rateRef.current : readStoredRate()
+      rateRef.current = storedRate
+      audio.playbackRate = storedRate
+      if (storedRate !== 1) setRateState(storedRate)
+    }
 
     let cancelled = false
     // Chế độ thi: khôi phục đúng chỗ đã nghe dở (nếu có) thay vì phát lại.
@@ -256,6 +295,31 @@ export function useExamAudioPlayer(
     })
   }, [])
 
+  /**
+   * Đổi tốc độ phát (chỉ luyện tập). Nhớ lựa chọn cho lần vào sau để học sinh
+   * không phải chỉnh lại khi chuyển part.
+   */
+  const setRate = React.useCallback(
+    (value: number) => {
+      if (!isPractice) return
+      const audio = audioRef.current
+      const clamped = Math.min(
+        Math.max(value, PLAYBACK_RATES[0]),
+        PLAYBACK_RATES[PLAYBACK_RATES.length - 1]
+      )
+
+      rateRef.current = clamped
+      setRateState(clamped)
+      if (audio) audio.playbackRate = clamped
+      try {
+        window.localStorage.setItem(RATE_STORAGE_KEY, String(clamped))
+      } catch {
+        // Chế độ riêng tư / chặn storage: bỏ qua, chỉ mất phần ghi nhớ.
+      }
+    },
+    [isPractice]
+  )
+
   const retry = React.useCallback(() => {
     setError(null)
     const audio = audioRef.current
@@ -275,6 +339,7 @@ export function useExamAudioPlayer(
     isMuted,
     isPlaying,
     volumeControlSupported,
+    rate,
     error,
     ended,
     started,
@@ -284,6 +349,7 @@ export function useExamAudioPlayer(
     seek,
     setVolume,
     toggleMute,
+    setRate,
     retry,
   }
 }

@@ -74,12 +74,24 @@ function toEditorGroup(group: BankQuestionGroup): EditorGroup {
 }
 
 function emptyGroup(groupType: QuestionGroupType): EditorGroup {
+  const config = defaultGroupConfig(groupType) as QuestionGroupConfig
+  // "Choose TWO letters" gets one answer box per correct letter (Q9, Q10…).
+  const seededCount =
+    groupType === "multiple_choice_multiple"
+      ? Math.max(2, Number((config as { maxSelections?: number }).maxSelections) || 2)
+      : 0
   return {
     id: createClientId("bank"),
     groupType,
     instructions: defaultGroupInstructions(groupType),
-    config: defaultGroupConfig(groupType) as QuestionGroupConfig,
-    questions: [],
+    config,
+    questions: Array.from({ length: seededCount }, (_, index) => ({
+      id: createClientId("bank-q"),
+      questionNumber: index + 1,
+      prompt: "",
+      points: 1,
+      acceptedAnswers: [],
+    })),
   }
 }
 
@@ -253,6 +265,47 @@ export function BankGroupForm({
             setGroup((prev) =>
               prev ? { ...prev, questions: prev.questions.filter((q) => q.id !== qId) } : prev
             )
+          }
+          onEnsureQuestionCount={(count) =>
+            setGroup((prev) => {
+              if (!prev) return prev
+              const target = Math.max(1, Math.min(10, Math.round(count)))
+              if (prev.questions.length === target) return prev
+              if (prev.questions.length > target) {
+                const dropped = prev.questions.slice(target)
+                if (dropped.some((q) => (q.acceptedAnswers ?? []).length > 0)) {
+                  return prev
+                }
+                return { ...prev, questions: prev.questions.slice(0, target) }
+              }
+              const questions = [
+                ...prev.questions,
+                ...Array.from(
+                  { length: target - prev.questions.length },
+                  (_, index) => ({
+                    id: createClientId("bank-q"),
+                    questionNumber: prev.questions.length + index + 1,
+                    prompt: "",
+                    points: 1,
+                    acceptedAnswers: [],
+                  })
+                ),
+              ]
+              if (prev.groupType === "multiple_choice_multiple") {
+                // Legacy groups kept both letters on a single box; spread them out.
+                const letters = prev.questions.flatMap(
+                  (question) => question.acceptedAnswers ?? []
+                )
+                return {
+                  ...prev,
+                  questions: questions.map((question, index) => ({
+                    ...question,
+                    acceptedAnswers: letters[index] ? [letters[index]] : [],
+                  })),
+                }
+              }
+              return { ...prev, questions }
+            })
           }
           onUpdateQuestion={(qId, patch) =>
             setGroup((prev) =>

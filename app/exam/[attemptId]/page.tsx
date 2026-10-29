@@ -88,7 +88,11 @@ import {
 } from "@/features/exam-engine/hooks/use-exam-content-sync"
 import { useAntiCheat } from "@/features/exam-engine/hooks/use-anti-cheat"
 import { useClipboardGuard } from "@/features/exam-engine/hooks/use-clipboard-guard"
-import { useExamAudioPlayer, type ExamAudioMode } from "@/features/exam-engine/hooks/use-audio-player"
+import {
+  PLAYBACK_RATES,
+  useExamAudioPlayer,
+  type ExamAudioMode,
+} from "@/features/exam-engine/hooks/use-audio-player"
 import { useSubmitAttemptMutation } from "@/hooks/use-attempts"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { clearAttemptSnapshot } from "@/features/exam-engine/lib/idb"
@@ -1024,7 +1028,7 @@ function ListeningSection({
           {/* Điều khiển (chỉ có ở chế độ luyện tập) + tiến trình */}
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             {isPractice && (
-              <div className="flex shrink-0 items-center">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   type="button"
                   onClick={audio.togglePlay}
@@ -1038,6 +1042,29 @@ function ListeningSection({
                     size={18}
                   />
                 </button>
+
+                {/* Tốc độ phát: chỉ luyện tập (thi thật luôn 1×). */}
+                <label className="shrink-0">
+                  <span className="sr-only">Tốc độ phát</span>
+                  <select
+                    value={String(audio.rate)}
+                    onChange={(e) => audio.setRate(Number(e.target.value))}
+                    disabled={audio.error !== null}
+                    title="Tốc độ phát"
+                    className={cn(
+                      "h-7 cursor-pointer rounded-md border border-border bg-surface px-1 font-mono text-[11px] font-semibold outline-hidden transition-colors hover:border-primary/60 focus:border-focus focus:ring-2 focus:ring-focus disabled:cursor-not-allowed disabled:opacity-40",
+                      audio.rate === 1
+                        ? "text-muted-foreground"
+                        : "border-primary/50 text-primary"
+                    )}
+                  >
+                    {PLAYBACK_RATES.map((value) => (
+                      <option key={value} value={value}>
+                        {value}×
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
             )}
 
@@ -1088,8 +1115,8 @@ function ListeningSection({
             </div>
           </div>
 
-          {/* Âm lượng */}
-          <div className="flex shrink-0 items-center justify-end gap-2 text-xs text-muted-foreground sm:gap-3 sm:pl-4">
+          {/* Âm lượng (ẩn trên thiết bị cảm ứng) */}
+          <div className="flex shrink-0 items-center justify-end gap-2 text-xs text-muted-foreground empty:hidden sm:gap-3 sm:pl-4">
             {audio.error && (
               <Button
                 variant="outline"
@@ -1101,7 +1128,8 @@ function ListeningSection({
               </Button>
             )}
 
-            <div className="flex items-center gap-1.5">
+            {/* Thiết bị cảm ứng dùng phím âm lượng của máy → ẩn cả cụm. */}
+            <div className="hidden items-center gap-1.5 [@media(pointer:fine)]:flex">
               <button
                 type="button"
                 onClick={audio.toggleMute}

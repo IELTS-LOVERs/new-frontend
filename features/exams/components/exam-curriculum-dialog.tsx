@@ -16,6 +16,15 @@ import { toast } from "sonner"
 import { ApiError } from "@/lib/api/client"
 import { useUpdateExamCurriculumMutation } from "@/hooks/use-practice"
 import type { IExamCurriculum } from "@/lib/api/types"
+import { cn } from "@/lib/utils"
+
+/** Nhóm bộ đề phổ biến để giáo viên chọn nhanh. */
+const QUICK_COLLECTIONS = [
+  "Cambridge",
+  "Vol",
+  "Road to IELTS",
+  "Actual Test",
+] as const
 
 interface ExamCurriculumDialogProps {
   open: boolean
@@ -112,6 +121,24 @@ export function ExamCurriculumDialog({
                 placeholder="Ví dụ: Cambridge IELTS 18"
                 className="h-9 text-xs"
               />
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {QUICK_COLLECTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setCollectionName(option)}
+                    aria-pressed={collectionName === option}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      collectionName === option
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-3">

@@ -23,9 +23,9 @@ import { toast } from "sonner"
 import { useQuery } from "@tanstack/react-query"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { useStartAttemptMutation } from "@/hooks/use-attempts"
+import { SOUND_CHECK_AUDIO_URL } from "@/features/exam-engine/lib/sound-check"
 import { getExamDetailApi } from "@/lib/api/attempts"
 import { ApiError } from "@/lib/api/client"
-import { cn } from "@/lib/utils"
 import type { CandidateExam } from "@/lib/api/types"
 
 export default function PracticeLobbyPage() {
@@ -130,19 +130,15 @@ function PracticeLobbyUI({
   )
 
   const toggleSoundCheck = () => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio(
-        "https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg"
-      )
-      audioRef.current.onended = () => setIsPlayingAudio(false)
-    }
+    const audio = audioRef.current
+    if (!audio) return
 
     if (isPlayingAudio) {
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
+      audio.pause()
+      audio.currentTime = 0
       setIsPlayingAudio(false)
     } else {
-      audioRef.current
+      audio
         .play()
         .then(() => setIsPlayingAudio(true))
         .catch(() => {
@@ -152,12 +148,18 @@ function PracticeLobbyUI({
     }
   }
 
+  // Buffer the clip as soon as the lobby opens so the first click plays
+  // instantly, even on a slow mobile connection.
   React.useEffect(() => {
+    const audio = new Audio()
+    audio.preload = "auto"
+    audio.src = SOUND_CHECK_AUDIO_URL
+    audio.onended = () => setIsPlayingAudio(false)
+    audioRef.current = audio
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current = null
-      }
+      audio.pause()
+      audio.currentTime = 0
+      audioRef.current = null
     }
   }, [])
 

@@ -10,13 +10,36 @@ import {
   Search01Icon,
   Clock01Icon,
   PlayIcon,
-  CheckmarkCircle02Icon,
   SparklesIcon,
   FilterIcon,
+  LibraryIcon,
 } from "@hugeicons/core-free-icons"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { usePracticeCatalogQuery } from "@/hooks/use-practice"
+import {
+  buildPracticeBookFacets,
+  groupPracticeItemsByBook,
+  resolvePracticeBookGroup,
+  sortPracticeItems,
+  type PracticeSortMode,
+} from "@/features/practice/lib/practice-grouping"
+import {
+  DEFAULT_PRACTICE_SKILL,
+  getServerPracticeSkill,
+  readStoredPracticeSkill,
+  subscribePracticeSkill,
+  writeStoredPracticeSkill,
+  type PracticeSkill,
+} from "@/features/practice/lib/practice-skill"
 import type { PracticeCatalogItem } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 
@@ -165,11 +188,23 @@ function formatQuestionTypeLabel(type: string): string {
   }
 }
 
-type PracticeSkill = "reading" | "listening" | "writing"
-
 export default function StudentPracticePage() {
-  // Active Skill: reading | listening | writing
-  const [activeSkill, setActiveSkill] = React.useState<PracticeSkill>("reading")
+  // Tab kỹ năng: ưu tiên lựa chọn trong phiên này, rồi tới lựa chọn đã lưu.
+  // Nhờ vậy làm bài xong quay lại /student/practice vẫn ở đúng tab Listening
+  // thay vì bị đẩy về Reading.
+  const storedSkill = React.useSyncExternalStore(
+    subscribePracticeSkill,
+    readStoredPracticeSkill,
+    getServerPracticeSkill
+  )
+  const [pickedSkill, setPickedSkill] = React.useState<PracticeSkill | null>(null)
+  const activeSkill: PracticeSkill =
+    pickedSkill ?? storedSkill ?? DEFAULT_PRACTICE_SKILL
+
+  const changeSkill = React.useCallback((skill: PracticeSkill) => {
+    setPickedSkill(skill)
+    writeStoredPracticeSkill(skill)
+  }, [])
 
   // Practice Mode: single (Bài lẻ) | full (Full đề) | dictation
   const [practiceMode, setPracticeMode] = React.useState<"single" | "full" | "dictation">("single")
@@ -184,21 +219,29 @@ export default function StudentPracticePage() {
   const [searchQuery, setSearchQuery] = React.useState("")
   const [searchInput, setSearchInput] = React.useState("")
 
+  // Sắp xếp & lọc nhóm bộ đề (Cam / Vol / Road to IELTS / tuỳ chỉnh)
+  const [sortMode, setSortMode] = React.useState<PracticeSortMode | "group">("group")
+  const [bookGroupKey, setBookGroupKey] = React.useState<string>("all")
+  const [bookLabel, setBookLabel] = React.useState<string>("all")
+
   // Fetch real items from backend API
   const catalogQuery = usePracticeCatalogQuery({
     skill: activeSkill,
     search: searchQuery.trim() || undefined,
   })
 
-  const rawDbItems: PracticeCatalogItem[] = catalogQuery.data?.items ?? []
+  const rawDbItems = React.useMemo<PracticeCatalogItem[]>(
+    () => catalogQuery.data?.items ?? [],
+    [catalogQuery.data]
+  )
   const catalogError = catalogQuery.isError
     ? catalogQuery.error instanceof Error
       ? catalogQuery.error.message
       : "Không tải được danh mục luyện tập."
     : null
 
-  // Filter 100% real database items
-  const displayItems = React.useMemo(() => {
+  // Filter 100% real database items (skill, part, status, search)
+  const baseFilteredItems = React.useMemo(() => {
     return rawDbItems.filter((item) => {
       // 1. Skill filter
       if (activeSkill === "reading" && !item.skills.includes("reading")) return false
@@ -236,10 +279,63 @@ export default function StudentPracticePage() {
     })
   }, [rawDbItems, activeSkill, practiceMode, subPart, statusTab, searchQuery])
 
+  // Nhóm bộ đề + số lượng bài của kỹ năng đang chọn (không phụ thuộc
+  // trạng thái/part đang lọc, để nhóm không biến mất khi đổi tab).
+  const skillItems = React.useMemo(
+    () => rawDbItems.filter((item) => item.skills.includes(activeSkill)),
+    [rawDbItems, activeSkill]
+  )
+
+  const bookFacets = React.useMemo(
+    () => buildPracticeBookFacets(skillItems),
+    [skillItems]
+  )
+
+  const selectedFacet = bookFacets.find(
+    (facet) => facet.group.key === bookGroupKey
+  )
+
+  const displayItems = React.useMemo(() => {
+    if (bookGroupKey === "all") return baseFilteredItems
+
+    return baseFilteredItems.filter((item) => {
+      const group = resolvePracticeBookGroup(item)
+      if (group.key !== bookGroupKey) return false
+      if (bookLabel !== "all" && group.bookLabel !== bookLabel) return false
+      return true
+    })
+  }, [baseFilteredItems, bookGroupKey, bookLabel])
+
+  // Writing không chia nhóm bộ đề; luôn sắp xếp alphabet.
+  const effectiveSortMode: PracticeSortMode | "group" =
+    activeSkill === "writing" && sortMode === "group" ? "title_asc" : sortMode
+
+  // Khi lọc "Tất cả nhóm" ở Reading/Listening và chế độ là "group", gom theo nhóm bộ đề.
+  const bookSections = React.useMemo(() => {
+    if (activeSkill === "writing" || effectiveSortMode !== "group") return null
+    return groupPracticeItemsByBook(displayItems, "title_asc")
+  }, [displayItems, activeSkill, effectiveSortMode])
+
+  const sortedDisplayItems = React.useMemo(() => {
+    const mode = effectiveSortMode === "group" ? "title_asc" : effectiveSortMode
+    return sortPracticeItems(displayItems, mode)
+  }, [displayItems, effectiveSortMode])
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setSearchQuery(searchInput)
   }
+
+  const handleSkillSelect = React.useCallback(
+    (skill: PracticeSkill) => {
+      changeSkill(skill)
+      setPracticeMode("single")
+      setSubPart(0)
+      setBookGroupKey("all")
+      setBookLabel("all")
+    },
+    [changeSkill]
+  )
 
   // Count uncompleted and completed directly from real DB
   const uncompletedCount = React.useMemo(() => {
@@ -256,16 +352,156 @@ export default function StudentPracticePage() {
     }).length
   }, [rawDbItems, activeSkill])
 
+  const renderPracticeCard = (item: PracticeCatalogItem, idx: number) => {
+    const isListening = item.skills.includes("listening")
+    const isReading = item.skills.includes("reading")
+    const primarySkill = isListening ? "listening" : isReading ? "reading" : "writing"
+    const partInfo = getExamPartInfo(item, primarySkill)
+    const coverUrl = getExamCoverUrl(item.examId, item.title, idx, item.bannerUrl)
+
+    const questionTags =
+      item.questionTypes && item.questionTypes.length > 0
+        ? item.questionTypes.slice(0, 3).map(formatQuestionTypeLabel)
+        : []
+
+    return (
+      <div
+        key={item.examId}
+        className="group rounded-2xl overflow-hidden border border-border bg-card hover:border-primary/40 transition-colors flex flex-col relative"
+      >
+        {/* Cover Photo */}
+        <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={coverUrl}
+            alt={item.title}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            loading="lazy"
+          />
+
+          {/* Top Overlay Badge: Duration & Question count */}
+          <div className="absolute top-2 left-2 flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-black/60 backdrop-blur-xs text-white text-[10px] font-medium tracking-tight">
+            <span>{item.durationMinutes} phút · {item.questionCount} câu</span>
+          </div>
+
+          {/* Bottom Overlay Chip: Passage / Part / Full Test */}
+          <div className="absolute bottom-2 left-2">
+            <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-surface/90 dark:bg-card/90 backdrop-blur-xs text-foreground border border-border">
+              {partInfo.badgeLabel}
+            </span>
+          </div>
+        </div>
+
+        {/* Card Body */}
+        <div className="p-3.5 flex-1 flex flex-col justify-between space-y-2">
+          <div className="space-y-2">
+            {/* Title */}
+            <h4
+              className="font-heading text-xs font-bold text-foreground line-clamp-2 leading-snug group-hover:text-primary transition-colors"
+              title={item.title}
+            >
+              {item.curriculum?.collectionName
+                ? `[${item.curriculum.collectionName}] - ${item.title}`
+                : item.title}
+            </h4>
+
+            {/* Question Types List with Subtle Bullet Dots */}
+            <div className="space-y-0.5 text-[11px] text-muted-foreground">
+              {questionTags.map((qType, qIdx) => (
+                <div key={qIdx} className="flex items-center gap-1.5 truncate">
+                  <span className="w-1 h-1 rounded-full bg-muted-foreground/60 shrink-0" />
+                  <span className="truncate">{qType}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Card Footer Status / Actions */}
+          <div className="pt-2 border-t border-border mt-2 flex items-center justify-between">
+            {item.progress.status === "completed" ? (
+              <div className="flex items-center justify-between w-full">
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-1 ring-inset ring-black/5 dark:ring-white/10"
+                  title={
+                    (item.questionCount ?? 0) === 0
+                      ? "Bài viết — giáo viên chấm và nhận xét"
+                      : item.progress.correctCount !== undefined
+                        ? `Đúng ${item.progress.correctCount} · Sai ${item.progress.wrongCount ?? 0} · Bỏ trống ${item.progress.blankCount ?? 0}`
+                        : undefined
+                  }
+                >
+                  <span className="size-1.5 rounded-full bg-current" />
+                  {(item.questionCount ?? 0) === 0
+                    ? "Đã nộp"
+                    : item.progress.correctCount !== undefined
+                      ? `${item.progress.correctCount}/${
+                          (item.progress.correctCount ?? 0) +
+                          (item.progress.wrongCount ?? 0) +
+                          (item.progress.blankCount ?? 0)
+                        }`
+                      : item.progress.rawScore !== undefined
+                        ? `${item.progress.rawScore}/${item.progress.totalPoints ?? item.totalPoints ?? item.questionCount}`
+                        : "Đã làm"}
+                </span>
+                {item.progress.attemptId && (
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px] px-2.5 font-semibold rounded-lg border-border text-foreground hover:bg-muted"
+                  >
+                    <Link href={`/student/results/${item.progress.attemptId}`}>
+                      Xem lại
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            ) : item.progress.status === "in_progress" ? (
+              <div className="flex items-center justify-between w-full">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 dark:bg-amber-500/15 text-amber-700 dark:text-orange-400 ring-1 ring-inset ring-black/5 dark:ring-white/10">
+                  <span className="size-1.5 rounded-full bg-current" />
+                  Đang làm dở
+                </span>
+                <Button
+                  asChild
+                  size="sm"
+                  className="h-7 text-[11px] px-3 font-semibold rounded-lg bg-primary hover:bg-primary-hover text-primary-foreground"
+                >
+                  <Link
+                    href={
+                      item.progress.attemptId
+                        ? `/exam/${item.progress.attemptId}`
+                        : `/exam/start/practice/${item.examId}`
+                    }
+                  >
+                    Tiếp tục
+                  </Link>
+                </Button>
+              </div>
+            ) : (
+              <Button
+                asChild
+                size="sm"
+                className="w-full h-7 text-[11px] font-semibold rounded-lg bg-primary hover:bg-primary-hover text-primary-foreground gap-1 cursor-pointer"
+              >
+                <Link href={`/exam/start/practice/${item.examId}`}>
+                  <HugeiconsIcon icon={PlayIcon} size={12} />
+                  <span>Làm bài ngay</span>
+                </Link>
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 pb-20 animate-fade-in font-sans">
       {/* ─── 1. TOP SKILL HEADER BAR (Design System Primary Accent) ────────── */}
       <div className="flex items-center gap-6 border-b border-border px-1 overflow-x-auto select-none">
         <button
-          onClick={() => {
-            setActiveSkill("reading")
-            setPracticeMode("single")
-            setSubPart(0)
-          }}
+          onClick={() => handleSkillSelect("reading")}
           className={cn(
             "flex items-center gap-2 pb-3 pt-1 text-sm font-semibold transition-all cursor-pointer relative",
             activeSkill === "reading"
@@ -273,7 +509,11 @@ export default function StudentPracticePage() {
               : "text-muted-foreground hover:text-foreground"
           )}
         >
-          <HugeiconsIcon icon={Book02Icon} size={17} className={activeSkill === "reading" ? "text-primary" : ""} />
+          <HugeiconsIcon
+            icon={Book02Icon}
+            size={21}
+            className={activeSkill === "reading" ? "text-primary" : "text-muted-foreground/45"}
+          />
           <span>Reading</span>
           {activeSkill === "reading" && (
             <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
@@ -281,11 +521,7 @@ export default function StudentPracticePage() {
         </button>
 
         <button
-          onClick={() => {
-            setActiveSkill("listening")
-            setPracticeMode("single")
-            setSubPart(0)
-          }}
+          onClick={() => handleSkillSelect("listening")}
           className={cn(
             "flex items-center gap-2 pb-3 pt-1 text-sm font-semibold transition-all cursor-pointer relative",
             activeSkill === "listening"
@@ -293,7 +529,11 @@ export default function StudentPracticePage() {
               : "text-muted-foreground hover:text-foreground"
           )}
         >
-          <HugeiconsIcon icon={HeadphonesIcon} size={17} className={activeSkill === "listening" ? "text-primary" : ""} />
+          <HugeiconsIcon
+            icon={HeadphonesIcon}
+            size={21}
+            className={activeSkill === "listening" ? "text-primary" : "text-muted-foreground/45"}
+          />
           <span>Listening</span>
           {activeSkill === "listening" && (
             <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
@@ -301,11 +541,7 @@ export default function StudentPracticePage() {
         </button>
 
         <button
-          onClick={() => {
-            setActiveSkill("writing")
-            setPracticeMode("single")
-            setSubPart(0)
-          }}
+          onClick={() => handleSkillSelect("writing")}
           className={cn(
             "flex items-center gap-2 pb-3 pt-1 text-sm font-semibold transition-all cursor-pointer relative",
             activeSkill === "writing"
@@ -313,7 +549,11 @@ export default function StudentPracticePage() {
               : "text-muted-foreground hover:text-foreground"
           )}
         >
-          <HugeiconsIcon icon={PencilEdit02Icon} size={17} className={activeSkill === "writing" ? "text-primary" : ""} />
+          <HugeiconsIcon
+            icon={PencilEdit02Icon}
+            size={21}
+            className={activeSkill === "writing" ? "text-primary" : "text-muted-foreground/45"}
+          />
           <span>Writing</span>
           {activeSkill === "writing" && (
             <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
@@ -416,10 +656,7 @@ export default function StudentPracticePage() {
             )}
           >
             <div
-              onClick={() => {
-                setActiveSkill("reading")
-                setPracticeMode("single")
-              }}
+              onClick={() => handleSkillSelect("reading")}
               className="flex items-center gap-2 p-3.5 cursor-pointer font-bold text-xs text-foreground select-none"
             >
               <HugeiconsIcon icon={Book02Icon} size={16} className={activeSkill === "reading" ? "text-primary" : "text-muted-foreground"} />
@@ -507,10 +744,7 @@ export default function StudentPracticePage() {
             )}
           >
             <div
-              onClick={() => {
-                setActiveSkill("listening")
-                setPracticeMode("single")
-              }}
+              onClick={() => handleSkillSelect("listening")}
               className="flex items-center gap-2 p-3.5 cursor-pointer font-bold text-xs text-foreground select-none"
             >
               <HugeiconsIcon icon={HeadphonesIcon} size={16} className={activeSkill === "listening" ? "text-primary" : "text-muted-foreground"} />
@@ -608,11 +842,7 @@ export default function StudentPracticePage() {
             )}
           >
             <div
-              onClick={() => {
-                setActiveSkill("writing")
-                setPracticeMode("single")
-                setSubPart(0)
-              }}
+              onClick={() => handleSkillSelect("writing")}
               className="flex items-center gap-2 p-3.5 cursor-pointer font-bold text-xs text-foreground select-none"
             >
               <HugeiconsIcon icon={PencilEdit02Icon} size={16} className={activeSkill === "writing" ? "text-primary" : "text-muted-foreground"} />
@@ -630,6 +860,91 @@ export default function StudentPracticePage() {
               </div>
             )}
           </div>
+
+          {/* Book-group filter (Reading / Listening) */}
+          {(activeSkill === "reading" || activeSkill === "listening") && (
+            <div className="rounded-2xl border border-border bg-card overflow-hidden">
+              <div className="flex items-center gap-2 p-3.5 font-bold text-xs text-foreground select-none">
+                <HugeiconsIcon
+                  icon={LibraryIcon}
+                  size={16}
+                  className="text-muted-foreground"
+                />
+                <span>Nhóm bộ đề (Giáo trình)</span>
+              </div>
+
+              <div className="px-3 pb-3.5 space-y-1 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBookGroupKey("all")
+                    setBookLabel("all")
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg px-2 py-1.5 font-medium transition-colors",
+                    bookGroupKey === "all"
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span>Tất cả nhóm</span>
+                  <span className="font-mono">{skillItems.length}</span>
+                </button>
+
+                {bookFacets.map((facet) => (
+                  <button
+                    key={facet.group.key}
+                    type="button"
+                    onClick={() => {
+                      setBookGroupKey(facet.group.key)
+                      setBookLabel("all")
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-lg px-2 py-1.5 font-medium transition-colors",
+                      bookGroupKey === facet.group.key
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <span className="truncate">{facet.group.label}</span>
+                    <span className="font-mono">{facet.count}</span>
+                  </button>
+                ))}
+
+                {selectedFacet && selectedFacet.books.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1.5 pl-1">
+                    <button
+                      type="button"
+                      onClick={() => setBookLabel("all")}
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 font-medium transition-colors",
+                        bookLabel === "all"
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      Tất cả quyển
+                    </button>
+                    {selectedFacet.books.map((book) => (
+                      <button
+                        key={book.label}
+                        type="button"
+                        onClick={() => setBookLabel(book.label)}
+                        className={cn(
+                          "rounded-full border px-2 py-0.5 font-medium transition-colors",
+                          bookLabel === book.label
+                            ? "border-primary/40 bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {book.label} ({book.count})
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Content Area: Cards Grid */}
@@ -652,9 +967,40 @@ export default function StudentPracticePage() {
                 <span className="text-muted-foreground font-normal"> · Nhiều phần (Full Test)</span>
               ) : null}
             </h3>
-            <span className="text-xs text-muted-foreground font-mono">
-              Hiển thị {displayItems.length} bài
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground font-mono">
+                Hiển thị {displayItems.length} bài
+              </span>
+              <Select
+                value={effectiveSortMode}
+                onValueChange={(value) =>
+                  setSortMode(value as PracticeSortMode | "group")
+                }
+              >
+                <SelectTrigger size="sm" className="w-48 text-xs">
+                  <SelectValue placeholder="Sắp xếp" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeSkill !== "writing" && (
+                    <SelectItem value="group" className="text-xs">
+                      Theo nhóm bộ đề
+                    </SelectItem>
+                  )}
+                  <SelectItem value="title_asc" className="text-xs">
+                    Alphabet (A → Z)
+                  </SelectItem>
+                  <SelectItem value="title_desc" className="text-xs">
+                    Alphabet (Z → A)
+                  </SelectItem>
+                  <SelectItem value="date_desc" className="text-xs">
+                    Mới đăng gần đây
+                  </SelectItem>
+                  <SelectItem value="date_asc" className="text-xs">
+                    Ngày đăng: Cũ nhất
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Loading Skeletons */}
@@ -690,7 +1036,7 @@ export default function StudentPracticePage() {
               </div>
               <div className="flex items-center justify-center gap-3 pt-2">
                 <Button
-                  onClick={() => setActiveSkill("reading")}
+                  onClick={() => changeSkill("reading")}
                   size="sm"
                   className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold px-4 cursor-pointer"
                 >
@@ -698,7 +1044,7 @@ export default function StudentPracticePage() {
                   Luyện Reading ngay
                 </Button>
                 <Button
-                  onClick={() => setActiveSkill("listening")}
+                  onClick={() => changeSkill("listening")}
                   variant="outline"
                   size="sm"
                   className="rounded-xl text-xs font-semibold px-4 cursor-pointer"
@@ -727,158 +1073,38 @@ export default function StudentPracticePage() {
                   setSearchQuery("")
                   setSearchInput("")
                   setStatusTab("uncompleted")
+                  setBookGroupKey("all")
+                  setBookLabel("all")
                 }}
                 className="text-xs rounded-xl mt-2 cursor-pointer"
               >
                 Đặt lại bộ lọc
               </Button>
             </Card>
+          ) : bookSections ? (
+            <div className="space-y-7">
+              {bookSections.map((section) => (
+                <section key={section.group.key} className="space-y-3">
+                  <div className="flex items-center gap-2 border-b border-border pb-2">
+                    <h4 className="font-heading text-sm font-bold text-foreground">
+                      {section.group.key === "other"
+                        ? section.group.label
+                        : `Nhóm ${section.group.label}`}
+                    </h4>
+                    <Badge variant="outline" className="text-[10px] font-medium">
+                      {section.items.length} bài
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {section.items.map(renderPracticeCard)}
+                  </div>
+                </section>
+              ))}
+            </div>
           ) : (
             /* ─── 100% REAL DATABASE PRACTICE CARDS ─────────────────────────── */
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-              {displayItems.map((item, idx) => {
-                const isListening = item.skills.includes("listening")
-                const isReading = item.skills.includes("reading")
-                const primarySkill = isListening ? "listening" : isReading ? "reading" : "writing"
-                const partInfo = getExamPartInfo(item, primarySkill)
-                const coverUrl = getExamCoverUrl(item.examId, item.title, idx, item.bannerUrl)
-
-                const questionTags =
-                  item.questionTypes && item.questionTypes.length > 0
-                    ? item.questionTypes.slice(0, 3).map(formatQuestionTypeLabel)
-                    : []
-
-                return (
-                  <div
-                    key={item.examId}
-                    className="group rounded-2xl overflow-hidden border border-border bg-card hover:border-primary/40 transition-colors flex flex-col relative"
-                  >
-                    {/* Cover Photo */}
-                    <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={coverUrl}
-                        alt={item.title}
-                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        loading="lazy"
-                      />
-
-                      {/* Top Overlay Badge: Duration & Question count */}
-                      <div className="absolute top-2 left-2 flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-black/60 backdrop-blur-xs text-white text-[10px] font-medium tracking-tight">
-                        <span>{item.durationMinutes} phút · {item.questionCount} câu</span>
-                      </div>
-
-                      {/* Bottom Overlay Chip: Passage / Part / Full Test */}
-                      <div className="absolute bottom-2 left-2">
-                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-surface/90 dark:bg-card/90 backdrop-blur-xs text-foreground border border-border">
-                          {partInfo.badgeLabel}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Card Body */}
-                    <div className="p-3.5 flex-1 flex flex-col justify-between space-y-2">
-                      <div className="space-y-2">
-                        {/* Title */}
-                        <h4
-                          className="font-heading text-xs font-bold text-foreground line-clamp-2 leading-snug group-hover:text-primary transition-colors"
-                          title={item.title}
-                        >
-                          {item.curriculum?.collectionName
-                            ? `[${item.curriculum.collectionName}] - ${item.title}`
-                            : item.title}
-                        </h4>
-
-                        {/* Question Types List with Subtle Bullet Dots */}
-                        <div className="space-y-0.5 text-[11px] text-muted-foreground">
-                          {questionTags.map((qType, qIdx) => (
-                            <div key={qIdx} className="flex items-center gap-1.5 truncate">
-                              <span className="w-1 h-1 rounded-full bg-muted-foreground/60 shrink-0" />
-                              <span className="truncate">{qType}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Card Footer Status / Actions */}
-                      <div className="pt-2 border-t border-border mt-2 flex items-center justify-between">
-                        {item.progress.status === "completed" ? (
-                          <div className="flex items-center justify-between w-full">
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-1 ring-inset ring-black/5 dark:ring-white/10"
-                              title={
-                                (item.questionCount ?? 0) === 0
-                                  ? "Bài viết — giáo viên chấm và nhận xét"
-                                  : item.progress.correctCount !== undefined
-                                    ? `Đúng ${item.progress.correctCount} · Sai ${item.progress.wrongCount ?? 0} · Bỏ trống ${item.progress.blankCount ?? 0}`
-                                    : undefined
-                              }
-                            >
-                              <span className="size-1.5 rounded-full bg-current" />
-                              {(item.questionCount ?? 0) === 0
-                                ? "Đã nộp"
-                                : item.progress.correctCount !== undefined
-                                  ? `${item.progress.correctCount}/${
-                                      (item.progress.correctCount ?? 0) +
-                                      (item.progress.wrongCount ?? 0) +
-                                      (item.progress.blankCount ?? 0)
-                                    }`
-                                  : item.progress.rawScore !== undefined
-                                    ? `${item.progress.rawScore}/${item.progress.totalPoints ?? item.totalPoints ?? item.questionCount}`
-                                    : "Đã làm"}
-                            </span>
-                            {item.progress.attemptId && (
-                              <Button
-                                asChild
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-[11px] px-2.5 font-semibold rounded-lg border-border text-foreground hover:bg-muted"
-                              >
-                                <Link href={`/student/results/${item.progress.attemptId}`}>
-                                  Xem lại
-                                </Link>
-                              </Button>
-                            )}
-                          </div>
-                        ) : item.progress.status === "in_progress" ? (
-                          <div className="flex items-center justify-between w-full">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 dark:bg-amber-500/15 text-amber-700 dark:text-orange-400 ring-1 ring-inset ring-black/5 dark:ring-white/10">
-                              <span className="size-1.5 rounded-full bg-current" />
-                              Đang làm dở
-                            </span>
-                            <Button
-                              asChild
-                              size="sm"
-                              className="h-7 text-[11px] px-3 font-semibold rounded-lg bg-primary hover:bg-primary-hover text-primary-foreground"
-                            >
-                              <Link
-                                href={
-                                  item.progress.attemptId
-                                    ? `/exam/${item.progress.attemptId}`
-                                    : `/exam/start/practice/${item.examId}`
-                                }
-                              >
-                                Tiếp tục
-                              </Link>
-                            </Button>
-                          </div>
-                        ) : (
-                          <Button
-                            asChild
-                            size="sm"
-                            className="w-full h-7 text-[11px] font-semibold rounded-lg bg-primary hover:bg-primary-hover text-primary-foreground gap-1 cursor-pointer"
-                          >
-                            <Link href={`/exam/start/practice/${item.examId}`}>
-                              <HugeiconsIcon icon={PlayIcon} size={12} />
-                              <span>Làm bài ngay</span>
-                            </Link>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+              {sortedDisplayItems.map(renderPracticeCard)}
             </div>
           )}
         </div>

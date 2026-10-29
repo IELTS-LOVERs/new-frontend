@@ -16,9 +16,20 @@ import type {
 } from "./types"
 import type { PaginatedMeta } from "./assignments"
 
+export type ExamListSort =
+  | "date_desc"
+  | "date_asc"
+  | "title_asc"
+  | "title_desc"
+  | "collection_asc"
+
 export interface ListExamsParams {
   status?: "draft" | "published" | "closed"
   kind?: "practice" | "mock"
+  skill?: SkillType
+  collectionName?: string
+  search?: string
+  sort?: ExamListSort
   page?: number
   limit?: number
 }
@@ -32,6 +43,10 @@ export async function getExamsApi(params: ListExamsParams = {}): Promise<ListExa
   const search = new URLSearchParams()
   if (params.status) search.set("status", params.status)
   if (params.kind) search.set("kind", params.kind)
+  if (params.skill) search.set("skill", params.skill)
+  if (params.collectionName) search.set("collectionName", params.collectionName)
+  if (params.search) search.set("search", params.search)
+  if (params.sort) search.set("sort", params.sort)
   if (params.page) search.set("page", String(params.page))
   if (params.limit) search.set("limit", String(params.limit))
   const qs = search.toString()

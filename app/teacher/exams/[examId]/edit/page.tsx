@@ -835,16 +835,102 @@ export default function ExamBuilderPage() {
   const addQuestionGroup = (groupType: QuestionGroupType) => {
     if (!active || !exam) return
     const groups = active.questionGroups ?? []
+    const config = defaultGroupConfig(groupType) as any
+    // "Choose TWO letters" is authored as one answer box per correct letter
+    // (Q9, Q10…), otherwise the whole group collapses into a single number.
+    const seededCount =
+      groupType === "multiple_choice_multiple"
+        ? Math.max(2, Number(config?.maxSelections) || 2)
+        : 0
     const newGroup: CandidateQuestionGroup = {
       id: createClientId("new"),
       groupType,
       instructions: defaultGroupInstructions(groupType),
-      config: defaultGroupConfig(groupType) as any,
-      questions: [],
+      config,
+      questions: Array.from({ length: seededCount }, (_, index) => ({
+        id: createClientId("new-q"),
+        questionNumber: index + 1,
+        prompt: "",
+        points: 1,
+        acceptedAnswers: [],
+      })),
     }
     updateSection(activeIndex, { questionGroups: [...groups, newGroup] })
     setGroupTypePickerOpen(false)
     toast.success(`Đã thêm nhóm "${QUESTION_GROUP_TYPE_LABEL[groupType]}"`)
+  }
+
+  /**
+   * Resize a group to `count` answer boxes, keeping existing answers. Used by
+   * multi-answer groups so Q9/Q10 always exist for "Choose TWO letters".
+   */
+  const ensureQuestionCountInGroup = (groupId: string, count: number) => {
+    if (!active) return
+    const target = Math.max(1, Math.min(10, Math.round(count)))
+    const groups = active.questionGroups ?? []
+    let maxQNum = 0
+    for (const group of groups) {
+      for (const question of group.questions) {
+        if (question.questionNumber > maxQNum) maxQNum = question.questionNumber
+      }
+    }
+
+    let blocked = false
+    const nextGroups = groups.map((group) => {
+      if (group.id !== groupId) return group
+      if (group.questions.length === target) return group
+
+      if (group.questions.length > target) {
+        const dropped = group.questions.slice(target)
+        if (
+          dropped.some(
+            (q) =>
+              ((q as { acceptedAnswers?: string[] }).acceptedAnswers ?? [])
+                .length > 0
+          )
+        ) {
+          blocked = true
+          return group
+        }
+        return { ...group, questions: group.questions.slice(0, target) }
+      }
+
+      const extra = Array.from(
+        { length: target - group.questions.length },
+        (_, index) => ({
+          id: createClientId("new-q"),
+          questionNumber: maxQNum + index + 1,
+          prompt: "",
+          points: 1,
+          acceptedAnswers: [],
+        })
+      )
+      const questions = [...group.questions, ...extra]
+      if (group.groupType === "multiple_choice_multiple") {
+        // Legacy groups kept both letters on a single box; spread them out.
+        const letters = group.questions.flatMap(
+          (question) =>
+            ((question as { acceptedAnswers?: string[] }).acceptedAnswers ??
+              []) as string[]
+        )
+        return {
+          ...group,
+          questions: questions.map((question, index) => ({
+            ...question,
+            acceptedAnswers: letters[index] ? [letters[index]] : [],
+          })),
+        }
+      }
+      return { ...group, questions }
+    })
+
+    if (blocked) {
+      toast.error(
+        "Không thể bớt câu: câu bị bỏ vẫn còn đáp án đúng. Hãy xoá đáp án trước."
+      )
+      return
+    }
+    updateSection(activeIndex, { questionGroups: nextGroups })
   }
 
   /** Remove a question group from the active section */
@@ -1812,6 +1898,9 @@ export default function ExamBuilderPage() {
                           onUpdateGroup={(patch) => updateQuestionGroup(group.id, patch)}
                           onRemoveGroup={() => removeQuestionGroup(group.id)}
                           onAddQuestion={() => addQuestionToGroup(group.id)}
+                          onEnsureQuestionCount={(count) =>
+                            ensureQuestionCountInGroup(group.id, count)
+                          }
                           onRemoveQuestion={(qId) => removeQuestionFromGroup(group.id, qId)}
                           onUpdateQuestion={(qId, patch) => updateQuestionInGroup(group.id, qId, patch)}
                           onSaveToBank={() => void saveGroupToBank(group)}

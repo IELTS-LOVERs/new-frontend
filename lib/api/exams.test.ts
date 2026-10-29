@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { apiClient } from "./client"
-import { deleteExamApi } from "./exams"
+import { deleteExamApi, getExamsApi } from "./exams"
 
 vi.mock("./client", () => ({
   apiClient: vi.fn(),
@@ -8,6 +8,26 @@ vi.mock("./client", () => ({
 }))
 
 const mockClient = vi.mocked(apiClient)
+
+describe("getExamsApi", () => {
+  it("gửi kèm skill, collectionName, search và sort", async () => {
+    mockClient.mockResolvedValueOnce({ data: [], meta: undefined })
+
+    await getExamsApi({
+      kind: "practice",
+      skill: "reading",
+      collectionName: "Cambridge",
+      search: "cam 8",
+      sort: "title_asc",
+      page: 2,
+      limit: 20,
+    })
+
+    expect(mockClient).toHaveBeenCalledWith(
+      "/api/exams?kind=practice&skill=reading&collectionName=Cambridge&search=cam+8&sort=title_asc&page=2&limit=20"
+    )
+  })
+})
 
 describe("deleteExamApi", () => {
   it("gọi DELETE thường và trả về số bài tập đã xoá kèm", async () => {

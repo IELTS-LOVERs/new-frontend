@@ -18,6 +18,7 @@ import {
   PanelLeftOpenIcon,
   MoreHorizontalIcon,
   Key01Icon,
+  UserGroupIcon,
 } from "@hugeicons/core-free-icons"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { cn } from "@/lib/utils"
@@ -50,6 +51,7 @@ const navGroups = [
     title: "Giảng dạy",
     items: [
       { label: "Lớp học", href: "/teacher/classes", icon: UserIcon },
+      { label: "Học viên", href: "/teacher/students", icon: UserGroupIcon },
       { label: "Đợt giao bài", href: "/teacher/assignments", icon: Book02Icon },
       { label: "Bài nộp & Chấm điểm", href: "/teacher/submissions", icon: Award01Icon },
     ],
@@ -251,10 +253,7 @@ export function TeacherSidebarContent({ onNavigate, isMobile = false }: TeacherS
               const isActive =
                 item.href === "/teacher"
                   ? pathname === "/teacher"
-                  : item.href === "/teacher/classes"
-                    ? pathname.startsWith("/teacher/classes") ||
-                      pathname.startsWith("/teacher/students")
-                    : pathname.startsWith(item.href)
+                  : pathname.startsWith(item.href)
 
               if (collapsed) {
                 return (

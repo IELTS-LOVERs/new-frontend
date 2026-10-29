@@ -697,6 +697,8 @@ export interface PracticeCatalogItem {
   title: string
   bannerUrl?: string
   durationMinutes: number
+  /** Ngày tạo/đăng bài (ISO string) — dùng để sắp xếp theo ngày. */
+  createdAt?: string
   questionCount: number
   totalPoints?: number
   kind: "practice"

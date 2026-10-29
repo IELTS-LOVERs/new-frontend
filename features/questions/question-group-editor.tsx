@@ -43,6 +43,7 @@ import type {
   QuestionGroup,
 } from "@/lib/api/types"
 import { MediaPicker } from "@/components/shared/media-picker"
+import { AcceptedAnswersField } from "./accepted-answers-field"
 
 export function toRoman(num: number): string {
   const romanMap: [number, string][] = [
@@ -75,6 +76,11 @@ export interface QuestionGroupEditorProps {
   onAddQuestion: () => void
   onRemoveQuestion: (questionId: string) => void
   onUpdateQuestion: (questionId: string, patch: Partial<QuestionItem>) => void
+  /**
+   * Optional: create/remove answer boxes so a multi-answer group has exactly
+   * one question number per correct letter ("Choose TWO letters" → Q9, Q10).
+   */
+  onEnsureQuestionCount?: (count: number) => void
   /** Optional: persist this group into the Question Bank. */
   onSaveToBank?: () => void
   savingToBank?: boolean
@@ -89,6 +95,7 @@ export function QuestionGroupEditor({
   onAddQuestion,
   onRemoveQuestion,
   onUpdateQuestion,
+  onEnsureQuestionCount,
   onSaveToBank,
   savingToBank = false,
 }: QuestionGroupEditorProps) {
@@ -425,6 +432,14 @@ export function QuestionGroupEditor({
   // Type checks
   const isMCSingle = group.groupType === "multiple_choice_single"
   const isMCMultiple = group.groupType === "multiple_choice_multiple"
+  /**
+   * "Choose TWO letters" needs one answer box (= one question number) per
+   * correct letter, otherwise the whole group collapses into a single number
+   * and the answer can never be matched.
+   */
+  const multiSelectCount = isMCMultiple
+    ? Math.max(2, Number(config.maxSelections) || 2)
+    : 0
   const isTFNG = group.groupType === "true_false_not_given"
   const isYNNG = group.groupType === "yes_no_not_given"
   const isHeadings = group.groupType === "matching_headings"
@@ -653,6 +668,29 @@ export function QuestionGroupEditor({
                 </div>
               )}
             </div>
+
+            {isMCMultiple &&
+              onEnsureQuestionCount &&
+              group.questions.length !== multiSelectCount && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+                  <span>
+                    Mỗi đáp án đúng là một câu hỏi: cần {multiSelectCount} câu,
+                    hiện có {group.questions.length}.
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={examReadonly}
+                    onClick={() => onEnsureQuestionCount(multiSelectCount)}
+                    className="h-6 shrink-0 border-amber-500/40 px-2 text-[11px]"
+                  >
+                    {group.questions.length < multiSelectCount
+                      ? `Tạo đủ ${multiSelectCount} câu`
+                      : `Bớt còn ${multiSelectCount} câu`}
+                  </Button>
+                </div>
+              )}
 
             <div className="space-y-2">
               {mcOptions.map((opt, oIdx) => (
@@ -1334,6 +1372,19 @@ export function QuestionGroupEditor({
               {group.questions.map((q) => {
                 const qNum = numbering.get(q.id) ?? q.questionNumber
                 const accepted = (q as any).acceptedAnswers ?? []
+                // With one box per correct letter, a letter already keyed on a
+                // sibling question cannot be reused here.
+                const multiSelectUsedElsewhere =
+                  isMCMultiple && group.questions.length > 1
+                    ? new Set<string>(
+                        group.questions
+                          .filter((other) => other.id !== q.id)
+                          .flatMap(
+                            (other) =>
+                              ((other as any).acceptedAnswers ?? []) as string[]
+                          )
+                      )
+                    : null
 
                 return (
                   <div
@@ -1417,18 +1468,38 @@ export function QuestionGroupEditor({
                         {isMCMultiple && (
                           <div className="space-y-1">
                             <Label className="text-[11px] text-muted-foreground">
-                              Chọn các đáp án đúng (tối đa{" "}
-                              {config.maxSelections ?? 2}):
+                              {multiSelectUsedElsewhere
+                                ? "Đáp án đúng của câu này (mỗi câu 1 chữ cái):"
+                                : `Chọn các đáp án đúng (tối đa ${
+                                    config.maxSelections ?? 2
+                                  }):`}
                             </Label>
                             <div className="flex flex-wrap gap-1.5">
                               {mcOptions.map((opt) => {
                                 const isCorrect = accepted.includes(opt.id)
+                                const usedElsewhere = Boolean(
+                                  multiSelectUsedElsewhere?.has(opt.id) &&
+                                    !isCorrect
+                                )
                                 return (
                                   <button
                                     key={opt.id}
                                     type="button"
-                                    disabled={examReadonly}
+                                    disabled={examReadonly || usedElsewhere}
+                                    title={
+                                      usedElsewhere
+                                        ? `${opt.id} đã là đáp án của câu khác`
+                                        : undefined
+                                    }
                                     onClick={() => {
+                                      if (multiSelectUsedElsewhere) {
+                                        onUpdateQuestion(q.id, {
+                                          acceptedAnswers: isCorrect
+                                            ? []
+                                            : [opt.id],
+                                        })
+                                        return
+                                      }
                                       const nextAnswers = isCorrect
                                         ? accepted.filter(
                                             (a: string) => a !== opt.id
@@ -1442,7 +1513,9 @@ export function QuestionGroupEditor({
                                       "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition-all",
                                       isCorrect
                                         ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
+                                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted",
+                                      usedElsewhere &&
+                                        "cursor-not-allowed opacity-40 hover:bg-muted/40"
                                     )}
                                   >
                                     <span>{opt.id}</span>
@@ -1697,21 +1770,18 @@ export function QuestionGroupEditor({
                         {(isCompletion || isShortAnswer) && (
                           <div className="space-y-1">
                             <Label className="text-[11px] text-muted-foreground">
-                              Đáp án đúng (ngăn cách bằng dấu phẩy nếu có nhiều
-                              cách viết):
+                              Đáp án đúng (mỗi dòng là một cách viết được chấp
+                              nhận):
                             </Label>
-                            <Input
-                              value={accepted.join(", ")}
+                            <AcceptedAnswersField
+                              answers={accepted}
                               disabled={examReadonly}
-                              onChange={(e) => {
-                                const ans = e.target.value
-                                  .split(",")
-                                  .map((s) => s.trim())
-                                  .filter(Boolean)
-                                onUpdateQuestion(q.id, { acceptedAnswers: ans })
-                              }}
-                              className="h-8 font-mono text-xs font-medium text-emerald-700 dark:text-emerald-400"
-                              placeholder="VD: China, Republic of China"
+                              placeholder="VD: two decades"
+                              onCommit={(next) =>
+                                onUpdateQuestion(q.id, {
+                                  acceptedAnswers: next,
+                                })
+                              }
                             />
                             <p className="text-[10px] text-muted-foreground">
                               Phân biệt hoa/thường: “shoe” và “Shoe” là hai đáp án
@@ -2092,6 +2162,8 @@ function CompletionAnswerTable({
                         <AcceptedAnswersField
                           answers={accepted}
                           disabled={examReadonly}
+                          compact
+                          placeholder="VD: medicinal"
                           onCommit={(next) =>
                             onUpdateQuestion(q.id, { acceptedAnswers: next })
                           }
@@ -2148,54 +2220,3 @@ function CompletionAnswerTable({
   )
 }
 
-/**
- * Comma-separated "accepted answers" editor.
- *
- * Keeps its own text buffer while focused so typing `medicinal, medicine`
- * doesn't collapse the trailing comma on every keystroke, then normalises the
- * committed values (trimmed, empties removed) when the field loses focus.
- */
-function AcceptedAnswersField({
-  answers,
-  disabled,
-  onCommit,
-}: {
-  answers: string[]
-  disabled?: boolean
-  onCommit: (next: string[]) => void
-}) {
-  const serialized = answers.join("\u0001")
-  const [text, setText] = React.useState(() => answers.join(", "))
-  const focusedRef = React.useRef(false)
-
-  React.useEffect(() => {
-    if (!focusedRef.current) {
-      setText(serialized.split("\u0001").join(", "))
-    }
-  }, [serialized])
-
-  return (
-    <Input
-      value={text}
-      disabled={disabled}
-      onFocus={() => {
-        focusedRef.current = true
-      }}
-      onChange={(e) => {
-        setText(e.target.value)
-        onCommit(
-          e.target.value
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-        )
-      }}
-      onBlur={() => {
-        focusedRef.current = false
-        setText(serialized.split("\u0001").join(", "))
-      }}
-      className="h-7 font-mono text-xs font-medium text-emerald-700 dark:text-emerald-400"
-      placeholder="VD: medicinal, medicine, medicinal purposes"
-    />
-  )
-}
