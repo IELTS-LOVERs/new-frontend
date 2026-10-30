@@ -8,12 +8,15 @@ import {
   deleteCollectionApi,
   getCollectionDetailApi,
   getCollectionsApi,
+  getCollectionTreeApi,
   removeExamFromCollectionApi,
+  reorderExamsInCollectionApi,
   updateCollectionApi,
   updateExamInCollectionApi,
   type AddExamsToCollectionPayload,
   type CreateCollectionPayload,
   type ListCollectionsParams,
+  type ReorderExamsInCollectionPayload,
   type UpdateCollectionPayload,
   type UpdateExamInCollectionPayload,
 } from "@/lib/api/collections"
@@ -25,6 +28,15 @@ export function useCollectionsQuery(params: ListCollectionsParams = {}, enabled 
     enabled,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
+  })
+}
+
+export function useCollectionTreeQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.collections.tree(),
+    queryFn: () => getCollectionTreeApi(),
+    enabled,
+    staleTime: 30_000,
   })
 }
 
@@ -79,6 +91,19 @@ export function useAddExamsToCollectionMutation() {
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: AddExamsToCollectionPayload }) =>
       addExamsToCollectionApi(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.practice.all })
+    },
+  })
+}
+
+export function useReorderExamsMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: ReorderExamsInCollectionPayload }) =>
+      reorderExamsInCollectionApi(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.exams.all })

@@ -1,16 +1,16 @@
-import type { IExamCurriculum } from "@/lib/api/types"
+import type { IExamCurriculum, CollectionTreeNode } from "@/lib/api/types"
 
 /**
  * Phân nhóm & sắp xếp bài luyện tập dùng chung cho trang Giáo viên và Học sinh.
  *
- * Nhóm bộ đề được suy ra từ `curriculum.collectionName` (ưu tiên) hoặc tiêu đề
- * bài (fallback cho dữ liệu cũ chưa điền curriculum).
+ * Nhóm bộ đề được suy ra từ Tree lookup (ưu tiên cao nhất) hoặc regex trên tiêu đề
+ * / curriculum (fallback an toàn cho dữ liệu cũ).
  */
 
 export interface PracticeGroupableItem {
   title: string
   createdAt?: string | Date | null
-  curriculum?: Pick<IExamCurriculum, "collectionName"> | null
+  curriculum?: Pick<IExamCurriculum, "collectionName" | "testNumber" | "part" | "orderIndex"> | null
 }
 
 export interface PracticeBookGroup {
@@ -20,9 +20,12 @@ export interface PracticeBookGroup {
   label: string
   /** Quyển con, ví dụ "Cambridge 8", "Vol 2". */
   bookLabel?: string
+  /** Thứ tự của nhóm lớn */
+  orderIndex?: number
 }
 
 export type PracticeSortMode =
+  | "curriculum"
   | "date_desc"
   | "date_asc"
   | "title_asc"
@@ -39,9 +42,52 @@ export interface PracticeBookFacet {
   books: Array<{ label: string; count: number }>
 }
 
+export interface CollectionLookupItem {
+  rootKey: string
+  rootLabel: string
+  rootOrderIndex: number
+  bookLabel?: string
+}
+
+export type CollectionLookupMap = Map<string, CollectionLookupItem>
+
+/**
+ * Xây dựng lookup map từ cây CollectionTreeNode:
+ * Map từ tên (lowercase) -> { rootKey, rootLabel, rootOrderIndex, bookLabel }
+ */
+export function buildCollectionLookup(tree: readonly CollectionTreeNode[]): CollectionLookupMap {
+  const map: CollectionLookupMap = new Map()
+
+  for (const root of tree) {
+    const rootKey = `root:${root._id}`
+    // Map chính root (khi root không có con hoặc chứa đề trực tiếp)
+    map.set(root.name.toLowerCase().trim(), {
+      rootKey,
+      rootLabel: root.name,
+      rootOrderIndex: root.orderIndex ?? 0,
+      bookLabel: undefined,
+    })
+
+    // Map các con
+    if (root.children) {
+      for (const child of root.children) {
+        map.set(child.name.toLowerCase().trim(), {
+          rootKey,
+          rootLabel: root.name,
+          rootOrderIndex: root.orderIndex ?? 0,
+          bookLabel: child.name,
+        })
+      }
+    }
+  }
+
+  return map
+}
+
 export const OTHER_BOOK_GROUP: PracticeBookGroup = {
   key: "other",
   label: "Chưa phân nhóm",
+  orderIndex: 999,
 }
 
 const GROUP_PRIORITY: Record<string, number> = {
@@ -77,17 +123,27 @@ function compareTitles(a: PracticeGroupableItem, b: PracticeGroupableItem): numb
 
 /**
  * Nhận diện nhóm bộ đề của một bài luyện tập.
- *
- * - `Cam 8`, `Cambridge IELTS 18` → nhóm "Cambridge", quyển "Cambridge 8/18".
- * - `Vol 1`, `Volume 2` → nhóm "Vol", quyển "Vol 1/2".
- * - `Road to IELTS` → nhóm "Road to IELTS".
- * - `curriculum.collectionName` khác → nhóm tuỳ chỉnh cùng tên.
- * - Không có thông tin → "Bộ đề khác".
+ * Ưu tiên 1: Tra cứu qua collectionLookup (từ DB Tree thật).
+ * Ưu tiên 2: Regex nhận diện Cambridge, Vol, v.v. (fallback cho dữ liệu cũ).
  */
 export function resolvePracticeBookGroup(
-  item: PracticeGroupableItem
+  item: PracticeGroupableItem,
+  lookup?: CollectionLookupMap
 ): PracticeBookGroup {
   const collectionName = item.curriculum?.collectionName?.trim()
+
+  if (collectionName && lookup) {
+    const found = lookup.get(collectionName.toLowerCase())
+    if (found) {
+      return {
+        key: found.rootKey,
+        label: found.rootLabel,
+        bookLabel: found.bookLabel,
+        orderIndex: found.rootOrderIndex,
+      }
+    }
+  }
+
   const source = collectionName || item.title.trim()
 
   if (!source) return OTHER_BOOK_GROUP
@@ -100,6 +156,7 @@ export function resolvePracticeBookGroup(
       key: "cambridge",
       label: "Cambridge",
       bookLabel: number ? `Cambridge ${number}` : undefined,
+      orderIndex: 0,
     }
   }
 
@@ -111,17 +168,19 @@ export function resolvePracticeBookGroup(
       key: "vol",
       label: "Vol",
       bookLabel: number ? `Vol ${number}` : undefined,
+      orderIndex: 1,
     }
   }
 
   if (/road\s*to\s*ielts/i.test(source)) {
-    return { key: "road_to_ielts", label: "Road to IELTS" }
+    return { key: "road_to_ielts", label: "Road to IELTS", orderIndex: 2 }
   }
 
   if (collectionName) {
     return {
       key: `custom:${collectionName.toLowerCase()}`,
       label: collectionName,
+      orderIndex: 50,
     }
   }
 
@@ -129,8 +188,8 @@ export function resolvePracticeBookGroup(
 }
 
 /**
- * Sắp xếp bài luyện tập. Bài thiếu `createdAt` luôn xuống cuối ở chế độ ngày;
- * chế độ alphabet dùng natural sort để `CAM 8` < `CAM 9` < `CAM 10`.
+ * Sắp xếp bài luyện tập.
+ * Chế độ "curriculum": Test -> orderIndex -> Part -> title.
  */
 export function sortPracticeItems<T extends PracticeGroupableItem>(
   items: readonly T[],
@@ -139,6 +198,22 @@ export function sortPracticeItems<T extends PracticeGroupableItem>(
   const copy = [...items]
 
   switch (sortMode) {
+    case "curriculum":
+      return copy.sort((a, b) => {
+        const testA = a.curriculum?.testNumber ?? 9999
+        const testB = b.curriculum?.testNumber ?? 9999
+        if (testA !== testB) return testA - testB
+
+        const orderA = a.curriculum?.orderIndex ?? 0
+        const orderB = b.curriculum?.orderIndex ?? 0
+        if (orderA !== orderB) return orderA - orderB
+
+        const partA = a.curriculum?.part ?? 9999
+        const partB = b.curriculum?.part ?? 9999
+        if (partA !== partB) return partA - partB
+
+        return compareTitles(a, b)
+      })
     case "title_asc":
       return copy.sort(compareTitles)
     case "title_desc":
@@ -166,21 +241,22 @@ function compareByDate(
 }
 
 function compareGroups(a: PracticeBookGroup, b: PracticeBookGroup): number {
-  const priorityA = GROUP_PRIORITY[a.key] ?? 50
-  const priorityB = GROUP_PRIORITY[b.key] ?? 50
-  if (priorityA !== priorityB) return priorityA - priorityB
+  const orderA = a.orderIndex ?? GROUP_PRIORITY[a.key] ?? 50
+  const orderB = b.orderIndex ?? GROUP_PRIORITY[b.key] ?? 50
+  if (orderA !== orderB) return orderA - orderB
   return naturalCollator.compare(a.label, b.label)
 }
 
 /** Gom bài theo từng nhóm bộ đề, sắp xếp nhóm và các bài bên trong. */
 export function groupPracticeItemsByBook<T extends PracticeGroupableItem>(
   items: readonly T[],
-  sortMode: PracticeSortMode
+  sortMode: PracticeSortMode,
+  lookup?: CollectionLookupMap
 ): Array<PracticeBookSection<T>> {
   const groups = new Map<string, PracticeBookSection<T>>()
 
   for (const item of items) {
-    const group = resolvePracticeBookGroup(item)
+    const group = resolvePracticeBookGroup(item, lookup)
     const existing = groups.get(group.key)
     if (existing) {
       existing.items.push(item)
@@ -199,7 +275,8 @@ export function groupPracticeItemsByBook<T extends PracticeGroupableItem>(
 
 /** Danh sách nhóm + số lượng bài + các quyển con, dùng cho sidebar lọc. */
 export function buildPracticeBookFacets<T extends PracticeGroupableItem>(
-  items: readonly T[]
+  items: readonly T[],
+  lookup?: CollectionLookupMap
 ): PracticeBookFacet[] {
   const facets = new Map<
     string,
@@ -207,7 +284,7 @@ export function buildPracticeBookFacets<T extends PracticeGroupableItem>(
   >()
 
   for (const item of items) {
-    const group = resolvePracticeBookGroup(item)
+    const group = resolvePracticeBookGroup(item, lookup)
     let facet = facets.get(group.key)
     if (!facet) {
       facet = { group, count: 0, books: new Map() }

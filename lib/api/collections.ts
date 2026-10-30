@@ -1,27 +1,26 @@
 import { apiClient } from "./client"
 import type {
-  CollectionCategory,
   CollectionDetailResponse,
   CollectionItem,
+  CollectionTreeNode,
 } from "./types"
 import type { PaginatedMeta } from "./assignments"
 
 export interface ListCollectionsParams {
   search?: string
-  category?: CollectionCategory
+  parentId?: string
   page?: number
   limit?: number
 }
 
 export interface ListCollectionsResult {
   items: CollectionItem[]
-  allCategories?: string[]
   meta?: PaginatedMeta
 }
 
 export interface CreateCollectionPayload {
   name: string
-  category?: CollectionCategory
+  parentId?: string | null
   description?: string
   bannerUrl?: string
   orderIndex?: number
@@ -29,7 +28,7 @@ export interface CreateCollectionPayload {
 
 export interface UpdateCollectionPayload {
   name?: string
-  category?: CollectionCategory
+  parentId?: string | null
   description?: string | null
   bannerUrl?: string | null
   orderIndex?: number
@@ -57,20 +56,32 @@ export interface UpdateExamInCollectionPayload {
   orderIndex?: number | null
 }
 
+export interface ReorderExamsInCollectionPayload {
+  items: Array<{
+    examId: string
+    testNumber: number
+    orderIndex: number
+  }>
+}
+
 export async function getCollectionsApi(
   params: ListCollectionsParams = {}
 ): Promise<ListCollectionsResult> {
   const search = new URLSearchParams()
   if (params.search) search.set("search", params.search)
-  if (params.category) search.set("category", params.category)
+  if (params.parentId !== undefined) search.set("parentId", params.parentId)
   if (params.page) search.set("page", String(params.page))
   if (params.limit) search.set("limit", String(params.limit))
   const qs = search.toString()
   const { data, meta } = await apiClient<CollectionItem[]>(
     `/api/collections${qs ? `?${qs}` : ""}`
   )
-  const metaObj = meta as (PaginatedMeta & { allCategories?: string[] }) | undefined
-  return { items: data, allCategories: metaObj?.allCategories, meta: metaObj }
+  return { items: data, meta: meta as PaginatedMeta | undefined }
+}
+
+export async function getCollectionTreeApi(): Promise<CollectionTreeNode[]> {
+  const { data } = await apiClient<CollectionTreeNode[]>("/api/collections/tree")
+  return data
 }
 
 export async function getCollectionDetailApi(id: string): Promise<CollectionDetailResponse> {
@@ -114,6 +125,20 @@ export async function addExamsToCollectionApi(
     `/api/collections/${id}/exams`,
     {
       method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
+  return data
+}
+
+export async function reorderExamsInCollectionApi(
+  id: string,
+  payload: ReorderExamsInCollectionPayload
+): Promise<{ count: number; message: string }> {
+  const { data } = await apiClient<{ count: number; message: string }>(
+    `/api/collections/${id}/exams/reorder`,
+    {
+      method: "PATCH",
       body: JSON.stringify(payload),
     }
   )

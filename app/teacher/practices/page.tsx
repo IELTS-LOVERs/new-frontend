@@ -162,10 +162,12 @@ export default function TeacherPracticesPage() {
   )
 
   const [searchInput, setSearchInput] = React.useState(search)
+  const [prevSearch, setPrevSearch] = React.useState(search)
 
-  React.useEffect(() => {
+  if (prevSearch !== search) {
+    setPrevSearch(search)
     setSearchInput(search)
-  }, [search])
+  }
 
   React.useEffect(() => {
     const timer = setTimeout(() => {

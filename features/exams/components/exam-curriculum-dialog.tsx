@@ -15,9 +15,8 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { ApiError } from "@/lib/api/client"
 import { useUpdateExamCurriculumMutation } from "@/hooks/use-practice"
-import { useCollectionsQuery } from "@/hooks/use-collections"
+import { useCollectionTreeQuery } from "@/hooks/use-collections"
 import type { IExamCurriculum } from "@/lib/api/types"
-import { cn } from "@/lib/utils"
 
 interface ExamCurriculumDialogProps {
   open: boolean
@@ -44,7 +43,7 @@ export function ExamCurriculumDialog({
     curriculum?.part ? String(curriculum.part) : "1"
   )
   const [orderIndex, setOrderIndex] = React.useState<string>(
-    curriculum?.orderIndex !== undefined ? String(curriculum.orderIndex) : "1"
+    curriculum?.orderIndex !== undefined ? String(curriculum.orderIndex) : "0"
   )
 
   const [wasOpen, setWasOpen] = React.useState(false)
@@ -55,33 +54,13 @@ export function ExamCurriculumDialog({
       setTestNumber(curriculum?.testNumber ? String(curriculum.testNumber) : "1")
       setPart(curriculum?.part ? String(curriculum.part) : "1")
       setOrderIndex(
-        curriculum?.orderIndex !== undefined ? String(curriculum.orderIndex) : "1"
+        curriculum?.orderIndex !== undefined ? String(curriculum.orderIndex) : "0"
       )
     }
   }
 
-  // Fetch real collections from database
-  const { data: collectionsData } = useCollectionsQuery({ limit: 50 }, open)
-
-  const collectionSuggestions = React.useMemo(() => {
-    const list: string[] = []
-    if (collectionsData?.items) {
-      for (const item of collectionsData.items) {
-        if (item.name && !list.includes(item.name)) {
-          list.push(item.name)
-        }
-      }
-    }
-    if (list.length === 0) {
-      return [
-        "Cambridge IELTS 18",
-        "Cambridge IELTS 19",
-        "IELTS Recent Actual / Vol",
-        "Road to IELTS",
-      ]
-    }
-    return list
-  }, [collectionsData?.items])
+  // Fetch real collections tree from database
+  const { data: tree = [] } = useCollectionTreeQuery(open)
 
   const mutation = useUpdateExamCurriculumMutation()
 
@@ -124,37 +103,39 @@ export function ExamCurriculumDialog({
               Cài đặt Bộ đề & Vị trí bài thi
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Định vị bài luyện tập theo bộ đề cụ thể (ví dụ: Cambridge IELTS 18, Test 1, Passage 1)
+              Định vị bài luyện tập theo bộ đề cụ thể (ví dụ: Cambridge › Cam 8, Test 1, Passage 1)
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-2 text-xs">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Thuộc bộ đề thi nào</Label>
-              <Input
+              <select
                 value={collectionName}
                 onChange={(e) => setCollectionName(e.target.value)}
-                placeholder="Ví dụ: Cambridge IELTS 18, Vol 6..."
-                className="h-9 text-xs"
-              />
-              <div className="flex flex-wrap gap-1.5 pt-0.5 max-h-24 overflow-y-auto">
-                {collectionSuggestions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setCollectionName(option)}
-                    aria-pressed={collectionName === option}
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                      collectionName === option
-                        ? "border-primary/40 bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-xs"
+              >
+                <option value="">-- Chưa phân nhóm bộ đề --</option>
+                {tree.map((root) => {
+                  const hasChildren = root.children && root.children.length > 0
+                  if (!hasChildren) {
+                    return (
+                      <option key={root._id} value={root.name}>
+                        {root.name}
+                      </option>
+                    )
+                  }
+                  return (
+                    <optgroup key={root._id} label={root.name}>
+                      {root.children.map((child) => (
+                        <option key={child._id} value={child.name}>
+                          {child.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )
+                })}
+              </select>
             </div>
 
             <div className="grid grid-cols-3 gap-3">

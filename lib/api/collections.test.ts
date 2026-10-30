@@ -23,13 +23,13 @@ describe("Collections API Client", () => {
 
     await getCollectionsApi({
       search: "Cambridge",
-      category: "cambridge",
+      parentId: "p123",
       page: 1,
       limit: 20,
     })
 
     expect(mockClient).toHaveBeenCalledWith(
-      "/api/collections?search=Cambridge&category=cambridge&page=1&limit=20"
+      "/api/collections?search=Cambridge&parentId=p123&page=1&limit=20"
     )
   })
 
@@ -43,17 +43,17 @@ describe("Collections API Client", () => {
   })
 
   it("createCollectionApi sends POST /api/collections", async () => {
-    const mockCreated = { _id: "c1", name: "Cam 19", category: "cambridge" }
+    const mockCreated = { _id: "c1", name: "Cam 19", parentId: "p123" }
     mockClient.mockResolvedValueOnce({ data: mockCreated })
 
     const result = await createCollectionApi({
       name: "Cam 19",
-      category: "cambridge",
+      parentId: "p123",
     })
 
     expect(mockClient).toHaveBeenCalledWith("/api/collections", {
       method: "POST",
-      body: JSON.stringify({ name: "Cam 19", category: "cambridge" }),
+      body: JSON.stringify({ name: "Cam 19", parentId: "p123" }),
     })
     expect(result).toEqual(mockCreated)
   })

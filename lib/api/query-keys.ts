@@ -62,6 +62,7 @@ export const queryKeys = {
   collections: {
     all: ["collections"] as const,
     list: (filters?: Record<string, any>) => ["collections", "list", filters] as const,
+    tree: () => ["collections", "tree"] as const,
     detail: (id: string) => ["collections", "detail", id] as const,
   },
 }

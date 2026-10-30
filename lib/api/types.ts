@@ -792,16 +792,42 @@ export type CollectionCategory = string
 export interface CollectionItem {
   _id: string
   name: string
-  category: CollectionCategory
+  parentId?: string | null
   description?: string
   bannerUrl?: string
   orderIndex: number
+  childCount?: number
   examCount: number
   readingCount: number
   listeningCount: number
   writingCount: number
   createdAt: string
   updatedAt: string
+}
+
+export interface CollectionTreeNode {
+  _id: string
+  name: string
+  description?: string
+  bannerUrl?: string
+  orderIndex: number
+  examCount: number
+  directExamCount: number
+  readingCount: number
+  listeningCount: number
+  writingCount: number
+  children: Array<{
+    _id: string
+    name: string
+    parentId: string
+    description?: string
+    bannerUrl?: string
+    orderIndex: number
+    examCount: number
+    readingCount: number
+    listeningCount: number
+    writingCount: number
+  }>
 }
 
 export interface CollectionDetailExam {
@@ -826,7 +852,7 @@ export interface CollectionDetailResponse {
   collection: {
     _id: string
     name: string
-    category: CollectionCategory
+    parentId?: string | null
     description?: string
     bannerUrl?: string
     orderIndex: number

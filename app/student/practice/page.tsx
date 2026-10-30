@@ -25,7 +25,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { usePracticeCatalogQuery } from "@/hooks/use-practice"
+import { useCollectionTreeQuery } from "@/hooks/use-collections"
 import {
+  buildCollectionLookup,
   buildPracticeBookFacets,
   groupPracticeItemsByBook,
   resolvePracticeBookGroup,
@@ -229,6 +231,11 @@ export default function StudentPracticePage() {
     skill: activeSkill,
     search: searchQuery.trim() || undefined,
   })
+  const { data: tree = [] } = useCollectionTreeQuery()
+
+  const collectionLookup = React.useMemo(() => {
+    return buildCollectionLookup(tree)
+  }, [tree])
 
   const rawDbItems = React.useMemo<PracticeCatalogItem[]>(
     () => catalogQuery.data?.items ?? [],
@@ -287,8 +294,8 @@ export default function StudentPracticePage() {
   )
 
   const bookFacets = React.useMemo(
-    () => buildPracticeBookFacets(skillItems),
-    [skillItems]
+    () => buildPracticeBookFacets(skillItems, collectionLookup),
+    [skillItems, collectionLookup]
   )
 
   const selectedFacet = bookFacets.find(
@@ -299,22 +306,27 @@ export default function StudentPracticePage() {
     if (bookGroupKey === "all") return baseFilteredItems
 
     return baseFilteredItems.filter((item) => {
-      const group = resolvePracticeBookGroup(item)
+      const group = resolvePracticeBookGroup(item, collectionLookup)
       if (group.key !== bookGroupKey) return false
       if (bookLabel !== "all" && group.bookLabel !== bookLabel) return false
       return true
     })
-  }, [baseFilteredItems, bookGroupKey, bookLabel])
+  }, [baseFilteredItems, bookGroupKey, bookLabel, collectionLookup])
 
   // Writing không chia nhóm bộ đề; luôn sắp xếp alphabet.
+  // Khi chọn một quyển con cụ thể, mặc định sắp xếp "curriculum" (theo vị trí thật trong sách).
   const effectiveSortMode: PracticeSortMode | "group" =
-    activeSkill === "writing" && sortMode === "group" ? "title_asc" : sortMode
+    activeSkill === "writing" && sortMode === "group"
+      ? "title_asc"
+      : bookLabel !== "all" && sortMode === "group"
+      ? "curriculum"
+      : sortMode
 
   // Khi lọc "Tất cả nhóm" ở Reading/Listening và chế độ là "group", gom theo nhóm bộ đề.
   const bookSections = React.useMemo(() => {
     if (activeSkill === "writing" || effectiveSortMode !== "group") return null
-    return groupPracticeItemsByBook(displayItems, "title_asc")
-  }, [displayItems, activeSkill, effectiveSortMode])
+    return groupPracticeItemsByBook(displayItems, "title_asc", collectionLookup)
+  }, [displayItems, activeSkill, effectiveSortMode, collectionLookup])
 
   const sortedDisplayItems = React.useMemo(() => {
     const mode = effectiveSortMode === "group" ? "title_asc" : effectiveSortMode
