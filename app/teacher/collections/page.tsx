@@ -363,7 +363,7 @@ export default function CollectionsManagementPage() {
       await deleteMutation.mutateAsync(deletingCol.id)
       toast.success("Đã xoá bộ đề thành công")
       setDeletingCol(null)
-      setSelectedColId(null)
+      router.replace("/teacher/collections")
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Không thể xoá bộ đề")
     }
