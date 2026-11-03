@@ -5,33 +5,13 @@ import { useRouter, usePathname } from "next/navigation"
 import { useAuthStore, initAuthFromStorage } from "@/stores/auth.store"
 import { getMeApi, refreshAccessTokenApi } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/client"
-import { forceLogout } from "@/lib/auth-session"
+import { forceLogout, decodeJwtExpMs } from "@/lib/auth-session"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { UserRole } from "@/lib/api/types"
 
 interface AuthGateProps {
   children: React.ReactNode
   allowedRoles: UserRole[]
-}
-
-function decodeJwtExp(token?: string | null): number | null {
-  if (!token) return null
-  try {
-    const parts = token.split(".")
-    if (parts.length !== 3) return null
-    const base64Url = parts[1]
-    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/")
-    const binaryStr = atob(base64)
-    const bytes = new Uint8Array(binaryStr.length)
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i)
-    }
-    const decodedText = new TextDecoder().decode(bytes)
-    const json = JSON.parse(decodedText)
-    return typeof json.exp === "number" ? json.exp * 1000 : null
-  } catch {
-    return null
-  }
 }
 
 /**
@@ -53,7 +33,7 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
   React.useEffect(() => {
     if (!isAuthenticated || !accessToken) return
 
-    const expMs = decodeJwtExp(accessToken)
+    const expMs = decodeJwtExpMs(accessToken)
     const now = Date.now()
     // Gia hạn ngầm trước khi token hết hạn 2 phút (tối thiểu 10s, tối đa 10 phút)
     const msUntilRefresh = expMs
@@ -90,7 +70,7 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
     let cancelled = false
 
     async function bootstrap() {
-      const expMs = decodeJwtExp(accessToken)
+      const expMs = decodeJwtExpMs(accessToken)
       const isTokenExpired = expMs !== null && expMs <= Date.now()
 
       // Đã có user + token VÀ token chưa hết hạn → kiểm tra role

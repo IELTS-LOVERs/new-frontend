@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import { devtools } from "zustand/middleware"
 import type { User } from "@/lib/api/types"
+import { decodeJwtExpSeconds } from "@/lib/auth-session"
 
 interface AuthState {
   user: User | null
@@ -12,22 +13,6 @@ interface AuthState {
   setUser: (user: User) => void
   setHydrated: (hydrated: boolean) => void
   logout: () => void
-}
-
-/**
- * Decode the `exp` claim from a JWT without verifying it (client-side only, no
- * secret available). Used to size the access cookie to the real token TTL.
- */
-function decodeJwtExp(token: string): number | null {
-  try {
-    const parts = token.split(".")
-    if (parts.length !== 3) return null
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/")
-    const json = JSON.parse(atob(base64)) as { exp?: number }
-    return typeof json.exp === "number" ? json.exp : null
-  } catch {
-    return null
-  }
 }
 
 /** Fallback access-cookie lifetime when the JWT cannot be decoded (2h). */
@@ -51,7 +36,7 @@ export function buildAuthCookieStrings(
   const secure = options.secure ? "; Secure" : ""
 
   // FIX-04: access cookie lifetime mirrors the real access token TTL.
-  const exp = decodeJwtExp(token)
+  const exp = decodeJwtExpSeconds(token)
   const accessMaxAge = exp
     ? Math.max(0, exp - options.nowSeconds)
     : FALLBACK_ACCESS_MAX_AGE

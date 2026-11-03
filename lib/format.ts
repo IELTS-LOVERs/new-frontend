@@ -23,6 +23,27 @@ export function formatDateShort(value?: string | null): string {
   return date ? format(date, "dd/MM/yyyy", { locale: vi }) : "—"
 }
 
+/**
+ * Format a `YYYY-MM-DD` day key as `DD/MM` (weekly report headers).
+ * Separate from {@link formatDateShort}, which returns a full date and reads ISO
+ * timestamps.
+ */
+export function formatDayMonth(dateStr: string): string {
+  const parts = dateStr.split("-")
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}`
+  return dateStr
+}
+
+/** Lowercase + strip Vietnamese diacritics for accent-insensitive search. */
+export function removeAccents(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+}
+
 export function formatRelative(value?: string | null): string {
   const date = toDate(value)
   if (!date) return "—"

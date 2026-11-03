@@ -1,5 +1,7 @@
 "use client"
 
+import { DetailSkeleton } from "@/components/shared/query-states"
+
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
@@ -7,7 +9,6 @@ import { parseAsString, useQueryState } from "nuqs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   ArrowLeft01Icon,
@@ -105,7 +106,7 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
   const [filter, setFilter] = useQueryState("filter", parseAsString.withDefault("all"))
 
   if (isLoading) {
-    return <DetailSkeleton />
+    return <DetailSkeleton variant="result" />
   }
 
   if (error || !result) {
@@ -765,28 +766,3 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
 }
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
-function DetailSkeleton() {
-  return (
-    <div className="mx-auto max-w-5xl space-y-6 pb-12">
-      <Skeleton className="h-8 w-44" />
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
-        <div className="space-y-2 flex-1">
-          <Skeleton className="h-5 w-48" />
-          <Skeleton className="h-7 w-80" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <div className="flex gap-2">
-          <Skeleton className="h-8 w-28" />
-          <Skeleton className="h-8 w-28" />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-28 w-full rounded-xl" />
-        ))}
-      </div>
-      <Skeleton className="h-32 w-full rounded-xl" />
-      <Skeleton className="h-96 w-full rounded-xl" />
-    </div>
-  )
-}

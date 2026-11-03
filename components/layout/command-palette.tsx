@@ -27,6 +27,7 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
+import { removeAccents } from "@/lib/format"
 import { useClassesQuery } from "@/hooks/use-classes"
 import { useExamsQuery } from "@/hooks/use-exams"
 
@@ -73,15 +74,6 @@ const QUICK_ACTIONS: CommandItem[] = [
   { id: "a-assign", label: "Giao bài", group: "Hành động nhanh", href: "/teacher/assignments?action=assign", icon: Task01Icon },
   { id: "a-grade", label: "Chấm bài tiếp theo", group: "Hành động nhanh", href: "/teacher/submissions", icon: FileEditIcon },
 ]
-
-function removeAccents(str: string): string {
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase()
-}
 
 export function CommandPalette({
   open,

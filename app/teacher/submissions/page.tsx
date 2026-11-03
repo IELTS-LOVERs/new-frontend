@@ -1,12 +1,13 @@
 "use client"
 
+import { QueryError, TableSkeleton } from "@/components/shared/query-states"
+
 import Link from "next/link"
 import { parseAsStringLiteral, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent } from "@/components/ui/card"
 import {
   Table,
@@ -26,10 +27,8 @@ import {
   Copy01Icon,
   InboxIcon,
   MaximizeScreenIcon,
-  RefreshIcon,
   Shield01Icon,
 } from "@hugeicons/core-free-icons"
-import { ApiError } from "@/lib/api/client"
 import { usePendingGradingQuery } from "@/hooks/use-grading"
 import { useSuspiciousAttemptsQuery } from "@/hooks/use-admin"
 import { useTeacherDashboardQuery } from "@/hooks/use-dashboard"
@@ -38,31 +37,7 @@ import { formatBand, formatDate } from "@/lib/format"
 const TABS = ["pending", "suspicious", "recent"] as const
 type TabValue = (typeof TABS)[number]
 
-function QueryError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof ApiError ? error.message : "Không tải được dữ liệu."
-  return (
-    <div className="rounded-2xl border border-border bg-card p-8 text-center space-y-3">
-      <p className="text-sm font-medium text-foreground">Không tải được dữ liệu</p>
-      <p className="text-xs text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium" onClick={onRetry}>
-        <HugeiconsIcon icon={RefreshIcon} size={14} />
-        <span>Thử lại</span>
-      </Button>
-    </div>
-  )
-}
 
-function TableSkeleton() {
-  return (
-    <Card className="border-border shadow-xs">
-      <CardContent className="p-4 space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-10 w-full rounded-lg" />
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
 
 export default function TeacherSubmissionsPage() {
   const [tab, setTab] = useQueryState(

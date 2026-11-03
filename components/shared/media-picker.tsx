@@ -34,54 +34,9 @@ import {
 import { useQueryClient } from "@tanstack/react-query"
 import type { MediaAsset } from "@/lib/api/types"
 import { compressImageFile } from "@/features/media/lib/compress-image"
+import { formatSize, uploadWithProgress, UploadError } from "@/lib/media-file"
 
 const MAX_SIZE = 100 * 1024 * 1024 // 100MB
-
-function formatSize(bytes?: number): string {
-  if (!bytes && bytes !== 0) return "—"
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-class UploadError extends Error {
-  constructor(
-    message: string,
-    readonly retryable = false
-  ) {
-    super(message)
-    this.name = "UploadError"
-  }
-}
-
-function uploadWithProgress(
-  url: string,
-  file: File,
-  contentType: string,
-  onProgress: (pct: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open("PUT", url)
-    xhr.setRequestHeader("Content-Type", contentType)
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
-    }
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve()
-      else
-        reject(
-          new UploadError(
-            `Tải lên thất bại (HTTP ${xhr.status})`,
-            xhr.status >= 500 || xhr.status === 429
-          )
-        )
-    }
-    xhr.onerror = () =>
-      reject(new UploadError("Lỗi kết nối mạng khi tải lên", true))
-    xhr.send(file)
-  })
-}
 
 /** #11: one retry for transient network/5xx failures. */
 async function uploadWithRetry(

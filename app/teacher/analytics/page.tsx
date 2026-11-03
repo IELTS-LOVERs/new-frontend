@@ -1,5 +1,9 @@
 "use client"
 
+import { StudentProgressSheet } from "@/features/analytics/components/student-progress-sheet"
+
+import { QueryError } from "@/components/shared/query-states"
+
 import * as React from "react"
 import Link from "next/link"
 import { parseAsString, parseAsStringLiteral, useQueryState } from "nuqs"
@@ -7,7 +11,7 @@ import { PageHeader } from "@/components/shared/page-header"
 import { StatCard } from "@/components/shared/stat-card"
 import { BandBadge } from "@/components/shared/band-badge"
 import { EmptyState } from "@/components/shared/empty-state"
-import { BarChart, HBarChart, RadarChart, LineChart } from "@/components/shared/charts"
+import { BarChart, HBarChart, RadarChart } from "@/components/shared/charts"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,13 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
@@ -41,38 +38,22 @@ import {
   Award01Icon,
   Book02Icon,
   ChartHistogramIcon,
-  RefreshIcon,
   UserIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { SKILL_LABEL, formatBand } from "@/lib/format"
 import type { ClassAnalytics, ClassRosterStudent, ExamAnalytics } from "@/lib/api/types"
-import { ApiError } from "@/lib/api/client"
 import { useClassesQuery, useClassDetailQuery } from "@/hooks/use-classes"
 import { useExamsQuery } from "@/hooks/use-exams"
 import {
   useClassAnalyticsQuery,
   useExamAnalyticsQuery,
-  useStudentProgressQuery,
 } from "@/hooks/use-analytics"
 import type { ExamListItem } from "@/lib/api/types"
 
 const SKILLS: Array<"listening" | "reading" | "writing"> = ["listening", "reading", "writing"]
 const VIEWS = ["class", "exam"] as const
 
-function QueryError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof ApiError ? error.message : "Không tải được dữ liệu thống kê."
-  return (
-    <div className="rounded-2xl border border-border bg-card p-8 text-center space-y-3">
-      <p className="text-sm font-medium text-foreground">Không tải được dữ liệu</p>
-      <p className="text-xs text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium" onClick={onRetry}>
-        <HugeiconsIcon icon={RefreshIcon} size={14} />
-        <span>Thử lại</span>
-      </Button>
-    </div>
-  )
-}
 
 function AnalyticsSkeleton() {
   return (
@@ -225,66 +206,6 @@ export default function TeacherAnalyticsPage() {
 
       <StudentProgressSheet student={progressStudent} onClose={() => setProgressStudent(null)} />
     </div>
-  )
-}
-
-function StudentProgressSheet({
-  student,
-  onClose,
-}: {
-  student: ClassRosterStudent | null
-  onClose: () => void
-}) {
-  const progressQuery = useStudentProgressQuery(student?.id, !!student)
-  const progress = progressQuery.data
-
-  return (
-    <Sheet open={!!student} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle className="font-heading text-lg font-bold">{student?.fullName}</SheetTitle>
-          <SheetDescription className="text-xs">Diễn biến band điểm qua các lần làm bài</SheetDescription>
-        </SheetHeader>
-        <div className="space-y-4 px-6 pb-8">
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard label="Overall" value={formatBand(student?.overall)} accent />
-            <StatCard label="Target" value={formatBand(student?.targetBand)} />
-          </div>
-          {progressQuery.isLoading ? (
-            <Skeleton className="h-64 w-full rounded-xl" />
-          ) : progressQuery.isError ? (
-            <QueryError error={progressQuery.error} onRetry={() => progressQuery.refetch()} />
-          ) : !progress || progress.points.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              Chưa có dữ liệu tiến độ cho học sinh này.
-            </p>
-          ) : (
-            <Card className="border-border shadow-xs">
-              <CardContent className="pt-6">
-                <LineChart
-                  labels={progress.points.map((p) =>
-                    new Date(p.submittedAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })
-                  )}
-                  target={progress.targetBand ?? undefined}
-                  series={[
-                    { name: "Overall", colorVar: "var(--chart-4)", points: progress.points.map((p) => p.overall ?? null) },
-                    { name: "Listening", colorVar: "var(--chart-1)", points: progress.points.map((p) => p.listening ?? null) },
-                    { name: "Reading", colorVar: "var(--chart-2)", points: progress.points.map((p) => p.reading ?? null) },
-                    { name: "Writing", colorVar: "var(--chart-3)", points: progress.points.map((p) => p.writing ?? null) },
-                  ]}
-                />
-              </CardContent>
-            </Card>
-          )}
-
-          <Button asChild className="w-full font-semibold">
-            <Link href={`/teacher/students/${student?.id}/progress`}>
-              Mở trang tiến độ đầy đủ
-            </Link>
-          </Button>
-        </div>
-      </SheetContent>
-    </Sheet>
   )
 }
 
