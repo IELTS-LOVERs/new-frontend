@@ -1,13 +1,12 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useParams } from "next/navigation"
 import { parseAsString, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatCard } from "@/components/shared/stat-card"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -32,7 +31,8 @@ import {
 } from "@hugeicons/core-free-icons"
 import { useClassDetailQuery } from "@/hooks/use-classes"
 import { useClassWeeklyReportQuery } from "@/hooks/use-practice"
-import { getClassWeeklyReportCsvUrl, downloadWeeklyReportCsvApi } from "@/lib/api/practice"
+import { downloadWeeklyReportCsvApi } from "@/lib/api/practice"
+import { formatDayMonth } from "@/lib/format"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -56,12 +56,6 @@ function shiftWeek(weekKey: string, deltaDays: number): string {
   const d = new Date(`${weekKey}T12:00:00Z`)
   d.setUTCDate(d.getUTCDate() + deltaDays)
   return d.toISOString().slice(0, 10)
-}
-
-function formatDateShort(dateStr: string): string {
-  const parts = dateStr.split("-")
-  if (parts.length === 3) return `${parts[2]}/${parts[1]}`
-  return dateStr
 }
 
 const WEEKDAY_NAMES = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
@@ -144,7 +138,7 @@ export default function TeacherClassWeeklyReportPage() {
         <div className="flex items-center gap-2">
           <HugeiconsIcon icon={Calendar01Icon} size={18} className="text-primary" />
           <span className="text-xs font-semibold text-foreground">
-            Tuần từ {formatDateShort(weekStart)} đến {formatDateShort(shiftWeek(weekStart, 6))}
+            Tuần từ {formatDayMonth(weekStart)} đến {formatDayMonth(shiftWeek(weekStart, 6))}
           </span>
           {report?.week?.timezone && (
             <Badge variant="outline" className="text-[10px] text-muted-foreground">
@@ -271,7 +265,7 @@ export default function TeacherClassWeeklyReportPage() {
                     <TableHead key={w} className="text-center font-semibold w-[75px]">
                       {w}
                       <span className="block text-[10px] font-normal text-muted-foreground">
-                        {report.students[0]?.days[idx]?.date ? formatDateShort(report.students[0].days[idx].date) : ""}
+                        {report.students[0]?.days[idx]?.date ? formatDayMonth(report.students[0].days[idx].date) : ""}
                       </span>
                     </TableHead>
                   ))}

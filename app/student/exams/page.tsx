@@ -21,7 +21,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  Award01Icon,
   PlayIcon,
   Add01Icon,
   Calendar01Icon,

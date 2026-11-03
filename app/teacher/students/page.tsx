@@ -1,5 +1,7 @@
 "use client"
 
+import { TableSkeleton } from "@/components/shared/query-states"
+
 import * as React from "react"
 import Link from "next/link"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -22,7 +24,6 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -54,17 +55,6 @@ function copyToClipboard(text: string, message: string) {
   toast.success(message)
 }
 
-function TableSkeleton() {
-  return (
-    <Card className="border-border shadow-xs">
-      <CardContent className="space-y-3 p-4">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-10 w-full rounded-lg" />
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
 
 /**
  * Danh sách học sinh đã tự đăng ký trên web.
@@ -355,7 +345,7 @@ export default function TeacherStudentsPage() {
       )}
 
       {studentsQuery.isLoading ? (
-        <TableSkeleton />
+        <TableSkeleton rows={6} />
       ) : studentsQuery.isError ? (
         <Card className="border-destructive/30 bg-card p-8 text-center">
           <p className="text-sm font-semibold text-destructive">

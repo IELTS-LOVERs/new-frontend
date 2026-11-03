@@ -51,7 +51,7 @@ import {
   useDeleteMediaMutation,
 } from "@/hooks/use-media"
 import { formatDateShort } from "@/lib/format"
-import { detectMediaFile } from "@/lib/media-file"
+import { detectMediaFile, formatSize, uploadWithProgress } from "@/lib/media-file"
 import type { MediaAsset } from "@/lib/api/types"
 
 const MAX_SIZE = 100 * 1024 * 1024 // 100MB
@@ -65,35 +65,6 @@ interface UploadingItem {
   progress: number
   status: "presigning" | "uploading" | "confirming" | "error"
   errorMessage?: string
-}
-
-function formatSize(bytes?: number): string {
-  if (!bytes && bytes !== 0) return "—"
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function uploadWithProgress(
-  url: string,
-  file: File,
-  contentType: string,
-  onProgress: (pct: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open("PUT", url)
-    xhr.setRequestHeader("Content-Type", contentType)
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
-    }
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve()
-      else reject(new Error(`Upload thất bại (HTTP ${xhr.status})`))
-    }
-    xhr.onerror = () => reject(new Error("Lỗi mạng khi tải lên"))
-    xhr.send(file)
-  })
 }
 
 export default function TeacherMediaPage() {

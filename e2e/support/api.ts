@@ -17,12 +17,11 @@ export interface ApiSession {
   user: ApiUser
 }
 
-/** Đọc envelope { success, data, meta } và ném lỗi rõ ràng khi HTTP != 2xx. */
 async function readEnvelope(
   res: Awaited<ReturnType<APIRequestContext["fetch"]>>,
   label: string
-): Promise<any> {
-  const body = await res.json().catch(() => null)
+): Promise<Record<string, unknown> | null> {
+  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null
   expect(
     res.ok(),
     `${label} thất bại → HTTP ${res.status()} ${body ? JSON.stringify(body) : ""}`
@@ -31,13 +30,13 @@ async function readEnvelope(
 }
 
 /** Gọi API backend trực tiếp bằng APIRequestContext (Node-side, không qua CORS). */
-export async function apiRequest(
+export async function apiRequest<T = any>(
   api: APIRequestContext,
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
   token?: string,
   data?: unknown
-): Promise<any> {
+): Promise<T> {
   const res = await api.fetch(`${API_ORIGIN}${path}`, {
     method,
     headers: {
@@ -47,19 +46,19 @@ export async function apiRequest(
     ...(data !== undefined ? { data } : {}),
   })
   const body = await readEnvelope(res, `${method} ${path}`)
-  return body?.data
+  return body?.data as T
 }
 
-export const apiGet = (api: APIRequestContext, path: string, token?: string) =>
-  apiRequest(api, "GET", path, token)
-export const apiPost = (api: APIRequestContext, path: string, token: string | undefined, data?: unknown) =>
-  apiRequest(api, "POST", path, token, data)
-export const apiPatch = (api: APIRequestContext, path: string, token: string | undefined, data?: unknown) =>
-  apiRequest(api, "PATCH", path, token, data)
-export const apiPut = (api: APIRequestContext, path: string, token: string | undefined, data?: unknown) =>
-  apiRequest(api, "PUT", path, token, data)
-export const apiDelete = (api: APIRequestContext, path: string, token?: string) =>
-  apiRequest(api, "DELETE", path, token)
+export const apiGet = <T = any>(api: APIRequestContext, path: string, token?: string): Promise<T> =>
+  apiRequest<T>(api, "GET", path, token)
+export const apiPost = <T = any>(api: APIRequestContext, path: string, token: string | undefined, data?: unknown): Promise<T> =>
+  apiRequest<T>(api, "POST", path, token, data)
+export const apiPatch = <T = any>(api: APIRequestContext, path: string, token: string | undefined, data?: unknown): Promise<T> =>
+  apiRequest<T>(api, "PATCH", path, token, data)
+export const apiPut = <T = any>(api: APIRequestContext, path: string, token: string | undefined, data?: unknown): Promise<T> =>
+  apiRequest<T>(api, "PUT", path, token, data)
+export const apiDelete = <T = any>(api: APIRequestContext, path: string, token?: string): Promise<T> =>
+  apiRequest<T>(api, "DELETE", path, token)
 
 export async function loginViaApi(
   api: APIRequestContext,
@@ -68,7 +67,8 @@ export async function loginViaApi(
 ): Promise<ApiSession> {
   const res = await api.post(`${API_ORIGIN}/api/auth/login`, { data: { email, password } })
   const body = await readEnvelope(res, `login ${email}`)
-  return { token: body.data.accessToken, user: body.data.user }
+  const data = body?.data as { accessToken: string; user: ApiUser }
+  return { token: data.accessToken, user: data.user }
 }
 
 export async function registerStudentViaApi(
@@ -81,5 +81,6 @@ export async function registerStudentViaApi(
     data: { email, password, fullName },
   })
   const body = await readEnvelope(res, `register ${email}`)
-  return { token: body.data.accessToken, user: body.data.user }
+  const data = body?.data as { accessToken: string; user: ApiUser }
+  return { token: data.accessToken, user: data.user }
 }

@@ -29,13 +29,12 @@ import {
   PenTool01Icon,
   Book02Icon,
   HeadphonesIcon,
-  SparklesIcon,
   StarIcon,
   LayoutGridIcon,
   InformationCircleIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
-import { QUESTION_GROUP_CATEGORIES, QUESTION_GROUP_TYPE_LABEL, SKILL_LABEL } from "@/lib/format"
+import { QUESTION_GROUP_CATEGORIES, QUESTION_GROUP_TYPE_LABEL, SKILL_LABEL, removeAccents } from "@/lib/format"
 import type { CandidateSection, QuestionGroupType, SkillType } from "@/lib/api/types"
 
 const CATEGORY_ICON: Record<string, React.ComponentProps<typeof HugeiconsIcon>["icon"]> = {
@@ -191,15 +190,6 @@ const QUESTION_TYPE_DETAILS: Record<
 }
 
 /** Normalize string by removing Vietnamese diacritics for faster search */
-function removeAccents(str: string): string {
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase()
-}
-
 export interface QuestionTypePickerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void

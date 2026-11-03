@@ -1,10 +1,11 @@
 "use client"
 
+import { QueryError, DashboardSkeleton } from "@/components/shared/query-states"
+
 import * as React from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { StatCard } from "@/components/shared/stat-card"
 import {
@@ -24,9 +25,7 @@ import {
   Award01Icon,
   Calendar01Icon,
   SchoolIcon,
-  RefreshIcon,
 } from "@hugeicons/core-free-icons"
-import { ApiError } from "@/lib/api/client"
 import { useStudentDashboardQuery } from "@/hooks/use-dashboard"
 import { useStudentProgressQuery } from "@/hooks/use-analytics"
 import { useClassesQuery } from "@/hooks/use-classes"
@@ -39,50 +38,7 @@ function teacherNameOf(cls: ClassSummary): string | null {
   return t?.fullName ?? null
 }
 
-function DashboardError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message =
-    error instanceof ApiError
-      ? error.message
-      : "Không tải được dữ liệu tổng quan."
-  return (
-    <div className="rounded-2xl border border-border bg-card p-8 text-center space-y-3">
-      <p className="text-sm font-medium text-foreground">Không tải được dữ liệu</p>
-      <p className="text-xs text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium" onClick={onRetry}>
-        <HugeiconsIcon icon={RefreshIcon} size={14} />
-        <span>Thử lại</span>
-      </Button>
-    </div>
-  )
-}
 
-function DashboardSkeleton() {
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <Skeleton className="h-28 w-full rounded-2xl" />
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-28 w-full rounded-xl" />
-        ))}
-      </div>
-      <div className="space-y-3">
-        <Skeleton className="h-6 w-48" />
-        <Skeleton className="h-40 w-full rounded-xl" />
-      </div>
-      <div className="space-y-3">
-        <Skeleton className="h-6 w-48" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Skeleton className="h-20 w-full rounded-xl" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-        </div>
-      </div>
-      <div className="space-y-3">
-        <Skeleton className="h-6 w-48" />
-        <Skeleton className="h-48 w-full rounded-xl" />
-      </div>
-    </div>
-  )
-}
 
 export default function StudentDashboardPage() {
   const authUser = useAuthStore((s) => s.user)
@@ -92,12 +48,12 @@ export default function StudentDashboardPage() {
   const classesQuery = useClassesQuery()
 
   if (dashboardQuery.isLoading || progressQuery.isLoading || classesQuery.isLoading) {
-    return <DashboardSkeleton />
+    return <DashboardSkeleton variant="student" />
   }
   if (dashboardQuery.isError) {
     return (
       <div className="mx-auto max-w-6xl space-y-6">
-        <DashboardError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
+        <QueryError fallbackMessage="Không tải được dữ liệu tổng quan." error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
       </div>
     )
   }

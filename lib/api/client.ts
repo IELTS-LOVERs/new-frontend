@@ -6,7 +6,7 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
-    public details: any = null
+    public details: unknown = null
   ) {
     super(message)
     this.name = "ApiError"

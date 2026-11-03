@@ -1,5 +1,7 @@
 "use client"
 
+import { DetailSkeleton } from "@/components/shared/query-states"
+
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
@@ -7,7 +9,6 @@ import { parseAsString, useQueryState } from "nuqs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   ArrowLeft01Icon,
@@ -105,7 +106,7 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
   const [filter, setFilter] = useQueryState("filter", parseAsString.withDefault("all"))
 
   if (isLoading) {
-    return <DetailSkeleton />
+    return <DetailSkeleton variant="result" />
   }
 
   if (error || !result) {
@@ -140,8 +141,21 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
   const examTitle = exam?.title ?? "Bài thi"
   const isExpired = result.status === "expired"
 
-  // TODO(G5): hiện nút làm lại khi backend trả maxAttempts/attemptsUsed
-  const hasRetakeInfo = false
+  const isPractice =
+    result.examKind === "practice" || exam?.kind === "practice"
+  const backHref = isPractice ? "/student/practice" : "/student/exams"
+  const backLabel = isPractice ? "Quay lại luyện tập" : "Quay lại đề thi"
+
+  const canRetake = Boolean(result.canRetake)
+  const retakeHref = result.assignmentId
+    ? `/exam/start/${result.assignmentId}`
+    : result.examId
+      ? `/exam/start/practice/${result.examId}`
+      : backHref
+  const retakeCountLabel =
+    typeof result.maxAttempts === "number" && result.maxAttempts > 0
+      ? ` (${result.attemptsUsed ?? 1}/${result.maxAttempts})`
+      : ""
 
   // Map detail by questionId for quick lookup
   const detailByQuestionId = new Map<string, AttemptResultDetail>()
@@ -226,8 +240,6 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     }).length
   }
 
-  const isPractice =
-    result.examKind === "practice" || exam?.kind === "practice"
   const isRawDisplay = isPractice || result.scoreMode === "raw"
   const rawTotal = result.totalPoints ?? result.questionCount ?? 0
   const fallbackCorrect = result.details.filter(
@@ -258,9 +270,6 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     (d) => !(d.skill === "writing" || d.groupType?.startsWith("writing"))
   )
   const isObjectiveEmpty = isRawDisplay && objectiveDetails.length === 0
-
-  const backHref = isPractice ? "/student/practice" : "/student/exams"
-  const backLabel = isPractice ? "Quay lại luyện tập" : "Quay lại đề thi"
 
   const availableSkills = (["listening", "reading", "writing"] as const).filter(
     (k) => rowsBySkill[k].length > 0
@@ -322,11 +331,11 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
 
         {/* Action buttons: retake TODO(G5), progress, back */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {hasRetakeInfo && (
+          {canRetake && (
             <Button size="sm" asChild className="gap-1.5 font-medium text-xs">
-              <Link href={backHref}>
+              <Link href={retakeHref}>
                 <HugeiconsIcon icon={RotateRight01Icon} size={14} />
-                <span>Làm lại bài thi</span>
+                <span>Làm lại bài thi{retakeCountLabel}</span>
               </Link>
             </Button>
           )}
@@ -765,28 +774,3 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
 }
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
-function DetailSkeleton() {
-  return (
-    <div className="mx-auto max-w-5xl space-y-6 pb-12">
-      <Skeleton className="h-8 w-44" />
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
-        <div className="space-y-2 flex-1">
-          <Skeleton className="h-5 w-48" />
-          <Skeleton className="h-7 w-80" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <div className="flex gap-2">
-          <Skeleton className="h-8 w-28" />
-          <Skeleton className="h-8 w-28" />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-28 w-full rounded-xl" />
-        ))}
-      </div>
-      <Skeleton className="h-32 w-full rounded-xl" />
-      <Skeleton className="h-96 w-full rounded-xl" />
-    </div>
-  )
-}

@@ -1,5 +1,7 @@
 "use client"
 
+import { QueryError } from "@/components/shared/query-states"
+
 import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
@@ -26,7 +28,6 @@ import {
   Alert02Icon,
   Copy01Icon,
   MaximizeScreenIcon,
-  RefreshIcon,
 } from "@hugeicons/core-free-icons"
 import { toast } from "sonner"
 import { ApiError } from "@/lib/api/client"
@@ -74,19 +75,6 @@ function clearDraft(attemptId: string) {
   localStorage.removeItem(`grading-draft:${attemptId}`)
 }
 
-function QueryError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof ApiError ? error.message : "Không tải được dữ liệu chấm bài."
-  return (
-    <div className="rounded-2xl border border-border bg-card p-8 text-center space-y-3">
-      <p className="text-sm font-medium text-foreground">Không tải được dữ liệu</p>
-      <p className="text-xs text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium" onClick={onRetry}>
-        <HugeiconsIcon icon={RefreshIcon} size={14} />
-        <span>Thử lại</span>
-      </Button>
-    </div>
-  )
-}
 
 function GradingSkeleton() {
   return (

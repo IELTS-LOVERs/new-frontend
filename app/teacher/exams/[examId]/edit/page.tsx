@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,16 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
-import { Separator } from "@/components/ui/separator"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,11 +30,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Add01Icon,
@@ -50,9 +37,7 @@ import {
   ArrowLeft01Icon,
   Book02Icon,
   CheckmarkCircle02Icon,
-  Copy01Icon,
   Delete02Icon,
-  DragDropVerticalIcon,
   EyeIcon,
   HeadphonesIcon,
   Image01Icon,
@@ -61,11 +46,11 @@ import {
   MusicNote01Icon,
   PenTool01Icon,
   RefreshIcon,
-  Search01Icon,
   SparklesIcon,
   Tick02Icon,
   Upload04Icon,
 } from "@hugeicons/core-free-icons"
+import { ExamBuilderSidebar } from "@/features/exams/components/exam-builder-sidebar"
 import { cn, createClientId } from "@/lib/utils"
 import { toast } from "sonner"
 import { BandConversionDialog } from "@/features/exams/components/band-conversion-dialog"
@@ -76,13 +61,8 @@ import {
   useUpdateExamMutation,
   usePublishExamMutation,
 } from "@/hooks/use-exams"
-import { useQuestionsQuery, useCreateQuestionMutation } from "@/hooks/use-questions"
+import { useCreateQuestionMutation } from "@/hooks/use-questions"
 import { type CreateBankGroupPayload } from "@/lib/api/questions"
-import {
-  type CreateExamSectionPayload,
-  type QuestionItemPayload,
-  type TeacherExamDetail,
-} from "@/lib/api/exams"
 import {
   QUESTION_GROUP_TYPE_LABEL,
   SKILL_LABEL,
@@ -91,6 +71,7 @@ import {
 } from "@/lib/format"
 import type {
   BankQuestionGroup,
+  BuilderExam,
   CandidateExam,
   CandidateQuestionGroup,
   CandidateSection,
@@ -121,279 +102,20 @@ const SKILL_ICON: Record<SkillType, React.ComponentProps<typeof HugeiconsIcon>["
 
 const SKILL_ORDER: SkillType[] = ["listening", "reading", "writing"]
 
-/** IELTS structural limits per skill (matches the backend `part` 1..4 Zod cap). */
-const MAX_PARTS: Record<SkillType, number> = {
-  listening: 4,
-  reading: 3,
-  writing: 2,
-}
-
-/** Canonical titles generated for a freshly added section. Used to distinguish
- *  auto-generated titles from ones the teacher renamed by hand so that
- *  renumbering only rewrites the former. */
-const DEFAULT_SECTION_TITLE: Record<SkillType, RegExp> = {
-  listening: /^Listening\s+Part\s+\d+$/i,
-  reading: /^Reading\s+Passage\s+\d+$/i,
-  writing: /^Writing\s+Task\s+\d+$/i,
-}
-
-function defaultSectionTitle(skill: SkillType, part: number): string {
-  if (skill === "listening") return `Listening Part ${part}`
-  if (skill === "reading") return `Reading Passage ${part}`
-  return `Writing Task ${part}`
-}
-
-function isDefaultSectionTitle(skill: SkillType, title: string): boolean {
-  return DEFAULT_SECTION_TITLE[skill].test(title.trim())
-}
-
-/** Deep clone a JSON-serialisable value (question group config etc.). */
-function deepCloneValue<T>(value: T): T {
-  if (value === null || typeof value !== "object") return value
-  if (typeof structuredClone === "function") {
-    try {
-      return structuredClone(value)
-    } catch {
-      /* fall back to JSON round-trip below */
-    }
-  }
-  return JSON.parse(JSON.stringify(value)) as T
-}
-
-/** Total number of questions inside a section. */
-function countSectionQuestions(section: CandidateSection): number {
-  return (section.questionGroups ?? []).reduce((acc, g) => acc + g.questions.length, 0)
-}
-
-/**
- * Ensure parts are numbered `1..n` within each skill (in array order). Sections
- * whose title is still the auto-generated default are renamed to match the new
- * part number; custom titles are preserved.
- */
-function renormalizeSections(sections: CandidateSection[]): CandidateSection[] {
-  const counters: Record<SkillType, number> = { listening: 0, reading: 0, writing: 0 }
-  return sections.map((section) => {
-    counters[section.skill] += 1
-    const part = counters[section.skill]
-    const title = isDefaultSectionTitle(section.skill, section.title)
-      ? defaultSectionTitle(section.skill, part)
-      : section.title
-    if (section.part === part && section.title === title) return section
-    return { ...section, part, title }
-  })
-}
-
-/**
- * Renumber every question continuously per skill, starting at 1 and flowing
- * across groups and parts (Listening Part 1: Q1–Q10 → Part 2: Q11–Q20…).
- */
-function renumberAllQuestions(sections: CandidateSection[]): CandidateSection[] {
-  const counters: Record<SkillType, number> = { listening: 0, reading: 0, writing: 0 }
-  return sections.map((section) => {
-    let changed = false
-    const questionGroups = (section.questionGroups ?? []).map((group) => {
-      const oldNumbers = group.questions.map((question) => question.questionNumber)
-      const newNumbers: number[] = []
-      let groupChanged = false
-      const questions = group.questions.map((question) => {
-        counters[section.skill] += 1
-        const questionNumber = counters[section.skill]
-        newNumbers.push(questionNumber)
-        if (question.questionNumber === questionNumber) return question
-        groupChanged = true
-        return { ...question, questionNumber }
-      })
-      const config = group.config
-      let nextConfig = config
-      if (typeof config?.template === "string") {
-        const template = alignTemplatePlaceholders(
-          config.template,
-          oldNumbers,
-          newNumbers
-        )
-        if (template !== config.template) {
-          nextConfig = { ...config, template }
-          groupChanged = true
-        }
-      }
-      if (!groupChanged) return group
-      changed = true
-      return { ...group, config: nextConfig, questions }
-    })
-    return changed ? { ...section, questionGroups } : section
-  })
-}
-
-/** Structural normalisation applied whenever parts are added / removed / moved. */
-function renumberEverything(sections: CandidateSection[]): CandidateSection[] {
-  return renumberAllQuestions(renormalizeSections(sections))
-}
-
-/**
- * Deep copy a section, minting fresh client ids for the section, its question
- * groups and its questions so the backend treats them as brand-new entities.
- */
-function cloneSection(section: CandidateSection): CandidateSection {
-  return {
-    ...section,
-    id: undefined,
-    mediaIds: section.mediaIds ? [...section.mediaIds] : undefined,
-    media: (section.media ?? []).map((m) => ({ ...m })),
-    questionGroups: (section.questionGroups ?? []).map((group) => ({
-      ...group,
-      id: createClientId("dup-group"),
-      config: deepCloneValue(group.config),
-      questions: group.questions.map((question) => ({
-        ...question,
-        id: createClientId("dup-q"),
-      })),
-    })),
-  }
-}
-
-/**
- * Client-side pre-flight for autosave: skip the network call while the exam is
- * clearly invalid (e.g. the teacher is mid-typing a short title or cleared the
- * duration field), avoiding a flood of 400 VALIDATION_ERROR responses.
- * Mirrors `CreateExamSchema` in the backend.
- */
-function firstDraftValidationIssue(exam: CandidateExam): string | null {
-  if (exam.title.trim().length < 3) return "Tiêu đề cần tối thiểu 3 ký tự."
-  if (exam.durationMinutes < 10 || exam.durationMinutes > 180) {
-    return "Thời lượng phải trong khoảng 10–180 phút."
-  }
-  return null
-}
-
-interface Issue {
-  level: "error" | "warning"
-  message: string
-  sectionIndex?: number
-}
-
-// Convert API TeacherExamDetail -> local CandidateExam (builder source of truth)
-function toLocalExam(detail: TeacherExamDetail): CandidateExam {
-  return {
-    id: detail.id,
-    title: detail.title,
-    description: detail.description ?? null,
-    bannerUrl: detail.bannerUrl ?? null,
-    durationMinutes: detail.durationMinutes,
-    kind: detail.kind,
-    scoringMode: detail.scoringMode,
-    bandConversion: detail.bandConversion,
-    disableTextSelection: detail.disableTextSelection ?? false,
-    curriculum: detail.curriculum,
-    sections: detail.sections
-      // Defensive: ignore any legacy sections whose skill is no longer supported.
-      .filter((s) => s.skill === "listening" || s.skill === "reading" || s.skill === "writing")
-      .map((s) => {
-      const questionGroups: CandidateQuestionGroup[] = (s.questionGroups ?? []).map((g) => ({
-        id: g.id,
-        groupType: g.groupType,
-        instructions: g.instructions,
-        instructionsDoc: g.instructionsDoc ?? null,
-        config: g.config as any,
-        media: g.media ?? [],
-        questions: g.questions.map((q) => ({
-          id: q.id,
-          questionNumber: q.questionNumber,
-          prompt: q.prompt,
-          promptDoc: q.promptDoc ?? null,
-          points: q.points,
-          acceptedAnswers: (q as any).acceptedAnswers ?? [],
-          explanation: (q as any).explanation ?? undefined,
-          mediaIds: q.mediaIds,
-        })),
-      }))
-      return {
-        id: s.id,
-        skill: s.skill,
-        part: s.part,
-        title: s.title,
-        instructions: s.instructions ?? "",
-        instructionsDoc: s.instructionsDoc ?? null,
-        passageText: s.passageText ?? "",
-        passageDoc: s.passageDoc ?? null,
-        transcript: s.transcript ?? "",
-        mediaIds: s.mediaIds ?? [],
-        media: s.media ?? [],
-        questionGroups,
-      } as CandidateSection
-    }),
-  }
-}
-
-const isValidObjectId = (id?: string | null) => Boolean(id && /^[0-9a-fA-F]{24}$/.test(id))
-
-/** Convert a datetime-local value into an ISO string, or undefined when invalid/empty. */
-function toIsoOrUndefined(value: string): string | undefined {
-  if (!value) return undefined
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
-}
-
-// Convert local CandidateExam -> PUT payload
-function toUpdatePayload(exam: CandidateExam, openAt: string, closeAt: string) {
-  const sections: CreateExamSectionPayload[] = exam.sections.map((s) => ({
-    _id: isValidObjectId(s.id) ? s.id : undefined,
-    skill: s.skill,
-    part: s.part,
-    title: s.title,
-    instructions: s.instructions ?? "",
-    instructionsDoc: s.instructionsDoc ?? undefined,
-    passageText: s.skill === "reading" ? (s.passageText ?? "") : undefined,
-    passageDoc: s.skill === "reading" ? (s.passageDoc ?? undefined) : undefined,
-    transcript: s.skill === "listening" ? (s.transcript ?? "") : undefined,
-    // Prefer media picked in this session; otherwise fall back to the persisted
-    // mediaIds. The teacher detail endpoint does not hydrate `media` objects,
-    // so without this fallback every autosave would wipe section audio/images.
-    mediaIds:
-      (s.media ?? []).length > 0 ? (s.media ?? []).map((m) => m.id) : (s.mediaIds ?? []),
-    questionGroups: (s.questionGroups ?? []).map((g) => ({
-      _id: isValidObjectId(g.id) ? g.id : undefined,
-      groupType: g.groupType,
-      instructions: g.instructions ?? "",
-      instructionsDoc: g.instructionsDoc ?? undefined,
-      config: g.config ?? {},
-      questions: g.questions.map(
-        (q) =>
-          ({
-            _id: isValidObjectId(q.id) ? q.id : undefined,
-            questionNumber: q.questionNumber,
-            prompt: q.prompt ?? "",
-            promptDoc: q.promptDoc ?? undefined,
-            acceptedAnswers: (q as any).acceptedAnswers ?? [],
-            points: q.points ?? 1,
-            explanation: (q as any).explanation ?? undefined,
-            mediaIds: q.mediaIds,
-          }) as QuestionItemPayload
-      ),
-    })),
-  }))
-  return {
-    title: exam.title,
-    description: exam.description ?? undefined,
-    bannerUrl: exam.bannerUrl ?? undefined,
-    durationMinutes: exam.durationMinutes,
-    kind: exam.kind,
-    scoringMode: exam.scoringMode,
-    bandConversion: exam.bandConversion,
-    disableTextSelection: exam.disableTextSelection ?? false,
-    curriculum: exam.curriculum,
-    sections,
-    openAt: toIsoOrUndefined(openAt),
-    closeAt: toIsoOrUndefined(closeAt),
-  }
-}
-
-function toLocalInputValue(iso?: string | null): string {
-  if (!iso) return ""
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ""
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+import {
+  MAX_PARTS,
+  defaultSectionTitle,
+  isDefaultSectionTitle,
+  countSectionQuestions,
+  renumberEverything,
+  cloneSection,
+  firstDraftValidationIssue,
+  type Issue,
+  toLocalExam,
+  toUpdatePayload,
+  toLocalInputValue,
+} from "@/features/exams/lib/exam-builder-helpers"
+import { BankGroupSheet } from "@/features/exams/components/bank-group-sheet"
 
 export default function ExamBuilderPage() {
   const params = useParams<{ examId: string }>()
@@ -405,7 +127,7 @@ export default function ExamBuilderPage() {
   const createQuestionMutation = useCreateQuestionMutation()
 
   // ----- Local builder state (source of truth khi đang soạn) -----
-  const [exam, setExam] = React.useState<CandidateExam | null>(null)
+  const [exam, setExam] = React.useState<BuilderExam | null>(null)
   const [status, setStatus] = React.useState<"draft" | "published" | "closed">("draft")
   const [openAt, setOpenAt] = React.useState<string>("")
   const [closeAt, setCloseAt] = React.useState<string>("")
@@ -665,7 +387,7 @@ export default function ExamBuilderPage() {
         }
         if (section.skill !== "writing") {
           g.questions.forEach((q) => {
-            const answers = (q as any).acceptedAnswers ?? []
+            const answers = q.acceptedAnswers ?? []
             if (answers.length === 0) {
               list.push({
                 level: "error",
@@ -835,7 +557,7 @@ export default function ExamBuilderPage() {
   const addQuestionGroup = (groupType: QuestionGroupType) => {
     if (!active || !exam) return
     const groups = active.questionGroups ?? []
-    const config = defaultGroupConfig(groupType) as any
+    const config = defaultGroupConfig(groupType)
     // "Choose TWO letters" is authored as one answer box per correct letter
     // (Q9, Q10…), otherwise the whole group collapses into a single number.
     const seededCount =
@@ -1445,161 +1167,28 @@ export default function ExamBuilderPage() {
       {/* 3-column layout */}
       <div className="mt-5 grid flex-1 grid-cols-1 gap-5 lg:grid-cols-[15rem_1fr_18rem]">
         {/* Outline */}
-        <Card className="h-fit border-border shadow-xs">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-border pb-3">
-            <CardTitle className="font-heading text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Cấu trúc đề
-            </CardTitle>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={examReadonly}
-                  onClick={handleRenumberAll}
-                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                >
-                  <HugeiconsIcon icon={RefreshIcon} size={13} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Đánh số lại câu hỏi</TooltipContent>
-            </Tooltip>
-          </CardHeader>
-          <CardContent className="space-y-4 p-3">
-            {grouped.map((group) => (
-              <div key={group.skill} className="space-y-1">
-                <div className="flex items-center gap-2 px-2 py-1 text-xs font-semibold text-foreground">
-                  <HugeiconsIcon icon={SKILL_ICON[group.skill]} size={14} className="text-primary" />
-                  {SKILL_LABEL[group.skill]}
-                </div>
-                {group.sections.map(({ section, index }) => {
-                  const groups = section.questionGroups ?? []
-                  const count = groups.reduce((acc, g) => acc + g.questions.length, 0)
-                  const missing =
-                    (section.skill === "listening" &&
-                      !((section.media ?? []).length > 0 || (section.mediaIds?.length ?? 0) > 0)) ||
-                    (section.skill === "reading" && !section.passageText?.trim())
-                  const atMaxParts =
-                    exam.sections.filter((s) => s.skill === section.skill).length >=
-                    MAX_PARTS[section.skill]
-                  const isDropTarget =
-                    dropTarget?.index === index && dragIndex !== null && dragIndex !== index
-                  const isDragging = dragIndex === index
-                  return (
-                    <div key={section.id ?? `${section.skill}-${index}`} className="relative">
-                      {isDropTarget && dropTarget?.position === "top" && (
-                        <span className="pointer-events-none absolute -top-1 right-1 left-1 z-10 h-0.5 rounded-full bg-primary" />
-                      )}
-                      <div
-                        draggable={!examReadonly}
-                        onDragStart={(e) => handleDragStart(e, index)}
-                        onDragEnd={handleDragEnd}
-                        onDragOver={(e) => handleDragOver(e, index)}
-                        onDragLeave={(e) => handleDragLeave(e, index)}
-                        onDrop={(e) => handleDropSection(e, index)}
-                        className={cn(
-                          "group flex w-full items-center justify-between gap-1 rounded-lg px-2 py-1.5 transition-colors",
-                          activeIndex === index
-                            ? "bg-primary/10 font-semibold text-primary"
-                            : "text-muted-foreground hover:bg-muted",
-                          !examReadonly && "cursor-grab active:cursor-grabbing",
-                          isDragging && "opacity-40"
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setActiveIndex(index)}
-                          className="flex flex-1 items-center justify-between gap-2 text-left text-xs truncate"
-                        >
-                          <span className="truncate">
-                            {section.skill === "reading"
-                              ? `Passage ${section.part}`
-                              : section.skill === "writing"
-                                ? `Task ${section.part}`
-                                : `Part ${section.part}`}
-                          </span>
-                          <span className="flex items-center gap-1 shrink-0">
-                            {count > 0 && <span className="font-mono text-[10px]">({count})</span>}
-                            {(count === 0 || missing) && (
-                              <HugeiconsIcon icon={Alert02Icon} size={12} className="text-amber-600" />
-                            )}
-                          </span>
-                        </button>
-                        {!examReadonly && (
-                          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                            <span
-                              aria-hidden
-                              title="Kéo để đổi thứ tự"
-                              className="flex h-5 w-5 items-center justify-center text-muted-foreground/60"
-                            >
-                              <HugeiconsIcon icon={DragDropVerticalIcon} size={13} />
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              disabled={atMaxParts}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                duplicateSection(index)
-                              }}
-                              className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-                              title={
-                                atMaxParts
-                                  ? `${SKILL_LABEL[section.skill]} đã đủ ${MAX_PARTS[section.skill]} phần`
-                                  : "Nhân bản phần này"
-                              }
-                            >
-                              <HugeiconsIcon icon={Copy01Icon} size={11} />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                requestRemoveSection(index)
-                              }}
-                              className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
-                              title="Xoá phần này"
-                            >
-                              <HugeiconsIcon icon={Delete02Icon} size={11} />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                      {isDropTarget && dropTarget?.position === "bottom" && (
-                        <span className="pointer-events-none absolute -bottom-1 right-1 left-1 z-10 h-0.5 rounded-full bg-primary" />
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
-
-            <Separator />
-            <div className="space-y-1">
-              <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Thêm phần
-              </p>
-              {SKILL_ORDER.map((skill) => {
-                const atMax = (exam.sections.filter((s) => s.skill === skill).length ?? 0) >= MAX_PARTS[skill]
-                return (
-                  <Button
-                    key={skill}
-                    variant="ghost"
-                    size="sm"
-                    disabled={examReadonly || atMax}
-                    title={atMax ? `${SKILL_LABEL[skill]} đã đủ ${MAX_PARTS[skill]} phần` : undefined}
-                    onClick={() => addSection(skill)}
-                    className="w-full justify-start gap-2 text-xs"
-                  >
-                    <HugeiconsIcon icon={Add01Icon} size={13} />
-                    {SKILL_LABEL[skill]}
-                  </Button>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
+        <ExamBuilderSidebar
+          exam={exam}
+          examReadonly={examReadonly}
+          activeIndex={activeIndex}
+          setActiveIndex={setActiveIndex}
+          onRenumberAll={handleRenumberAll}
+          onAddSection={addSection}
+          onDuplicateSection={duplicateSection}
+          onRequestRemoveSection={requestRemoveSection}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDropSection={handleDropSection}
+          dropTarget={dropTarget}
+          dragIndex={dragIndex}
+          grouped={grouped}
+          skillIcon={SKILL_ICON}
+          skillLabel={SKILL_LABEL}
+          maxParts={MAX_PARTS}
+          skillOrder={SKILL_ORDER}
+        />
 
         {/* Workspace */}
         <div ref={workspaceRef} className="min-w-0 space-y-4">
@@ -2118,9 +1707,12 @@ export default function ExamBuilderPage() {
 
                 {exam.bannerUrl ? (
                   <div className="relative group overflow-hidden rounded-lg border border-border bg-muted/20">
-                    <img
+                    <Image
                       src={exam.bannerUrl}
                       alt="Banner đề thi"
+                      width={1200}
+                      height={224}
+                      unoptimized
                       className="w-full h-28 object-cover transition-transform group-hover:scale-105"
                     />
                     {!examReadonly && (
@@ -2473,150 +2065,3 @@ export default function ExamBuilderPage() {
   )
 }
 
-function BankGroupSheet({
-  open,
-  onOpenChange,
-  section,
-  onAddGroups,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  section?: CandidateSection
-  onAddGroups: (groups: BankQuestionGroup[]) => void
-}) {
-  const [query, setQuery] = React.useState("")
-  const [selected, setSelected] = React.useState<string[]>([])
-
-  // Reset selection khi Sheet đóng → mở lại: dùng key ở component cha.
-  // Tại đây chỉ reset khi open chuyển false → true thông qua onOpenChange của Sheet.
-  const handleOpenChange = (next: boolean) => {
-    if (next) {
-      setSelected([])
-      setQuery("")
-    }
-    onOpenChange(next)
-  }
-
-  const bankQuery = useQuestionsQuery(
-    {
-      skill: section?.skill,
-      part: section?.part,
-      scope: "all",
-      search: query || undefined,
-      limit: 50,
-    },
-    open && !!section
-  )
-
-  const candidates: BankQuestionGroup[] = bankQuery.data?.items ?? []
-
-  const toggle = (id: string) =>
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-
-  const handleAdd = () => {
-    const selectedGroups = candidates.filter((g) => selected.includes(g.id))
-    onAddGroups(selectedGroups)
-  }
-
-  return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent className="w-full sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle className="font-heading text-lg font-bold">Thêm nhóm câu hỏi từ ngân hàng</SheetTitle>
-          <SheetDescription className="text-xs">
-            Đã lọc theo {section && SKILL_LABEL[section.skill]} · Part {section?.part}. Nhóm được chèn dưới dạng bản sao và đánh số lại.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 px-6 pb-6">
-          <div className="relative">
-            <HugeiconsIcon icon={Search01Icon} size={15} className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Tìm nhóm câu hỏi..."
-              className="h-9 pl-9 text-sm"
-            />
-          </div>
-          <ScrollArea className="min-h-48 flex-1">
-            <div className="space-y-2 pr-2">
-              {bankQuery.isLoading ? (
-                <div className="space-y-2 py-2">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-14 w-full" />
-                  ))}
-                </div>
-              ) : bankQuery.isError ? (
-                <div className="flex flex-col items-center gap-2 py-10 text-center">
-                  <p className="text-xs text-muted-foreground">
-                    {bankQuery.error instanceof ApiError
-                      ? bankQuery.error.message
-                      : "Không tải được ngân hàng câu hỏi."}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 text-xs"
-                    onClick={() => bankQuery.refetch()}
-                  >
-                    <HugeiconsIcon icon={RefreshIcon} size={13} /> Thử lại
-                  </Button>
-                </div>
-              ) : candidates.length === 0 ? (
-                <p className="py-10 text-center text-xs text-muted-foreground">
-                  Không tìm thấy nhóm câu hỏi phù hợp với phần này.
-                </p>
-              ) : (
-                candidates.map((g) => {
-                  const checked = selected.includes(g.id)
-                  return (
-                    <button
-                      key={g.id}
-                      type="button"
-                      onClick={() => toggle(g.id)}
-                      className={cn(
-                        "flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
-                        checked ? "border-primary bg-primary/5" : "border-border hover:bg-muted"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border",
-                          checked ? "border-primary bg-primary text-primary-foreground" : "border-border"
-                        )}
-                      >
-                        {checked && <HugeiconsIcon icon={Tick02Icon} size={11} />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-[10px] font-semibold">
-                            {QUESTION_GROUP_TYPE_LABEL[g.groupType] || g.groupType}
-                          </Badge>
-                          <span className="text-[11px] text-muted-foreground">
-                            {g.questions.length} câu · Part {g.part}
-                          </span>
-                        </span>
-                        <span className="mt-1 block truncate text-sm font-medium text-foreground">
-                          {g.instructions || g.questions[0]?.prompt || "—"}
-                        </span>
-                      </span>
-                    </button>
-                  )
-                })
-              )}
-            </div>
-          </ScrollArea>
-          <div className="flex items-center justify-between border-t border-border pt-3">
-            <span className="text-xs text-muted-foreground">Đã chọn {selected.length} nhóm</span>
-            <Button
-              disabled={selected.length === 0}
-              onClick={handleAdd}
-              className="font-semibold"
-            >
-              Thêm {selected.length > 0 ? `${selected.length} ` : ""}nhóm
-            </Button>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
-  )
-}

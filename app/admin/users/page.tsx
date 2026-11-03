@@ -1,5 +1,7 @@
 "use client"
 
+import { QueryError, TableSkeleton } from "@/components/shared/query-states"
+
 import * as React from "react"
 import Link from "next/link"
 import { parseAsString, parseAsInteger, useQueryState } from "nuqs"
@@ -8,7 +10,6 @@ import { StatCard } from "@/components/shared/stat-card"
 import { EmptyState } from "@/components/shared/empty-state"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -51,7 +52,6 @@ import {
   LockIcon,
   Logout01Icon,
   MoreHorizontalIcon,
-  RefreshIcon,
   Search01Icon,
   Shield01Icon,
   UserAdd01Icon,
@@ -90,31 +90,7 @@ function randomPassword() {
   return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
 }
 
-function QueryError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof ApiError ? error.message : "Không tải được danh sách người dùng."
-  return (
-    <div className="rounded-2xl border border-border bg-card p-8 text-center space-y-3">
-      <p className="text-sm font-medium text-foreground">Không tải được dữ liệu</p>
-      <p className="text-xs text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium" onClick={onRetry}>
-        <HugeiconsIcon icon={RefreshIcon} size={14} />
-        <span>Thử lại</span>
-      </Button>
-    </div>
-  )
-}
 
-function TableSkeleton() {
-  return (
-    <Card className="border-border shadow-xs">
-      <CardContent className="p-4 space-y-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-10 w-full rounded-lg" />
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
 
 export default function AdminUsersPage() {
   const [query, setQuery] = React.useState("")
@@ -293,7 +269,7 @@ export default function AdminUsersPage() {
       </Card>
 
       {usersQuery.isLoading ? (
-        <TableSkeleton />
+        <TableSkeleton rows={6} />
       ) : usersQuery.isError ? (
         <QueryError error={usersQuery.error} onRetry={() => usersQuery.refetch()} />
       ) : filtered.length === 0 ? (

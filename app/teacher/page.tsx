@@ -1,5 +1,7 @@
 "use client"
 
+import { QueryError, DashboardSkeleton } from "@/components/shared/query-states"
+
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -25,10 +27,8 @@ import {
   ArrowRight01Icon,
   Add01Icon,
   CheckmarkCircle02Icon,
-  RefreshIcon,
   SchoolIcon,
 } from "@hugeicons/core-free-icons"
-import { ApiError } from "@/lib/api/client"
 import { useTeacherDashboardQuery } from "@/hooks/use-dashboard"
 import { usePendingGradingQuery } from "@/hooks/use-grading"
 import { useSuspiciousAttemptsQuery } from "@/hooks/use-admin"
@@ -38,34 +38,7 @@ import { useClassesQuery } from "@/hooks/use-classes"
 import { useClassAnalyticsQueries } from "@/hooks/use-analytics"
 import { formatBand, formatDate, deadlineLabel } from "@/lib/format"
 
-function DashboardError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof ApiError ? error.message : "Không tải được dữ liệu tổng quan."
-  return (
-    <div className="rounded-2xl border border-border bg-card p-8 text-center space-y-3">
-      <p className="text-sm font-medium text-foreground">Không tải được dữ liệu</p>
-      <p className="text-xs text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium" onClick={onRetry}>
-        <HugeiconsIcon icon={RefreshIcon} size={14} />
-        <span>Thử lại</span>
-      </Button>
-    </div>
-  )
-}
 
-function DashboardSkeleton() {
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <Skeleton className="h-20 w-full rounded-2xl" />
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-28 w-full rounded-xl" />
-        ))}
-      </div>
-      <Skeleton className="h-52 w-full rounded-xl" />
-      <Skeleton className="h-64 w-full rounded-xl" />
-    </div>
-  )
-}
 
 export default function TeacherDashboardPage() {
   const dashboardQuery = useTeacherDashboardQuery()
@@ -88,7 +61,7 @@ export default function TeacherDashboardPage() {
   if (dashboardQuery.isError) {
     return (
       <div className="mx-auto max-w-6xl space-y-6">
-        <DashboardError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
+        <QueryError fallbackMessage="Không tải được dữ liệu tổng quan." error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
       </div>
     )
   }

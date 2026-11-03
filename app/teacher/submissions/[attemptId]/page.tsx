@@ -1,5 +1,7 @@
 "use client"
 
+import { QueryError, DetailSkeleton } from "@/components/shared/query-states"
+
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
@@ -27,9 +29,8 @@ import {
   WifiOff01Icon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
-import { formatBand, formatDate, formatDurationHuman, isSuspiciouslyFast, formatDuration } from "@/lib/format"
+import { formatBand, formatDate, formatDurationHuman, isSuspiciouslyFast } from "@/lib/format"
 import type { AntiCheatEvent, AttemptResult } from "@/lib/api/types"
-import { ApiError } from "@/lib/api/client"
 import { useAttemptResultQuery, useAttemptEventsQuery } from "@/hooks/use-attempts"
 
 const EVENT_META: Record<
@@ -54,33 +55,7 @@ const ANSWER_FILTERS = [
   { value: "blank", label: "Bỏ trống" },
 ]
 
-function QueryError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof ApiError ? error.message : "Không tải được dữ liệu bài nộp."
-  return (
-    <div className="rounded-2xl border border-border bg-card p-8 text-center space-y-3">
-      <p className="text-sm font-medium text-foreground">Không tải được dữ liệu</p>
-      <p className="text-xs text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium" onClick={onRetry}>
-        <HugeiconsIcon icon={RefreshIcon} size={14} />
-        <span>Thử lại</span>
-      </Button>
-    </div>
-  )
-}
 
-function DetailSkeleton() {
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <Skeleton className="h-20 w-full rounded-2xl" />
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-28 w-full rounded-xl" />
-        ))}
-      </div>
-      <Skeleton className="h-72 w-full rounded-xl" />
-    </div>
-  )
-}
 
 export default function TeacherSubmissionDetailPage() {
   const params = useParams<{ attemptId: string }>()
@@ -409,14 +384,14 @@ export default function TeacherSubmissionDetailPage() {
                                 {formatDate(ev.timestamp)}
                               </span>
                             </div>
-                            {ev.metadata?.durationMs && (
+                            {typeof ev.metadata?.durationMs === "number" && (
                               <p className="mt-0.5 text-[11px] text-muted-foreground">
                                 Rời {Math.round(ev.metadata.durationMs / 1000)} giây
                               </p>
                             )}
-                            {ev.metadata?.target && (
+                            {typeof ev.metadata?.target === "string" && (
                               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                Tại: {String(ev.metadata.target).replace(/_/g, " ")}
+                                Tại: {ev.metadata.target.replace(/_/g, " ")}
                               </p>
                             )}
                           </li>

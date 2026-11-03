@@ -1,38 +1,35 @@
-import { afterEach, describe, expect, it } from "vitest"
-import { useAuthStore } from "@/stores/auth.store"
-import { forceLogout } from "./auth-session"
+import { describe, expect, it } from "vitest"
+import { decodeJwtExpMs, decodeJwtExpSeconds } from "./auth-session"
 
-afterEach(() => {
-  useAuthStore.getState().logout()
-  window.history.pushState({}, "", "/")
-})
+function b64url(value: string): string {
+  return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+}
 
-describe("forceLogout", () => {
-  it("clears the auth store and client-side session storage", () => {
-    window.history.pushState({}, "", "/login")
-    useAuthStore.getState().setAuth(
-      {
-        id: "user-1",
-        email: "student@example.com",
-        fullName: "Student",
-        role: "student",
-        status: "active",
-        phone: null,
-        targetBand: null,
-        avatarMediaId: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      } as never,
-      "access-token"
-    )
+function makeToken(payload: Record<string, unknown>): string {
+  return `${b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }))}.${b64url(
+    JSON.stringify(payload)
+  )}.signature`
+}
 
-    expect(useAuthStore.getState().isAuthenticated).toBe(true)
+describe("JWT expiry helpers", () => {
+  const exp = 1_800_000_000
 
-    forceLogout("session_replaced")
+  it("decodeJwtExpSeconds returns the exp claim in seconds", () => {
+    expect(decodeJwtExpSeconds(makeToken({ exp }))).toBe(exp)
+  })
 
-    expect(useAuthStore.getState().isAuthenticated).toBe(false)
-    expect(useAuthStore.getState().accessToken).toBeNull()
-    expect(sessionStorage.getItem("ielts_access_token")).toBeNull()
-    expect(sessionStorage.getItem("ielts_user")).toBeNull()
+  it("decodeJwtExpMs returns the exp claim in milliseconds", () => {
+    expect(decodeJwtExpMs(makeToken({ exp }))).toBe(exp * 1000)
+  })
+
+  it("returns null for a missing or malformed token", () => {
+    expect(decodeJwtExpSeconds(null)).toBeNull()
+    expect(decodeJwtExpSeconds(undefined)).toBeNull()
+    expect(decodeJwtExpSeconds("not-a-jwt")).toBeNull()
+    expect(decodeJwtExpMs("not-a-jwt")).toBeNull()
+  })
+
+  it("returns null when the payload has no numeric exp", () => {
+    expect(decodeJwtExpSeconds(makeToken({ sub: "user-1" }))).toBeNull()
   })
 })

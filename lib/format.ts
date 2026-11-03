@@ -1,6 +1,6 @@
 import { format, formatDistanceToNow, isValid, parseISO } from "date-fns"
 import { vi } from "date-fns/locale"
-import type { QuestionType, QuestionGroupType, SkillType } from "@/lib/api/types"
+import type { QuestionGroupType, SkillType } from "@/lib/api/types"
 
 export function formatBand(value?: number | null): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—"
@@ -21,6 +21,27 @@ export function formatDate(value?: string | null): string {
 export function formatDateShort(value?: string | null): string {
   const date = toDate(value)
   return date ? format(date, "dd/MM/yyyy", { locale: vi }) : "—"
+}
+
+/**
+ * Format a `YYYY-MM-DD` day key as `DD/MM` (weekly report headers).
+ * Separate from {@link formatDateShort}, which returns a full date and reads ISO
+ * timestamps.
+ */
+export function formatDayMonth(dateStr: string): string {
+  const parts = dateStr.split("-")
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}`
+  return dateStr
+}
+
+/** Lowercase + strip Vietnamese diacritics for accent-insensitive search. */
+export function removeAccents(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
 }
 
 export function formatRelative(value?: string | null): string {
@@ -100,30 +121,6 @@ export const SKILL_COLOR_VAR: Record<SkillType, string> = {
   writing: "var(--chart-3)",
 }
 
-export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
-  multiple_choice: "Multiple choice",
-  multiple_choice_single: "Multiple choice (chọn 1)",
-  multiple_choice_multiple: "Multiple choice (chọn nhiều)",
-  form_completion: "Form completion",
-  note_completion: "Note completion",
-  table_completion: "Table completion",
-  sentence_completion: "Sentence completion",
-  matching: "Matching",
-  map_labelling: "Map labelling",
-  diagram_labelling: "Diagram labelling",
-  matching_headings: "Matching headings",
-  matching_information: "Matching information",
-  matching_features: "Matching features",
-  matching_sentence_endings: "Matching sentence endings",
-  summary_completion: "Summary completion",
-  true_false_not_given: "True / False / Not Given",
-  yes_no_not_given: "Yes / No / Not Given",
-  short_answer: "Short-answer questions",
-  flow_chart_completion: "Flow-chart completion",
-  writing_task_1: "Writing Task 1",
-  writing_task_2: "Writing Task 2",
-}
-
 export const QUESTION_GROUP_TYPE_LABEL: Record<QuestionGroupType, string> = {
   multiple_choice_single: "Multiple choice (chọn 1)",
   multiple_choice_multiple: "Multiple choice (chọn nhiều)",
@@ -193,8 +190,6 @@ export const QUESTION_GROUP_CATEGORIES: Array<{
     types: ["writing_task_1", "writing_task_2"],
   },
 ]
-
-export const QUESTION_TYPES = Object.keys(QUESTION_TYPE_LABEL) as QuestionType[]
 
 export function initials(name: string): string {
   return name
