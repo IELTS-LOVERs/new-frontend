@@ -7,16 +7,9 @@ const eslintConfig = defineConfig([
   ...nextTs,
   {
     rules: {
-      // Codebase sử dụng `any` cho envelope JSON / DTO động từ backend.
+      // Codebase dùng `any` cho envelope JSON / DTO động từ backend.
       // Tắt rule này để tránh vi phạm hàng loạt không cần thiết.
       "@typescript-eslint/no-explicit-any": "off",
-    },
-  },
-  {
-    // Node build scripts dùng CommonJS (`require`) theo thiết kế.
-    files: ["**/*.cjs"],
-    rules: {
-      "@typescript-eslint/no-require-imports": "off",
     },
   },
   // Override default ignores of eslint-config-next.

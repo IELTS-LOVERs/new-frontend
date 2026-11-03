@@ -1,13 +1,12 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useParams } from "next/navigation"
 import { parseAsString, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatCard } from "@/components/shared/stat-card"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -32,7 +31,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { useClassDetailQuery } from "@/hooks/use-classes"
 import { useClassWeeklyReportQuery } from "@/hooks/use-practice"
-import { getClassWeeklyReportCsvUrl, downloadWeeklyReportCsvApi } from "@/lib/api/practice"
+import { downloadWeeklyReportCsvApi } from "@/lib/api/practice"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 

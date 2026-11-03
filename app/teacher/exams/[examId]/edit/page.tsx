@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -2118,9 +2119,12 @@ export default function ExamBuilderPage() {
 
                 {exam.bannerUrl ? (
                   <div className="relative group overflow-hidden rounded-lg border border-border bg-muted/20">
-                    <img
+                    <Image
                       src={exam.bannerUrl}
                       alt="Banner đề thi"
+                      width={1200}
+                      height={224}
+                      unoptimized
                       className="w-full h-28 object-cover transition-transform group-hover:scale-105"
                     />
                     {!examReadonly && (

@@ -27,7 +27,7 @@ import {
   WifiOff01Icon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
-import { formatBand, formatDate, formatDurationHuman, isSuspiciouslyFast, formatDuration } from "@/lib/format"
+import { formatBand, formatDate, formatDurationHuman, isSuspiciouslyFast } from "@/lib/format"
 import type { AntiCheatEvent, AttemptResult } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useAttemptResultQuery, useAttemptEventsQuery } from "@/hooks/use-attempts"

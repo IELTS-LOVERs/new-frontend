@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test"
-import { disableFullscreenGate } from "./helpers"
 import { apiGet, apiPatch, apiPost, loginViaApi, registerStudentViaApi } from "./support/api"
-import { openAs, startAttemptFromLobby, submitAttempt } from "./support/exam"
+import { openAs, submitAttempt } from "./support/exam"
 
 /**
  * Flow 10 — Luyện tập Writing đầu-cuối (giáo viên chấm, không chấm tự động).

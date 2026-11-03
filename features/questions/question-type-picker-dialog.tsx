@@ -29,7 +29,6 @@ import {
   PenTool01Icon,
   Book02Icon,
   HeadphonesIcon,
-  SparklesIcon,
   StarIcon,
   LayoutGridIcon,
   InformationCircleIcon,

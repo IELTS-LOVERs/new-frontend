@@ -78,29 +78,6 @@ export interface ClassDetail extends ClassSummary {
 
 export type SkillType = "listening" | "reading" | "writing"
 
-export type QuestionType =
-  | "multiple_choice"
-  | "multiple_choice_single"
-  | "multiple_choice_multiple"
-  | "form_completion"
-  | "note_completion"
-  | "table_completion"
-  | "sentence_completion"
-  | "matching"
-  | "matching_headings"
-  | "matching_information"
-  | "matching_features"
-  | "matching_sentence_endings"
-  | "map_labelling"
-  | "diagram_labelling"
-  | "summary_completion"
-  | "true_false_not_given"
-  | "yes_no_not_given"
-  | "short_answer"
-  | "flow_chart_completion"
-  | "writing_task_1"
-  | "writing_task_2"
-
 // === Rich text (ProseMirror/TipTap JSON) ===
 // Persisted alongside the legacy plain-text fields. Older exams have no doc and
 // keep rendering through the marker-based renderer.
@@ -143,25 +120,6 @@ export type QuestionGroupType =
   | "short_answer"
   | "writing_task_1"
   | "writing_task_2"
-
-export interface Question {
-  id: string
-  skill: SkillType
-  type: QuestionType
-  part: number
-  prompt: string
-  /** Rich-text JSON for the prompt (teacher-authored). */
-  promptDoc?: RichDoc | null
-  content?: string | null
-  data?: Record<string, any>
-  acceptedAnswers?: string[]
-  points?: number
-  explanation?: string | null
-  mediaIds?: string[]
-  createdBy?: string
-  createdAt?: string
-  updatedAt?: string
-}
 
 export interface MediaItem {
   id: string

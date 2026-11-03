@@ -91,42 +91,4 @@ export async function deleteQuestionApi(id: string): Promise<string> {
   return data.message
 }
 
-/**
- * Legacy flat question type → QuestionGroupType.
- * Only the two generic legacy types need remapping; the rest are identical.
- */
-export const LEGACY_TYPE_TO_GROUP_TYPE: Record<string, QuestionGroupType> = {
-  multiple_choice: "multiple_choice_single",
-  matching: "matching_headings",
-}
 
-/** Convert a legacy flat `Question` object into a bank group payload (1 question). */
-export function legacyQuestionToGroupPayload(q: {
-  skill: SkillType
-  type: string
-  part: number
-  prompt: string
-  content?: string | null
-  data?: Record<string, unknown>
-  acceptedAnswers?: string[]
-  points?: number
-  explanation?: string | null
-  mediaIds?: string[]
-}): CreateBankGroupPayload {
-  return {
-    skill: q.skill,
-    part: q.part,
-    groupType: (LEGACY_TYPE_TO_GROUP_TYPE[q.type] ?? q.type) as QuestionGroupType,
-    instructions: q.content ?? "",
-    config: (q.data ?? {}) as QuestionGroupConfig,
-    questions: [
-      {
-        prompt: q.prompt,
-        acceptedAnswers: q.acceptedAnswers ?? [],
-        points: q.points ?? 1,
-        explanation: q.explanation ?? undefined,
-        mediaIds: q.mediaIds ?? [],
-      },
-    ],
-  }
-}
