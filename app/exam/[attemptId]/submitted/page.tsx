@@ -93,8 +93,8 @@ function RealSubmitted({ attemptId }: { attemptId: string }) {
 
   const writingGraded = !!result.writingReview
   const hasWriting = writingDetails.length > 0 || result.writingReview != null
-  const submittedAt = formatDate((result as any).submittedAt ?? null)
-  const examTitle = (result as any).examTitle ?? "Bài thi"
+  const submittedAt = formatDate(result.submittedAt ?? null)
+  const examTitle = result.examTitle ?? "Bài thi"
 
   const bands = [
     { label: "Listening", value: result.scores?.listeningBand },

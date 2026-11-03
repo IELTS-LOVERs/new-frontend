@@ -384,14 +384,14 @@ export default function TeacherSubmissionDetailPage() {
                                 {formatDate(ev.timestamp)}
                               </span>
                             </div>
-                            {ev.metadata?.durationMs && (
+                            {typeof ev.metadata?.durationMs === "number" && (
                               <p className="mt-0.5 text-[11px] text-muted-foreground">
                                 Rời {Math.round(ev.metadata.durationMs / 1000)} giây
                               </p>
                             )}
-                            {ev.metadata?.target && (
+                            {typeof ev.metadata?.target === "string" && (
                               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                Tại: {String(ev.metadata.target).replace(/_/g, " ")}
+                                Tại: {ev.metadata.target.replace(/_/g, " ")}
                               </p>
                             )}
                           </li>

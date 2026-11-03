@@ -71,9 +71,7 @@ export default function TeacherExamDetailPage() {
   const reopenMutation = useReopenExamMutation(examId)
   const user = useAuthStore((state) => state.user)
   const isAdmin = user?.role === "admin"
-  // TODO(G3): GET /api/assignments chưa hỗ trợ filter examId — lấy tất cả rồi lọc client.
-  // Gỡ fallback khi backend thêm filter examId.
-  const assignmentsQuery = useTeacherAssignmentsQuery({ limit: 100 })
+  const assignmentsQuery = useTeacherAssignmentsQuery({ examId, limit: 100 })
   const analyticsQuery = useExamAnalyticsQuery(examId, tab === "analytics")
 
   // ----- Unified shapes -----
@@ -84,7 +82,7 @@ export default function TeacherExamDetailPage() {
       }
     : null
 
-  const assignments = (assignmentsQuery.data?.items ?? []).filter((a) => a.examId === examId)
+  const assignments = assignmentsQuery.data?.items ?? []
 
   const analytics = analyticsQuery.data
 

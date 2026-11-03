@@ -141,8 +141,21 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
   const examTitle = exam?.title ?? "Bài thi"
   const isExpired = result.status === "expired"
 
-  // TODO(G5): hiện nút làm lại khi backend trả maxAttempts/attemptsUsed
-  const hasRetakeInfo = false
+  const isPractice =
+    result.examKind === "practice" || exam?.kind === "practice"
+  const backHref = isPractice ? "/student/practice" : "/student/exams"
+  const backLabel = isPractice ? "Quay lại luyện tập" : "Quay lại đề thi"
+
+  const canRetake = Boolean(result.canRetake)
+  const retakeHref = result.assignmentId
+    ? `/exam/start/${result.assignmentId}`
+    : result.examId
+      ? `/exam/start/practice/${result.examId}`
+      : backHref
+  const retakeCountLabel =
+    typeof result.maxAttempts === "number" && result.maxAttempts > 0
+      ? ` (${result.attemptsUsed ?? 1}/${result.maxAttempts})`
+      : ""
 
   // Map detail by questionId for quick lookup
   const detailByQuestionId = new Map<string, AttemptResultDetail>()
@@ -227,8 +240,6 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     }).length
   }
 
-  const isPractice =
-    result.examKind === "practice" || exam?.kind === "practice"
   const isRawDisplay = isPractice || result.scoreMode === "raw"
   const rawTotal = result.totalPoints ?? result.questionCount ?? 0
   const fallbackCorrect = result.details.filter(
@@ -259,9 +270,6 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
     (d) => !(d.skill === "writing" || d.groupType?.startsWith("writing"))
   )
   const isObjectiveEmpty = isRawDisplay && objectiveDetails.length === 0
-
-  const backHref = isPractice ? "/student/practice" : "/student/exams"
-  const backLabel = isPractice ? "Quay lại luyện tập" : "Quay lại đề thi"
 
   const availableSkills = (["listening", "reading", "writing"] as const).filter(
     (k) => rowsBySkill[k].length > 0
@@ -323,11 +331,11 @@ function ResultDetailView({ result, exam, isLoading, error, refetch }: ResultDet
 
         {/* Action buttons: retake TODO(G5), progress, back */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {hasRetakeInfo && (
+          {canRetake && (
             <Button size="sm" asChild className="gap-1.5 font-medium text-xs">
-              <Link href={backHref}>
+              <Link href={retakeHref}>
                 <HugeiconsIcon icon={RotateRight01Icon} size={14} />
-                <span>Làm lại bài thi</span>
+                <span>Làm lại bài thi{retakeCountLabel}</span>
               </Link>
             </Button>
           )}

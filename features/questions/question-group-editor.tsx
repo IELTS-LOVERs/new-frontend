@@ -18,20 +18,19 @@ import {
   Delete02Icon,
   Image01Icon,
 } from "@hugeicons/core-free-icons"
-import { cn, createClientId } from "@/lib/utils"
+import { createClientId } from "@/lib/utils"
 import {
   appendToken,
   buildSampleTable,
   compactTemplateQuestions,
-  extractTemplatePlaceholders,
   insertTokenAtCursor,
   isPartialTemplate,
   nextBlankNumber,
   reconcileTemplateQuestions,
   removeTemplatePlaceholder,
 } from "./lib/completion-template"
-import { parseMarkdownTable } from "@/features/exam-engine/lib/template-layout"
-import { RichText } from "@/features/exam-engine/components/rich-text"
+import { TemplateLivePreview } from "./group-editor/template-live-preview"
+import { CompletionAnswerTable } from "./group-editor/completion-answer-table"
 import { RichTextEditor } from "@/features/rich-text/lazy-editor"
 import { RICH_EDITOR_ENABLED } from "@/features/rich-text/feature-flag"
 import { htmlToTemplateDsl } from "@/features/rich-text/word-paste"
@@ -43,7 +42,16 @@ import type {
   QuestionGroup,
 } from "@/lib/api/types"
 import { MediaPicker } from "@/components/shared/media-picker"
-import { AcceptedAnswersField } from "./accepted-answers-field"
+import {
+  MCOptionsConfig,
+  HeadingsPoolConfig,
+  ParagraphLabelsConfig,
+  FeaturesPoolConfig,
+  EndingsPoolConfig,
+  OptionsPoolConfig,
+  LabellingLabelsConfig,
+} from "./group-editor/pool-config-editor"
+import { QuestionItemList } from "./group-editor/question-item-list"
 
 export function toRoman(num: number): string {
   const romanMap: [number, string][] = [
@@ -71,7 +79,7 @@ export interface QuestionGroupEditorProps {
       })
   examReadonly: boolean
   numbering: Map<string, number>
-  onUpdateGroup: (patch: any) => void
+  onUpdateGroup: (patch: Record<string, unknown>) => void
   onRemoveGroup: () => void
   onAddQuestion: () => void
   onRemoveQuestion: (questionId: string) => void
@@ -84,6 +92,24 @@ export interface QuestionGroupEditorProps {
   /** Optional: persist this group into the Question Bank. */
   onSaveToBank?: () => void
   savingToBank?: boolean
+}
+
+export interface GroupConfig {
+  options?: Array<{ id: string; text: string }>
+  headingsPool?: Array<{ id: string; text: string }>
+  featuresPool?: Array<{ id: string; text: string }>
+  endingsPool?: Array<{ id: string; text: string }>
+  paragraphLabels?: string[]
+  optionsPool?: Array<{ id: string; text: string }>
+  labels?: Array<{ id: string; label: string }>
+  template?: string
+  maxSelections?: number
+  allowReuse?: boolean
+  allowNumbers?: boolean
+  allowChangeAnswer?: boolean
+  maxWords?: number
+  imageMediaId?: string
+  [key: string]: unknown
 }
 
 export function QuestionGroupEditor({
@@ -99,10 +125,10 @@ export function QuestionGroupEditor({
   onSaveToBank,
   savingToBank = false,
 }: QuestionGroupEditorProps) {
-  const config = (group.config || {}) as Record<string, any>
+  const config = (group.config || {}) as GroupConfig
   const [mediaPickerOpen, setMediaPickerOpen] = React.useState(false)
 
-  const updateConfig = (patch: Record<string, any>) => {
+  const updateConfig = (patch: Record<string, unknown>) => {
     onUpdateGroup({ config: { ...config, ...patch } })
   }
 
@@ -187,7 +213,7 @@ export function QuestionGroupEditor({
     if (isPartialTemplate(value)) return
     const handle = setTimeout(() => {
       lastSyncedTemplate.current = value
-      const currentConfig = (group.config || {}) as Record<string, any>
+      const currentConfig = (group.config || {}) as GroupConfig
       const currentTemplate =
         typeof currentConfig.template === "string" ? currentConfig.template : ""
       const { questions, changed } = reconcileTemplateQuestions(
@@ -432,16 +458,6 @@ export function QuestionGroupEditor({
   // Type checks
   const isMCSingle = group.groupType === "multiple_choice_single"
   const isMCMultiple = group.groupType === "multiple_choice_multiple"
-  /**
-   * "Choose TWO letters" needs one answer box (= one question number) per
-   * correct letter, otherwise the whole group collapses into a single number
-   * and the answer can never be matched.
-   */
-  const multiSelectCount = isMCMultiple
-    ? Math.max(2, Number(config.maxSelections) || 2)
-    : 0
-  const isTFNG = group.groupType === "true_false_not_given"
-  const isYNNG = group.groupType === "yes_no_not_given"
   const isHeadings = group.groupType === "matching_headings"
   const isInfo = group.groupType === "matching_information"
   const isFeatures = group.groupType === "matching_features"
@@ -644,356 +660,91 @@ export function QuestionGroupEditor({
         {/* Multiple Choice Options Configuration */}
         {/* ------------------------------------------------------------------- */}
         {(isMCSingle || isMCMultiple) && (
-          <div className="space-y-2.5 rounded-lg border border-border bg-muted/15 p-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold text-foreground">
-                Danh sách lựa chọn (Options)
-              </Label>
-              {isMCMultiple && (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span>Số đáp án được chọn:</span>
-                  <Input
-                    type="number"
-                    min={2}
-                    max={mcOptions.length || 5}
-                    value={config.maxSelections ?? 2}
-                    disabled={examReadonly}
-                    onChange={(e) =>
-                      updateConfig({
-                        maxSelections: Number(e.target.value) || 2,
-                      })
-                    }
-                    className="h-6 w-14 text-center font-mono text-xs"
-                  />
-                </div>
-              )}
-            </div>
-
-            {isMCMultiple &&
-              onEnsureQuestionCount &&
-              group.questions.length !== multiSelectCount && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
-                  <span>
-                    Mỗi đáp án đúng là một câu hỏi: cần {multiSelectCount} câu,
-                    hiện có {group.questions.length}.
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={examReadonly}
-                    onClick={() => onEnsureQuestionCount(multiSelectCount)}
-                    className="h-6 shrink-0 border-amber-500/40 px-2 text-[11px]"
-                  >
-                    {group.questions.length < multiSelectCount
-                      ? `Tạo đủ ${multiSelectCount} câu`
-                      : `Bớt còn ${multiSelectCount} câu`}
-                  </Button>
-                </div>
-              )}
-
-            <div className="space-y-2">
-              {mcOptions.map((opt, oIdx) => (
-                <div key={opt.id} className="flex items-center gap-2">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
-                    {opt.id}
-                  </span>
-                  <Input
-                    value={opt.text}
-                    disabled={examReadonly}
-                    onChange={(e) =>
-                      handleUpdateMCOptionText(oIdx, e.target.value)
-                    }
-                    className="h-8 flex-1 text-xs"
-                    placeholder={`Nội dung lựa chọn ${opt.id}...`}
-                  />
-                  {!examReadonly && mcOptions.length > 2 && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleRemoveMCOption(opt.id)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} size={12} />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {!examReadonly && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAddMCOption}
-                className="h-7 gap-1 text-xs"
-              >
-                <HugeiconsIcon icon={Add01Icon} size={12} /> Thêm lựa chọn{" "}
-                {String.fromCharCode(65 + mcOptions.length)}
-              </Button>
-            )}
-          </div>
+          <MCOptionsConfig
+            options={mcOptions}
+            isMultiple={isMCMultiple}
+            maxSelections={Number(config.maxSelections) || 2}
+            questionCount={group.questions.length}
+            examReadonly={examReadonly}
+            onAddOption={handleAddMCOption}
+            onRemoveOption={handleRemoveMCOption}
+            onUpdateOptionText={handleUpdateMCOptionText}
+            onUpdateMaxSelections={(val) => updateConfig({ maxSelections: val })}
+            onEnsureQuestionCount={onEnsureQuestionCount}
+          />
         )}
 
         {/* ------------------------------------------------------------------- */}
         {/* Matching Headings Pool */}
         {/* ------------------------------------------------------------------- */}
         {isHeadings && (
-          <div className="space-y-2.5 rounded-lg border border-border bg-muted/15 p-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-xs font-semibold text-foreground">
-                  Danh sách tiêu đề (List of Headings)
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Tạo danh sách các tiêu đề (số La Mã i, ii, iii...)
-                </p>
-              </div>
-              {!examReadonly && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAddHeading}
-                  className="h-7 gap-1 text-xs"
-                >
-                  <HugeiconsIcon icon={Add01Icon} size={12} /> Thêm Heading
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {headingsPool.map((h, hIdx) => (
-                <div key={h.id} className="flex items-center gap-2">
-                  <span className="w-8 shrink-0 text-center font-mono text-xs font-bold text-primary">
-                    {h.id}
-                  </span>
-                  <Input
-                    value={h.text}
-                    disabled={examReadonly}
-                    onChange={(e) => {
-                      const next = [...headingsPool]
-                      next[hIdx] = { ...next[hIdx], text: e.target.value }
-                      updateConfig({ headingsPool: next })
-                    }}
-                    className="h-8 flex-1 text-xs"
-                    placeholder={`Tiêu đề ${h.id}...`}
-                  />
-                  {!examReadonly && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleRemoveHeading(hIdx)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} size={12} />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          <HeadingsPoolConfig
+            headingsPool={headingsPool}
+            examReadonly={examReadonly}
+            onAddHeading={handleAddHeading}
+            onRemoveHeading={handleRemoveHeading}
+            onUpdateHeadingText={(idx, text) => {
+              const next = [...headingsPool]
+              next[idx] = { ...next[idx], text }
+              updateConfig({ headingsPool: next })
+            }}
+          />
         )}
 
         {/* ------------------------------------------------------------------- */}
         {/* Matching Information Paragraphs */}
         {/* ------------------------------------------------------------------- */}
         {isInfo && (
-          <div className="space-y-2.5 rounded-lg border border-border bg-muted/15 p-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold text-foreground">
-                Các đoạn văn (Paragraphs)
-              </Label>
-              <label className="flex cursor-pointer items-center gap-1.5 text-xs select-none">
-                <input
-                  type="checkbox"
-                  checked={config.allowReuse ?? true}
-                  disabled={examReadonly}
-                  onChange={(e) =>
-                    updateConfig({ allowReuse: e.target.checked })
-                  }
-                  className="rounded border-border accent-primary"
-                />
-                <span className="text-muted-foreground">
-                  Cho phép dùng lại ký tự (NB: allow reuse)
-                </span>
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {paragraphLabels.map((p, pIdx) => (
-                <div
-                  key={p}
-                  className="flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-bold"
-                >
-                  <span>{p}</span>
-                  {!examReadonly && paragraphLabels.length > 2 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = paragraphLabels.filter(
-                          (_, i) => i !== pIdx
-                        )
-                        updateConfig({ paragraphLabels: next })
-                      }}
-                      className="ml-0.5 text-muted-foreground hover:text-destructive"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              ))}
-              {!examReadonly && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const nextChar = String.fromCharCode(
-                      65 + paragraphLabels.length
-                    )
-                    updateConfig({
-                      paragraphLabels: [...paragraphLabels, nextChar],
-                    })
-                  }}
-                  className="h-7 text-xs"
-                >
-                  + Đoạn {String.fromCharCode(65 + paragraphLabels.length)}
-                </Button>
-              )}
-            </div>
-          </div>
+          <ParagraphLabelsConfig
+            paragraphLabels={paragraphLabels}
+            allowReuse={Boolean(config.allowReuse ?? true)}
+            examReadonly={examReadonly}
+            onAddParagraph={() => {
+              const nextChar = String.fromCharCode(65 + paragraphLabels.length)
+              updateConfig({ paragraphLabels: [...paragraphLabels, nextChar] })
+            }}
+            onRemoveParagraph={(idx) => {
+              const next = paragraphLabels.filter((_, i) => i !== idx)
+              updateConfig({ paragraphLabels: next })
+            }}
+            onToggleAllowReuse={(allowed) => updateConfig({ allowReuse: allowed })}
+          />
         )}
 
         {/* ------------------------------------------------------------------- */}
         {/* Matching Features Pool */}
         {/* ------------------------------------------------------------------- */}
         {isFeatures && (
-          <div className="space-y-2.5 rounded-lg border border-border bg-muted/15 p-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-xs font-semibold text-foreground">
-                  Danh sách đối tượng / đặc điểm (Features Pool)
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Ví dụ: Các nhà khoa học, thuyết, tổ chức...
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <label className="flex cursor-pointer items-center gap-1.5 text-xs select-none">
-                  <input
-                    type="checkbox"
-                    checked={config.allowReuse ?? true}
-                    disabled={examReadonly}
-                    onChange={(e) =>
-                      updateConfig({ allowReuse: e.target.checked })
-                    }
-                    className="rounded border-border accent-primary"
-                  />
-                  <span className="text-muted-foreground">
-                    Cho phép dùng lại
-                  </span>
-                </label>
-                {!examReadonly && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddFeature}
-                    className="h-7 gap-1 text-xs"
-                  >
-                    <HugeiconsIcon icon={Add01Icon} size={12} /> Thêm đối tượng
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {featuresPool.map((f, fIdx) => (
-                <div key={f.id} className="flex items-center gap-2">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
-                    {f.id}
-                  </span>
-                  <Input
-                    value={f.text}
-                    disabled={examReadonly}
-                    onChange={(e) => {
-                      const next = [...featuresPool]
-                      next[fIdx] = { ...next[fIdx], text: e.target.value }
-                      updateConfig({ featuresPool: next })
-                    }}
-                    className="h-8 flex-1 text-xs"
-                    placeholder="Tên người hoặc đặc điểm..."
-                  />
-                  {!examReadonly && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleRemoveFeature(fIdx)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} size={12} />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          <FeaturesPoolConfig
+            featuresPool={featuresPool}
+            allowReuse={Boolean(config.allowReuse ?? true)}
+            examReadonly={examReadonly}
+            onAddFeature={handleAddFeature}
+            onRemoveFeature={handleRemoveFeature}
+            onUpdateFeatureText={(idx, text) => {
+              const next = [...featuresPool]
+              next[idx] = { ...next[idx], text }
+              updateConfig({ featuresPool: next })
+            }}
+            onToggleAllowReuse={(allowed) => updateConfig({ allowReuse: allowed })}
+          />
         )}
 
         {/* ------------------------------------------------------------------- */}
         {/* Matching Sentence Endings Pool */}
         {/* ------------------------------------------------------------------- */}
         {isEndings && (
-          <div className="space-y-2.5 rounded-lg border border-border bg-muted/15 p-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-xs font-semibold text-foreground">
-                  Danh sách phần kết câu (Sentence Endings)
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Các phần kết câu A, B, C... để ghép với vế đầu câu.
-                </p>
-              </div>
-              {!examReadonly && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAddEnding}
-                  className="h-7 gap-1 text-xs"
-                >
-                  <HugeiconsIcon icon={Add01Icon} size={12} /> Thêm kết câu
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {endingsPool.map((e, eIdx) => (
-                <div key={e.id} className="flex items-center gap-2">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
-                    {e.id}
-                  </span>
-                  <Input
-                    value={e.text}
-                    disabled={examReadonly}
-                    onChange={(evt) => {
-                      const next = [...endingsPool]
-                      next[eIdx] = { ...next[eIdx], text: evt.target.value }
-                      updateConfig({ endingsPool: next })
-                    }}
-                    className="h-8 flex-1 text-xs"
-                    placeholder="Nội dung kết thúc câu..."
-                  />
-                  {!examReadonly && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleRemoveEnding(eIdx)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} size={12} />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          <EndingsPoolConfig
+            endingsPool={endingsPool}
+            examReadonly={examReadonly}
+            onAddEnding={handleAddEnding}
+            onRemoveEnding={handleRemoveEnding}
+            onUpdateEndingText={(idx, text) => {
+              const next = [...endingsPool]
+              next[idx] = { ...next[idx], text }
+              updateConfig({ endingsPool: next })
+            }}
+          />
         )}
 
         {/* ------------------------------------------------------------------- */}
@@ -1037,71 +788,21 @@ export function QuestionGroupEditor({
 
             {/* Word Bank Pool for Summary with Options */}
             {isSummaryOptions && (
-              <div className="space-y-2 border-t border-border pt-2.5">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold">
-                    Ngân hàng từ khóa (Word Bank / Options Pool)
-                  </Label>
-                  {!examReadonly && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAddOptionsPoolItem}
-                      className="h-6 gap-1 text-xs"
-                    >
-                      <HugeiconsIcon icon={Add01Icon} size={11} /> Thêm từ
-                    </Button>
-                  )}
-                </div>
-                <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-background px-2.5 py-2 text-xs select-none">
-                  <input
-                    type="checkbox"
-                    checked={config.allowChangeAnswer ?? true}
-                    disabled={examReadonly}
-                    onChange={(e) =>
-                      updateConfig({ allowChangeAnswer: e.target.checked })
-                    }
-                    className="mt-0.5 rounded border-border accent-primary"
-                  />
-                  <span>
-                    <span className="font-medium text-foreground">
-                      Cho phép chọn lại đáp án
-                    </span>
-                    <span className="block text-[11px] text-muted-foreground">
-                      Khi tắt, học sinh chỉ chọn được một lần cho mỗi ô.
-                    </span>
-                  </span>
-                </label>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {optionsPool.map((opt, oIdx) => (
-                    <div key={opt.id} className="flex items-center gap-1.5">
-                      <span className="flex size-5 shrink-0 items-center justify-center rounded bg-primary/10 font-mono text-[10px] font-bold text-primary">
-                        {opt.id}
-                      </span>
-                      <Input
-                        value={opt.text}
-                        disabled={examReadonly}
-                        onChange={(e) => {
-                          const next = [...optionsPool]
-                          next[oIdx] = { ...next[oIdx], text: e.target.value }
-                          updateConfig({ optionsPool: next })
-                        }}
-                        className="h-7 flex-1 text-xs"
-                        placeholder="Từ / cụm từ..."
-                      />
-                      {!examReadonly && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveOptionsPoolItem(oIdx)}
-                          className="text-sm text-muted-foreground hover:text-destructive"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <OptionsPoolConfig
+                optionsPool={optionsPool}
+                allowChangeAnswer={Boolean(config.allowChangeAnswer ?? true)}
+                examReadonly={examReadonly}
+                onAddOptionsPoolItem={handleAddOptionsPoolItem}
+                onRemoveOptionsPoolItem={handleRemoveOptionsPoolItem}
+                onUpdateOptionsPoolItemText={(idx, text) => {
+                  const next = [...optionsPool]
+                  next[idx] = { ...next[idx], text }
+                  updateConfig({ optionsPool: next })
+                }}
+                onToggleAllowChangeAnswer={(allowed) =>
+                  updateConfig({ allowChangeAnswer: allowed })
+                }
+              />
             )}
 
             {/* Template Editor */}
@@ -1236,53 +937,17 @@ export function QuestionGroupEditor({
               </p>
             )}
 
-            <div className="space-y-2 border-t border-border pt-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold">
-                  Danh sách nhãn (Labels)
-                </Label>
-                {!examReadonly && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddLabel}
-                    className="h-6 gap-1 text-xs"
-                  >
-                    <HugeiconsIcon icon={Add01Icon} size={11} /> Thêm nhãn
-                  </Button>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {labels.map((l, lIdx) => (
-                  <div
-                    key={l.id}
-                    className="flex items-center gap-1 rounded border border-border bg-card px-2 py-1 text-xs"
-                  >
-                    <span className="font-bold text-primary">{l.id}</span>
-                    <Input
-                      value={l.label}
-                      disabled={examReadonly}
-                      onChange={(e) => {
-                        const next = [...labels]
-                        next[lIdx] = { ...next[lIdx], label: e.target.value }
-                        updateConfig({ labels: next })
-                      }}
-                      className="h-6 w-24 text-xs"
-                      placeholder="Tên vị trí..."
-                    />
-                    {!examReadonly && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveLabel(lIdx)}
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <LabellingLabelsConfig
+              labels={labels}
+              examReadonly={examReadonly}
+              onAddLabel={handleAddLabel}
+              onRemoveLabel={handleRemoveLabel}
+              onUpdateLabelText={(idx, label) => {
+                const next = [...labels]
+                next[idx] = { ...next[idx], label }
+                updateConfig({ labels: next })
+              }}
+            />
           </div>
         )}
 
@@ -1351,475 +1016,23 @@ export function QuestionGroupEditor({
             onRemoveBlank={handleRemoveBlankQuestion}
           />
         ) : (
-          <div className="space-y-2 pt-1">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-bold text-foreground">
-                Danh sách câu hỏi trong nhóm ({group.questions.length})
-              </Label>
-              {!examReadonly && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onAddQuestion}
-                  className="h-7 gap-1 border-primary/30 text-xs text-primary"
-                >
-                  <HugeiconsIcon icon={Add01Icon} size={12} /> Thêm câu hỏi
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-2.5">
-              {group.questions.map((q) => {
-                const qNum = numbering.get(q.id) ?? q.questionNumber
-                const accepted = (q as any).acceptedAnswers ?? []
-                // With one box per correct letter, a letter already keyed on a
-                // sibling question cannot be reused here.
-                const multiSelectUsedElsewhere =
-                  isMCMultiple && group.questions.length > 1
-                    ? new Set<string>(
-                        group.questions
-                          .filter((other) => other.id !== q.id)
-                          .flatMap(
-                            (other) =>
-                              ((other as any).acceptedAnswers ?? []) as string[]
-                          )
-                      )
-                    : null
-
-                return (
-                  <div
-                    key={q.id}
-                    className="space-y-2.5 rounded-lg border border-border bg-card p-3 shadow-2xs transition-colors hover:border-border/80"
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 font-mono text-xs font-bold text-primary">
-                        {qNum}
-                      </span>
-
-                      <div className="min-w-0 flex-1 space-y-2">
-                        {/* Prompt */}
-                        {isWriting && RICH_EDITOR_ENABLED ? (
-                          <RichTextEditor
-                            key={`writing-prompt-${q.id}`}
-                            value={q.promptDoc ?? null}
-                            legacyText={q.prompt ?? ""}
-                            disabled={examReadonly}
-                            minHeight={140}
-                            placeholder="Nhập đề bài Writing chi tiết..."
-                            ariaLabel="Đề bài Writing"
-                            onChange={(doc, plainText) =>
-                              onUpdateQuestion(q.id, {
-                                promptDoc: doc,
-                                prompt: plainText,
-                              })
-                            }
-                          />
-                        ) : (
-                          <Input
-                            value={q.prompt}
-                            disabled={examReadonly}
-                            onChange={(e) =>
-                              onUpdateQuestion(q.id, { prompt: e.target.value })
-                            }
-                            className="h-8 text-xs font-medium"
-                            placeholder="Nội dung câu hỏi / nhận định..."
-                          />
-                        )}
-
-                        {/* Answer Selectors based on Type */}
-                        {isMCSingle && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn đáp án đúng:
-                            </Label>
-                            <div className="flex flex-wrap gap-1.5">
-                              {mcOptions.map((opt) => {
-                                const isCorrect = accepted.includes(opt.id)
-                                return (
-                                  <button
-                                    key={opt.id}
-                                    type="button"
-                                    disabled={examReadonly}
-                                    onClick={() =>
-                                      onUpdateQuestion(q.id, {
-                                        acceptedAnswers: [opt.id],
-                                      })
-                                    }
-                                    className={cn(
-                                      "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition-all",
-                                      isCorrect
-                                        ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
-                                    )}
-                                  >
-                                    <span>{opt.id}</span>
-                                    {opt.text && (
-                                      <span className="max-w-[120px] truncate font-normal">
-                                        ({opt.text})
-                                      </span>
-                                    )}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {isMCMultiple && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              {multiSelectUsedElsewhere
-                                ? "Đáp án đúng của câu này (mỗi câu 1 chữ cái):"
-                                : `Chọn các đáp án đúng (tối đa ${
-                                    config.maxSelections ?? 2
-                                  }):`}
-                            </Label>
-                            <div className="flex flex-wrap gap-1.5">
-                              {mcOptions.map((opt) => {
-                                const isCorrect = accepted.includes(opt.id)
-                                const usedElsewhere = Boolean(
-                                  multiSelectUsedElsewhere?.has(opt.id) &&
-                                    !isCorrect
-                                )
-                                return (
-                                  <button
-                                    key={opt.id}
-                                    type="button"
-                                    disabled={examReadonly || usedElsewhere}
-                                    title={
-                                      usedElsewhere
-                                        ? `${opt.id} đã là đáp án của câu khác`
-                                        : undefined
-                                    }
-                                    onClick={() => {
-                                      if (multiSelectUsedElsewhere) {
-                                        onUpdateQuestion(q.id, {
-                                          acceptedAnswers: isCorrect
-                                            ? []
-                                            : [opt.id],
-                                        })
-                                        return
-                                      }
-                                      const nextAnswers = isCorrect
-                                        ? accepted.filter(
-                                            (a: string) => a !== opt.id
-                                          )
-                                        : [...accepted, opt.id]
-                                      onUpdateQuestion(q.id, {
-                                        acceptedAnswers: nextAnswers,
-                                      })
-                                    }}
-                                    className={cn(
-                                      "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition-all",
-                                      isCorrect
-                                        ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted",
-                                      usedElsewhere &&
-                                        "cursor-not-allowed opacity-40 hover:bg-muted/40"
-                                    )}
-                                  >
-                                    <span>{opt.id}</span>
-                                    {opt.text && (
-                                      <span className="max-w-[120px] truncate font-normal">
-                                        ({opt.text})
-                                      </span>
-                                    )}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {isTFNG && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn đáp án đúng:
-                            </Label>
-                            <div className="flex gap-2">
-                              {["TRUE", "FALSE", "NOT GIVEN"].map((val) => {
-                                const isCorrect = accepted.includes(val)
-                                return (
-                                  <button
-                                    key={val}
-                                    type="button"
-                                    disabled={examReadonly}
-                                    onClick={() =>
-                                      onUpdateQuestion(q.id, {
-                                        acceptedAnswers: [val],
-                                      })
-                                    }
-                                    className={cn(
-                                      "rounded-md border px-3 py-1 text-xs font-bold transition-all",
-                                      isCorrect
-                                        ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
-                                    )}
-                                  >
-                                    {val}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {isYNNG && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn đáp án đúng:
-                            </Label>
-                            <div className="flex gap-2">
-                              {["YES", "NO", "NOT GIVEN"].map((val) => {
-                                const isCorrect = accepted.includes(val)
-                                return (
-                                  <button
-                                    key={val}
-                                    type="button"
-                                    disabled={examReadonly}
-                                    onClick={() =>
-                                      onUpdateQuestion(q.id, {
-                                        acceptedAnswers: [val],
-                                      })
-                                    }
-                                    className={cn(
-                                      "rounded-md border px-3 py-1 text-xs font-bold transition-all",
-                                      isCorrect
-                                        ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
-                                    )}
-                                  >
-                                    {val}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {isHeadings && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn Heading đúng từ danh sách:
-                            </Label>
-                            <select
-                              value={accepted[0] ?? ""}
-                              disabled={examReadonly}
-                              onChange={(e) =>
-                                onUpdateQuestion(q.id, {
-                                  acceptedAnswers: e.target.value
-                                    ? [e.target.value]
-                                    : [],
-                                })
-                              }
-                              className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs font-medium"
-                            >
-                              <option value="">-- Chọn Heading --</option>
-                              {headingsPool.map((h) => (
-                                <option key={h.id} value={h.id}>
-                                  {h.id.toUpperCase()} — {h.text}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-
-                        {isInfo && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn đoạn văn chứa thông tin:
-                            </Label>
-                            <div className="flex flex-wrap gap-1.5">
-                              {paragraphLabels.map((p) => {
-                                const isCorrect = accepted.includes(p)
-                                return (
-                                  <button
-                                    key={p}
-                                    type="button"
-                                    disabled={examReadonly}
-                                    onClick={() =>
-                                      onUpdateQuestion(q.id, {
-                                        acceptedAnswers: [p],
-                                      })
-                                    }
-                                    className={cn(
-                                      "size-7 rounded-md border font-mono text-xs font-bold transition-all",
-                                      isCorrect
-                                        ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
-                                    )}
-                                  >
-                                    {p}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {isFeatures && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn đối tượng / đặc điểm đúng:
-                            </Label>
-                            <select
-                              value={accepted[0] ?? ""}
-                              disabled={examReadonly}
-                              onChange={(e) =>
-                                onUpdateQuestion(q.id, {
-                                  acceptedAnswers: e.target.value
-                                    ? [e.target.value]
-                                    : [],
-                                })
-                              }
-                              className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs font-medium"
-                            >
-                              <option value="">-- Chọn đối tượng --</option>
-                              {featuresPool.map((f) => (
-                                <option key={f.id} value={f.id}>
-                                  {f.id} — {f.text}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-
-                        {isEndings && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn kết thúc câu đúng:
-                            </Label>
-                            <select
-                              value={accepted[0] ?? ""}
-                              disabled={examReadonly}
-                              onChange={(e) =>
-                                onUpdateQuestion(q.id, {
-                                  acceptedAnswers: e.target.value
-                                    ? [e.target.value]
-                                    : [],
-                                })
-                              }
-                              className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs font-medium"
-                            >
-                              <option value="">-- Chọn kết thúc câu --</option>
-                              {endingsPool.map((end) => (
-                                <option key={end.id} value={end.id}>
-                                  {end.id} — {end.text}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-
-                        {isSummaryOptions && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn từ đúng từ Word Bank:
-                            </Label>
-                            <select
-                              value={accepted[0] ?? ""}
-                              disabled={examReadonly}
-                              onChange={(e) =>
-                                onUpdateQuestion(q.id, {
-                                  acceptedAnswers: e.target.value
-                                    ? [e.target.value]
-                                    : [],
-                                })
-                              }
-                              className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs font-medium"
-                            >
-                              <option value="">
-                                -- Chọn từ từ Word Bank --
-                              </option>
-                              {optionsPool.map((opt) => (
-                                <option key={opt.id} value={opt.id}>
-                                  {opt.id} — {opt.text}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-
-                        {isLabelling && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Chọn nhãn vị trí đúng:
-                            </Label>
-                            <select
-                              value={accepted[0] ?? ""}
-                              disabled={examReadonly}
-                              onChange={(e) =>
-                                onUpdateQuestion(q.id, {
-                                  acceptedAnswers: e.target.value
-                                    ? [e.target.value]
-                                    : [],
-                                })
-                              }
-                              className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs font-medium"
-                            >
-                              <option value="">-- Chọn nhãn --</option>
-                              {labels.map((l) => (
-                                <option key={l.id} value={l.id}>
-                                  {l.id} {l.label ? `— ${l.label}` : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-
-                        {(isCompletion || isShortAnswer) && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">
-                              Đáp án đúng (mỗi dòng là một cách viết được chấp
-                              nhận):
-                            </Label>
-                            <AcceptedAnswersField
-                              answers={accepted}
-                              disabled={examReadonly}
-                              placeholder="VD: two decades"
-                              onCommit={(next) =>
-                                onUpdateQuestion(q.id, {
-                                  acceptedAnswers: next,
-                                })
-                              }
-                            />
-                            <p className="text-[10px] text-muted-foreground">
-                              Phân biệt hoa/thường: “shoe” và “Shoe” là hai đáp án
-                              khác nhau. Thêm cả hai nếu muốn chấp nhận cả hai.
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Explanation */}
-                        <Input
-                          value={q.explanation ?? ""}
-                          disabled={examReadonly}
-                          onChange={(e) =>
-                            onUpdateQuestion(q.id, {
-                              explanation: e.target.value,
-                            })
-                          }
-                          className="h-7 text-[11px] text-muted-foreground"
-                          placeholder="Giải thích đáp án (tùy chọn)..."
-                        />
-                      </div>
-
-                      {!examReadonly && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => onRemoveQuestion(q.id)}
-                          className="mt-1 text-muted-foreground hover:text-destructive"
-                        >
-                          <HugeiconsIcon icon={Delete02Icon} size={13} />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          <QuestionItemList
+            questions={group.questions}
+            groupType={group.groupType}
+            numbering={numbering}
+            examReadonly={examReadonly}
+            maxSelections={Number(config.maxSelections) || 2}
+            mcOptions={mcOptions}
+            headingsPool={headingsPool}
+            paragraphLabels={paragraphLabels}
+            featuresPool={featuresPool}
+            endingsPool={endingsPool}
+            optionsPool={optionsPool}
+            labels={labels}
+            onAddQuestion={onAddQuestion}
+            onRemoveQuestion={onRemoveQuestion}
+            onUpdateQuestion={onUpdateQuestion}
+          />
         )}
       </div>
 
@@ -1844,378 +1057,6 @@ export function QuestionGroupEditor({
           toast.success(isLabelling ? "Đã chọn ảnh sơ đồ." : "Đã chọn ảnh cho nhóm.")
         }}
       />
-    </div>
-  )
-}
-
-/** Render DSL text with `[n]` blanks turned into visible chips. */
-function TemplatePreviewText({
-  text,
-  keyPrefix,
-}: {
-  text: string
-  keyPrefix: string
-}) {
-  return (
-    <>
-      {text
-        .split(/(\[\d+\])/g)
-        .filter((chunk) => chunk.length > 0)
-        .map((chunk, index) => {
-          const blank = /^\[(\d+)\]$/.exec(chunk)
-          if (blank) {
-            return (
-              <span
-                key={`${keyPrefix}-blank-${index}`}
-                className="mx-0.5 inline-flex min-w-6 items-center justify-center rounded border border-primary/40 bg-primary/10 px-1 font-mono text-[10px] font-bold text-primary"
-              >
-                {blank[1]}
-              </span>
-            )
-          }
-          return <RichText key={`${keyPrefix}-text-${index}`} text={chunk} />
-        })}
-    </>
-  )
-}
-
-/**
- * Live preview of the completion template DSL. Mirrors what candidates see
- * (GFM table / bullet list / inline blanks) without changing the persisted
- * string, so authoring and rendering can never drift apart.
- */
-function TemplateLivePreview({
-  template,
-  groupType,
-}: {
-  template: string
-  groupType: string
-}) {
-  const table = React.useMemo(() => parseMarkdownTable(template), [template])
-
-  if (table) {
-    return (
-      <div className="space-y-1.5 rounded-lg border border-dashed border-border bg-muted/15 p-2.5">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Xem trước
-        </p>
-        {table.preamble && (
-          <p className="text-xs leading-relaxed text-foreground">
-            <TemplatePreviewText text={table.preamble} keyPrefix="pre" />
-          </p>
-        )}
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-xs">
-            <thead>
-              <tr>
-                {table.header.map((cell, index) => (
-                  <th
-                    key={`th-${index}`}
-                    className="border border-border bg-muted/40 px-2 py-1 text-left font-semibold"
-                  >
-                    <TemplatePreviewText text={cell} keyPrefix={`th-${index}`} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {table.rows.map((row, rowIndex) => (
-                <tr key={`tr-${rowIndex}`}>
-                  {row.map((cell, cellIndex) => (
-                    <td
-                      key={`td-${rowIndex}-${cellIndex}`}
-                      className="border border-border px-2 py-1 align-top"
-                    >
-                      <TemplatePreviewText
-                        text={cell}
-                        keyPrefix={`td-${rowIndex}-${cellIndex}`}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {table.trailing && (
-          <p className="text-xs leading-relaxed text-foreground">
-            <TemplatePreviewText text={table.trailing} keyPrefix="post" />
-          </p>
-        )}
-      </div>
-    )
-  }
-
-  const lines = template.replace(/\r\n/g, "\n").split("\n")
-  const blocks: Array<
-    { type: "paragraph"; text: string } | { type: "bullet"; text: string }
-  > = []
-  let paragraph: string[] = []
-
-  const flush = () => {
-    if (paragraph.length === 0) return
-    const text = paragraph.join("\n").trim()
-    if (text) blocks.push({ type: "paragraph", text })
-    paragraph = []
-  }
-
-  for (const line of lines) {
-    const bullet = /^\s*[-*]\s+(.*)$/.exec(line)
-    if (bullet) {
-      flush()
-      blocks.push({ type: "bullet", text: bullet[1] })
-    } else if (line.trim() === "") {
-      flush()
-    } else {
-      paragraph.push(line)
-    }
-  }
-  flush()
-
-  if (blocks.length === 0) return null
-
-  return (
-    <div className="space-y-1.5 rounded-lg border border-dashed border-border bg-muted/15 p-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Xem trước{groupType === "flow_chart_completion" ? " · Flow chart" : ""}
-      </p>
-      <div className="exam-prose text-xs leading-relaxed">
-        {blocks.map((block, index) =>
-          block.type === "bullet" ? (
-            <ul key={`block-${index}`} className="my-0.5 list-disc pl-4">
-              <li>
-                <TemplatePreviewText
-                  text={block.text}
-                  keyPrefix={`bullet-${index}`}
-                />
-              </li>
-            </ul>
-          ) : (
-            <p key={`block-${index}`} className="my-0.5 whitespace-pre-line">
-              <TemplatePreviewText
-                text={block.text}
-                keyPrefix={`para-${index}`}
-              />
-            </p>
-          )
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * Compact answer-configuration table for template-based completion groups.
- *
- * The whole question text lives in `config.template`, so there is no per-question
- * "prompt" to author — teachers only map each `[X]` blank to its accepted answers
- * (or, for the word-bank variant, to the correct option letter).
- */
-function CompletionAnswerTable({
-  group,
-  numbering,
-  examReadonly,
-  isSummaryWithOptions,
-  optionsPool,
-  onUpdateQuestion,
-  onRemoveBlank,
-}: {
-  group:
-    | QuestionGroup
-    | (Omit<CandidateQuestionGroup, "questions"> & {
-        questions: QuestionItem[]
-      })
-  numbering: Map<string, number>
-  examReadonly: boolean
-  isSummaryWithOptions: boolean
-  optionsPool: Array<{ id: string; text: string }>
-  onUpdateQuestion: (questionId: string, patch: Partial<QuestionItem>) => void
-  onRemoveBlank: (q: QuestionItem) => void
-}) {
-  const questions = group.questions
-  /**
-   * Vị trí hiển thị của từng ô trống.
-   *
-   * Ưu tiên số ô trống trong template (`[1] [2]` → 1, 2) vì template mới là thứ
-   * học sinh đọc. Lấy `questionNumber` thô thì sau khi xoá một ô, bảng đáp án
-   * vẫn hiện số cũ cho tới lần đồng bộ kế tiếp. Khi số ô trống không khớp số
-   * câu hỏi (đang gõ dở) thì rơi về `numbering` như trước.
-   */
-  const positionByQuestionId = React.useMemo(() => {
-    const template =
-      typeof (group.config as Record<string, any> | undefined)?.template === "string"
-        ? ((group.config as Record<string, any>).template as string)
-        : ""
-    const blanks = extractTemplatePlaceholders(template)
-    const map = new Map<string, number>()
-    if (blanks.length === questions.length) {
-      questions.forEach((q, index) => map.set(q.id, blanks[index]))
-    }
-    return map
-  }, [group.config, questions])
-
-  return (
-    <div className="space-y-2 pt-1">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <Label className="text-xs font-bold text-foreground">
-            Cấu hình đáp án cho các ô trống ({questions.length})
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Nội dung câu hỏi đã nằm trong bài tóm tắt nên chỉ cần nhập đáp án —
-            danh sách tự đồng bộ theo các ô{" "}
-            <code className="rounded bg-muted px-1 font-mono font-bold text-primary">
-              [X]
-            </code>{" "}
-            trong template. Đáp án phân biệt chữ hoa/thường.
-          </p>
-        </div>
-        <Badge
-          variant="outline"
-          className="border-primary/30 bg-primary/5 text-[10px] font-semibold text-primary"
-        >
-          Tự đồng bộ
-        </Badge>
-      </div>
-
-      {questions.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border bg-muted/10 px-3 py-6 text-center text-xs text-muted-foreground">
-          Chưa có ô trống nào. Dùng nút{" "}
-          <span className="font-semibold text-foreground">“Chèn ô trống”</span>{" "}
-          ở khung template phía trên để tạo câu hỏi.
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[640px] border-collapse text-xs">
-            <thead>
-              <tr className="bg-muted/40 text-left text-[11px] tracking-wide text-muted-foreground uppercase">
-                <th className="w-16 border-b border-border px-3 py-2 font-semibold">
-                  Vị trí
-                </th>
-                <th className="border-b border-l border-border px-3 py-2 font-semibold">
-                  {isSummaryWithOptions
-                    ? "Đáp án (Word Bank)"
-                    : "Đáp án đúng (Accepted Answers)"}
-                </th>
-                <th className="w-20 border-b border-l border-border px-3 py-2 text-center font-semibold">
-                  Điểm
-                </th>
-                <th className="border-b border-l border-border px-3 py-2 font-semibold">
-                  Giải thích
-                </th>
-                <th className="w-10 border-b border-l border-border px-2 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {questions.map((q) => {
-                const qNum =
-                  positionByQuestionId.get(q.id) ??
-                  numbering.get(q.id) ??
-                  q.questionNumber
-                const accepted: string[] = (q as any).acceptedAnswers ?? []
-                const points = (q as any).points ?? 1
-                return (
-                  <tr
-                    key={q.id}
-                    className="transition-colors hover:bg-muted/20"
-                  >
-                    <td className="border-b border-border px-3 py-2 align-middle">
-                      <span className="inline-flex size-6 items-center justify-center rounded-md bg-primary/10 font-mono text-xs font-bold text-primary">
-                        {qNum}
-                      </span>
-                    </td>
-                    <td className="border-b border-l border-border px-3 py-2 align-middle">
-                      {isSummaryWithOptions ? (
-                        optionsPool.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {optionsPool.map((opt) => {
-                              const selected = accepted[0] === opt.id
-                              return (
-                                <button
-                                  key={opt.id}
-                                  type="button"
-                                  disabled={examReadonly}
-                                  title={opt.text || opt.id}
-                                  onClick={() =>
-                                    onUpdateQuestion(q.id, {
-                                      acceptedAnswers: [opt.id],
-                                    })
-                                  }
-                                  className={cn(
-                                    "flex size-6 items-center justify-center rounded border font-mono text-[10px] font-bold transition-colors",
-                                    selected
-                                      ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                                      : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
-                                  )}
-                                >
-                                  {opt.id}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">
-                            Chưa có Word Bank — thêm từ khóa ở phần phía trên.
-                          </span>
-                        )
-                      ) : (
-                        <AcceptedAnswersField
-                          answers={accepted}
-                          disabled={examReadonly}
-                          compact
-                          placeholder="VD: medicinal"
-                          onCommit={(next) =>
-                            onUpdateQuestion(q.id, { acceptedAnswers: next })
-                          }
-                        />
-                      )}
-                    </td>
-                    <td className="border-b border-l border-border px-3 py-2 text-center align-middle">
-                      <Input
-                        type="number"
-                        min={1}
-                        value={points}
-                        disabled={examReadonly}
-                        onChange={(e) =>
-                          onUpdateQuestion(q.id, {
-                            points: Number(e.target.value) || 1,
-                          })
-                        }
-                        className="h-7 w-14 text-center font-mono text-xs"
-                      />
-                    </td>
-                    <td className="border-b border-l border-border px-3 py-2 align-middle">
-                      <Input
-                        value={q.explanation ?? ""}
-                        disabled={examReadonly}
-                        onChange={(e) =>
-                          onUpdateQuestion(q.id, {
-                            explanation: e.target.value,
-                          })
-                        }
-                        className="h-7 text-[11px] text-muted-foreground"
-                        placeholder="Giải thích (tuỳ chọn)..."
-                      />
-                    </td>
-                    <td className="border-b border-l border-border px-2 py-2 text-center align-middle">
-                      {!examReadonly && (
-                        <button
-                          type="button"
-                          onClick={() => onRemoveBlank(q)}
-                          title="Xoá câu hỏi và ô trống tương ứng"
-                          className="text-muted-foreground hover:text-destructive"
-                        >
-                          <HugeiconsIcon icon={Delete02Icon} size={13} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   )
 }

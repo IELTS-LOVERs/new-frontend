@@ -84,16 +84,35 @@ export async function getTeacherAssignmentsApi(
   if (params.page) search.set("page", String(params.page))
   if (params.limit) search.set("limit", String(params.limit))
   const qs = search.toString()
-  const { data, meta } = await apiClient<any[]>(
+  const { data, meta } = await apiClient<Array<Record<string, unknown>>>(
     `/api/assignments${qs ? `?${qs}` : ""}`
   )
-  const items: AssignmentSummary[] = (data ?? []).map((item: any) => ({
-    ...item,
-    examTitle: item.examTitle || item.examId?.title || "",
-    className: item.className || item.classId?.name || null,
-    targetLabel: item.targetLabel || item.className || item.classId?.name || "—",
-    stats: item.stats ?? { assigned: 0, submitted: 0, inProgress: 0 },
-  }))
+  const items: AssignmentSummary[] = (data ?? []).map((item) => {
+    const rawExamId = item.examId
+    const rawClassId = item.classId
+    const examObj = rawExamId && typeof rawExamId === "object" ? (rawExamId as Record<string, unknown>) : null
+    const classObj = rawClassId && typeof rawClassId === "object" ? (rawClassId as Record<string, unknown>) : null
+
+    const examId = examObj ? String(examObj._id || examObj.id || "") : String(rawExamId || "")
+    const classId = classObj ? String(classObj._id || classObj.id || "") : rawClassId ? String(rawClassId) : null
+    const examTitle = (item.examTitle as string | undefined) || (examObj?.title as string | undefined) || ""
+    const className = (item.className as string | undefined) || (classObj?.name as string | undefined) || null
+
+    return {
+      ...(item as unknown as AssignmentSummary),
+      id: String(item.id || item._id || ""),
+      examId,
+      classId,
+      examTitle,
+      className,
+      targetLabel: (item.targetLabel as string | undefined) || className || "—",
+      stats: (item.stats as AssignmentSummary["stats"] | undefined) ?? {
+        assigned: 0,
+        submitted: 0,
+        inProgress: 0,
+      },
+    }
+  })
   return { items, meta: meta as PaginatedMeta | undefined }
 }
 
