@@ -53,23 +53,35 @@ export interface RefreshAccessTokenResult {
   errorCode?: string
 }
 
+let inFlightRefreshPromise: Promise<RefreshAccessTokenResult> | null = null
+
 export async function refreshAccessTokenApi(): Promise<RefreshAccessTokenResult> {
-  try {
-    const { data } = await apiClient<{ accessToken: string }>("/api/auth/refresh", {
-      method: "POST",
-      skipAuth: true,
-    })
-    const token = data?.accessToken ?? null
-    if (token) {
-      useAuthStore.getState().setAccessToken(token)
-    }
-    return { token }
-  } catch (err) {
-    if (err instanceof ApiError) {
-      return { token: null, errorCode: err.code }
-    }
-    return { token: null }
+  if (inFlightRefreshPromise) {
+    return inFlightRefreshPromise
   }
+
+  inFlightRefreshPromise = (async () => {
+    try {
+      const { data } = await apiClient<{ accessToken: string }>("/api/auth/refresh", {
+        method: "POST",
+        skipAuth: true,
+      })
+      const token = data?.accessToken ?? null
+      if (token) {
+        useAuthStore.getState().setAccessToken(token)
+      }
+      return { token }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        return { token: null, errorCode: err.code }
+      }
+      return { token: null }
+    } finally {
+      inFlightRefreshPromise = null
+    }
+  })()
+
+  return inFlightRefreshPromise
 }
 
 export async function changePasswordApi(payload: ChangePasswordPayload): Promise<string> {

@@ -2,9 +2,9 @@
 
 import * as React from "react"
 
-import { cn } from "@/lib/utils"
 import type { RichDoc, RichTextNodeJSON } from "@/lib/api/types"
-import { clampFontSize, textAlignStyle } from "./schema"
+import { cn } from "@/lib/utils"
+import { clampFontSize, textAlignStyle } from "./style-utils"
 
 const ALLOWED_LINK_PROTOCOLS = ["http:", "https:", "mailto:"]
 

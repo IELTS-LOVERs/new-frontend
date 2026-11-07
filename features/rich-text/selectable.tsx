@@ -12,7 +12,7 @@ import {
   type ExamHighlightItem,
 } from "@/features/exam-engine/lib/highlight"
 import { applyMarks } from "./render"
-import { textAlignStyle } from "./schema"
+import { textAlignStyle } from "./style-utils"
 
 const EMPTY_ITEMS: ExamHighlightItem[] = []
 

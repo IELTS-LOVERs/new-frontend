@@ -117,6 +117,109 @@ import {
 } from "@/features/exams/lib/exam-builder-helpers"
 import { BankGroupSheet } from "@/features/exams/components/bank-group-sheet"
 
+export function computeExamIssues(
+  exam: BuilderExam | CandidateExam | null,
+  openAt?: string | null,
+  closeAt?: string | null,
+  numbering?: Map<string, number>
+): Issue[] {
+  if (!exam) return []
+  const list: Issue[] = []
+  if (exam.title.trim().length < 3) {
+    list.push({ level: "error", message: "Tiêu đề cần tối thiểu 3 ký tự." })
+  }
+  if (exam.durationMinutes < 10 || exam.durationMinutes > 180) {
+    list.push({ level: "error", message: "Thời lượng phải trong khoảng 10–180 phút." })
+  }
+  if (exam.kind === "practice") {
+    if (exam.sections.length === 0) {
+      list.push({
+        level: "error",
+        message: "Bài luyện tập phải có ít nhất 1 phần thi (section).",
+      })
+    } else {
+      if (
+        exam.curriculum?.part !== undefined &&
+        exam.sections.length === 1 &&
+        exam.sections[0].part !== undefined &&
+        exam.sections[0].skill !== "writing" &&
+        exam.curriculum.part !== exam.sections[0].part
+      ) {
+        list.push({
+          level: "error",
+          message: `Phần lộ trình (${exam.curriculum.part}) phải khớp với phần thi (${exam.sections[0].part}).`,
+          sectionIndex: 0,
+        })
+      }
+    }
+  }
+  exam.sections.forEach((section, index) => {
+    const groups = section.questionGroups ?? []
+    const totalQs = groups.reduce((acc, g) => acc + g.questions.length, 0)
+    if (totalQs === 0) {
+      list.push({
+        level: "error",
+        message: `${SKILL_LABEL[section.skill]} · ${section.title} đang trống (0 câu hỏi).`,
+        sectionIndex: index,
+      })
+    }
+    groups.forEach((g) => {
+      if (g.questions.length === 0) {
+        list.push({
+          level: "error",
+          message: `${section.title}: Nhóm "${QUESTION_GROUP_TYPE_LABEL[g.groupType] || g.groupType}" không được để trống (0 câu hỏi).`,
+          sectionIndex: index,
+        })
+      }
+      if (section.skill !== "writing") {
+        g.questions.forEach((q) => {
+          const answers = (q as QuestionItem).acceptedAnswers ?? []
+          if (answers.length === 0) {
+            list.push({
+              level: "error",
+              message: `${section.title}: Câu số ${numbering?.get(q.id) ?? q.questionNumber} chưa thiết lập đáp án đúng.`,
+              sectionIndex: index,
+            })
+          }
+        })
+      }
+    })
+    if (
+      section.skill === "listening" &&
+      !((section.media ?? []).length > 0 || (section.mediaIds?.length ?? 0) > 0)
+    ) {
+      list.push({
+        level: "warning",
+        message: `${section.title} thiếu tệp audio.`,
+        sectionIndex: index,
+      })
+    }
+    if (section.skill === "reading" && !section.passageText?.trim()) {
+      list.push({
+        level: "warning",
+        message: `${section.title} thiếu nội dung bài đọc.`,
+        sectionIndex: index,
+      })
+    }
+    if (section.skill === "writing") {
+      const writingGroups = groups.filter(
+        (g) => g.groupType === "writing_task_1" || g.groupType === "writing_task_2"
+      )
+      if (writingGroups.length !== 1) {
+        list.push({
+          level: "warning",
+          message: `${section.title} cần đúng 1 nhóm writing_task.`,
+          sectionIndex: index,
+        })
+      }
+    }
+  })
+  if (openAt && closeAt && new Date(openAt) >= new Date(closeAt)) {
+    list.push({ level: "error", message: "Mở lúc phải trước Đóng lúc." })
+  }
+  return list
+}
+
 export default function ExamBuilderPage() {
   const params = useParams<{ examId: string }>()
   const examId = params.examId
@@ -221,6 +324,33 @@ export default function ExamBuilderPage() {
   const attemptsCount = examQuery.data?.attemptsCount ?? 0
   const activeAttemptsCount = examQuery.data?.activeAttemptsCount ?? 0
 
+  const structureKey = React.useMemo(() => {
+    if (!exam?.sections) return ""
+    return exam.sections
+      .map(
+        (sec) =>
+          `${sec.skill}:${(sec.questionGroups ?? [])
+            .map((g) => `${g.id}:${g.questions.map((q) => q.id).join(",")}`)
+            .join(";")}`
+      )
+      .join("|")
+  }, [exam?.sections])
+
+  const numbering = React.useMemo(() => {
+    const map = new Map<string, number>()
+    const counters: Record<string, number> = { listening: 0, reading: 0, writing: 0 }
+    exam?.sections.forEach((sec) => {
+      for (const group of sec.questionGroups ?? []) {
+        for (const q of group.questions) {
+          counters[sec.skill] += 1
+          map.set(q.id, counters[sec.skill])
+        }
+      }
+    })
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureKey])
+
   const doSave = React.useCallback(
     async (options: { force?: boolean } = {}) => {
       const snapshot = latestRef.current
@@ -234,7 +364,8 @@ export default function ExamBuilderPage() {
       }
 
       if (isLive) {
-        if (issuesRef.current.some((issue) => issue.level === "error")) {
+        const liveIssues = computeExamIssues(snapshot.exam, snapshot.openAt, snapshot.closeAt, numbering)
+        if (liveIssues.some((issue) => issue.level === "error")) {
           setSaveStatus("error")
           return
         }
@@ -257,7 +388,7 @@ export default function ExamBuilderPage() {
         reportSaveError(err, "Lưu đề thất bại.")
       }
     },
-    [updateMutation, reportSaveError, activeAttemptsCount]
+    [updateMutation, reportSaveError, activeAttemptsCount, numbering]
   )
 
   const markDirty = React.useCallback(() => {
@@ -274,7 +405,13 @@ export default function ExamBuilderPage() {
    */
   const handleExplicitSave = React.useCallback(async () => {
     const isLive = latestRef.current.status !== "draft"
-    if (isLive && issuesRef.current.some((issue) => issue.level === "error")) {
+    const currentIssues = computeExamIssues(
+      latestRef.current.exam,
+      latestRef.current.openAt,
+      latestRef.current.closeAt,
+      numbering
+    )
+    if (isLive && currentIssues.some((issue) => issue.level === "error")) {
       setErrorsOpen(true)
       return
     }
@@ -283,7 +420,7 @@ export default function ExamBuilderPage() {
       return
     }
     await doSave({ force: true })
-  }, [doSave, activeAttemptsCount])
+  }, [doSave, activeAttemptsCount, numbering])
 
   const confirmSave = React.useCallback(async () => {
     setSaveConfirmOpen(false)
@@ -322,117 +459,12 @@ export default function ExamBuilderPage() {
     markDirty()
   }
 
-  const numbering = React.useMemo(() => {
-    const map = new Map<string, number>()
-    const counters: Record<string, number> = { listening: 0, reading: 0, writing: 0 }
-    exam?.sections.forEach((sec) => {
-      for (const group of sec.questionGroups ?? []) {
-        for (const q of group.questions) {
-          counters[sec.skill] += 1
-          map.set(q.id, counters[sec.skill])
-        }
-      }
-    })
-    return map
-  }, [exam?.sections])
-
+  const deferredExam = React.useDeferredValue(exam)
+  const deferredOpenAt = React.useDeferredValue(openAt)
+  const deferredCloseAt = React.useDeferredValue(closeAt)
   const issues = React.useMemo<Issue[]>(() => {
-    if (!exam) return []
-    const list: Issue[] = []
-    if (exam.title.trim().length < 3) {
-      list.push({ level: "error", message: "Tiêu đề cần tối thiểu 3 ký tự." })
-    }
-    if (exam.durationMinutes < 10 || exam.durationMinutes > 180) {
-      list.push({ level: "error", message: "Thời lượng phải trong khoảng 10–180 phút." })
-    }
-    if (exam.kind === "practice") {
-      if (exam.sections.length === 0) {
-        list.push({
-          level: "error",
-          message: "Bài luyện tập phải có ít nhất 1 phần thi (section).",
-        })
-      } else {
-        if (
-          exam.curriculum?.part !== undefined &&
-          exam.sections.length === 1 &&
-          exam.sections[0].part !== undefined &&
-          exam.sections[0].skill !== "writing" &&
-          exam.curriculum.part !== exam.sections[0].part
-        ) {
-          list.push({
-            level: "error",
-            message: `Phần lộ trình (${exam.curriculum.part}) phải khớp với phần thi (${exam.sections[0].part}).`,
-            sectionIndex: 0,
-          })
-        }
-      }
-    }
-    exam.sections.forEach((section, index) => {
-      const groups = section.questionGroups ?? []
-      const totalQs = groups.reduce((acc, g) => acc + g.questions.length, 0)
-      if (totalQs === 0) {
-        list.push({
-          level: "error",
-          message: `${SKILL_LABEL[section.skill]} · ${section.title} đang trống (0 câu hỏi).`,
-          sectionIndex: index,
-        })
-      }
-      groups.forEach((g) => {
-        if (g.questions.length === 0) {
-          list.push({
-            level: "error",
-            message: `${section.title}: Nhóm "${QUESTION_GROUP_TYPE_LABEL[g.groupType] || g.groupType}" không được để trống (0 câu hỏi).`,
-            sectionIndex: index,
-          })
-        }
-        if (section.skill !== "writing") {
-          g.questions.forEach((q) => {
-            const answers = q.acceptedAnswers ?? []
-            if (answers.length === 0) {
-              list.push({
-                level: "error",
-                message: `${section.title}: Câu số ${numbering.get(q.id) ?? q.questionNumber} chưa thiết lập đáp án đúng.`,
-                sectionIndex: index,
-              })
-            }
-          })
-        }
-      })
-      if (
-        section.skill === "listening" &&
-        !((section.media ?? []).length > 0 || (section.mediaIds?.length ?? 0) > 0)
-      ) {
-        list.push({
-          level: "warning",
-          message: `${section.title} thiếu tệp audio.`,
-          sectionIndex: index,
-        })
-      }
-      if (section.skill === "reading" && !section.passageText?.trim()) {
-        list.push({
-          level: "warning",
-          message: `${section.title} thiếu nội dung bài đọc.`,
-          sectionIndex: index,
-        })
-      }
-      if (section.skill === "writing") {
-        const writingGroups = groups.filter(
-          (g) => g.groupType === "writing_task_1" || g.groupType === "writing_task_2"
-        )
-        if (writingGroups.length !== 1) {
-          list.push({
-            level: "warning",
-            message: `${section.title} cần đúng 1 nhóm writing_task.`,
-            sectionIndex: index,
-          })
-        }
-      }
-    })
-    if (openAt && closeAt && new Date(openAt) >= new Date(closeAt)) {
-      list.push({ level: "error", message: "Mở lúc phải trước Đóng lúc." })
-    }
-    return list
-  }, [exam, openAt, closeAt, numbering])
+    return computeExamIssues(deferredExam, deferredOpenAt, deferredCloseAt, numbering)
+  }, [deferredExam, deferredOpenAt, deferredCloseAt, numbering])
 
   const errors = issues.filter((i) => i.level === "error")
   const warnings = issues.filter((i) => i.level === "warning")
@@ -880,11 +912,19 @@ export default function ExamBuilderPage() {
   }
 
   const handlePublish = () => {
-    if (errors.length > 0) {
+    const currentIssues = computeExamIssues(
+      latestRef.current.exam,
+      latestRef.current.openAt,
+      latestRef.current.closeAt,
+      numbering
+    )
+    const currentErrors = currentIssues.filter((i) => i.level === "error")
+    const currentWarnings = currentIssues.filter((i) => i.level === "warning")
+    if (currentErrors.length > 0) {
       setErrorsOpen(true)
       return
     }
-    if (warnings.length > 0) {
+    if (currentWarnings.length > 0) {
       setPublishConfirmOpen(true)
       return
     }

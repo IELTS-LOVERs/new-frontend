@@ -4,12 +4,20 @@ import * as React from "react"
 import { parseAsInteger, parseAsString, useQueryState } from "nuqs"
 import { PageHeader } from "@/components/shared/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
-import { BankGroupForm } from "@/features/questions/bank-group-form"
+import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent } from "@/components/ui/card"
+
+const BankGroupForm = dynamic(
+  () => import("@/features/questions/bank-group-form").then((m) => m.BankGroupForm),
+  {
+    loading: () => <Skeleton className="h-96 w-full" />,
+    ssr: false,
+  }
+)
 import {
   Table,
   TableBody,

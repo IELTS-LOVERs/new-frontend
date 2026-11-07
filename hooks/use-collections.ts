@@ -26,7 +26,7 @@ export function useCollectionsQuery(params: ListCollectionsParams = {}, enabled 
     queryKey: queryKeys.collections.list(params as Record<string, unknown>),
     queryFn: () => getCollectionsApi(params),
     enabled,
-    staleTime: 30_000,
+    staleTime: 5 * 60 * 1000,
     placeholderData: (prev) => prev,
   })
 }
@@ -36,7 +36,7 @@ export function useCollectionTreeQuery(enabled = true) {
     queryKey: queryKeys.collections.tree(),
     queryFn: () => getCollectionTreeApi(),
     enabled,
-    staleTime: 30_000,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -45,9 +45,10 @@ export function useCollectionDetailQuery(id: string, enabled = true) {
     queryKey: queryKeys.collections.detail(id),
     queryFn: () => getCollectionDetailApi(id),
     enabled: enabled && !!id,
-    staleTime: 30_000,
+    staleTime: 5 * 60 * 1000,
   })
 }
+
 
 export function useCreateCollectionMutation() {
   const queryClient = useQueryClient()

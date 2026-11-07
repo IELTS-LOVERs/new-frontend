@@ -150,17 +150,53 @@ export function useAutosave(
     }
   }, [answers, phase])
 
-  // FIX-06: ghi snapshot vào IndexedDB NGAY khi answers hoặc highlights đổi (không throttle), để
-  // F5/đóng tab trong vòng vài ms vẫn còn dữ liệu local.
+  // FIX-06: ghi snapshot vào IndexedDB với leading-edge + trailing throttle 300ms:
+  // nhịp gõ đầu tiên ghi ngay lập tức (đảm bảo F5/đóng tab tức thì vẫn còn data),
+  // các nhịp gõ liên tiếp trong 300ms được gộp lại giảm tải IndexedDB I/O.
+  const isMountedRef = React.useRef(false)
+  const lastSnapshotAtRef = React.useRef(-Infinity)
+  const snapshotTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
   React.useEffect(() => {
     if (!attemptId) return
-    const state = useExamSessionStore.getState()
-    void saveAttemptSnapshot(attemptId, {
-      answers: state.answers,
-      flagged: state.flagged,
-      highlights: state.highlights,
-      savedAt: Date.now(),
-    })
+    if (!isMountedRef.current) {
+      isMountedRef.current = true
+      return
+    }
+
+    const now = Date.now()
+    const elapsed = now - lastSnapshotAtRef.current
+
+    const persistSnapshot = () => {
+      lastSnapshotAtRef.current = Date.now()
+      const state = useExamSessionStore.getState()
+      void saveAttemptSnapshot(attemptId, {
+        answers: state.answers,
+        flagged: state.flagged,
+        highlights: state.highlights,
+        savedAt: Date.now(),
+      })
+    }
+
+    if (elapsed >= 300) {
+      if (snapshotTimeoutRef.current) {
+        clearTimeout(snapshotTimeoutRef.current)
+        snapshotTimeoutRef.current = null
+      }
+      persistSnapshot()
+    } else if (!snapshotTimeoutRef.current) {
+      snapshotTimeoutRef.current = setTimeout(() => {
+        snapshotTimeoutRef.current = null
+        persistSnapshot()
+      }, 300 - elapsed)
+    }
+
+    return () => {
+      if (snapshotTimeoutRef.current) {
+        clearTimeout(snapshotTimeoutRef.current)
+        snapshotTimeoutRef.current = null
+      }
+    }
   }, [answers, highlights, attemptId])
 
   // flush khi tab ẩn / đóng
