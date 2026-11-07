@@ -112,7 +112,7 @@ export interface GroupConfig {
   [key: string]: unknown
 }
 
-export function QuestionGroupEditor({
+function QuestionGroupEditorInner({
   group,
   examReadonly,
   numbering,
@@ -1060,4 +1060,15 @@ export function QuestionGroupEditor({
     </div>
   )
 }
+
+export const QuestionGroupEditor = React.memo(
+  QuestionGroupEditorInner,
+  (prev, next) => {
+    if (prev.examReadonly !== next.examReadonly) return false
+    if (prev.savingToBank !== next.savingToBank) return false
+    if (prev.numbering !== next.numbering) return false
+    if (prev.group !== next.group) return false
+    return true
+  }
+)
 

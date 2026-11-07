@@ -7,7 +7,7 @@ import { getMeApi, refreshAccessTokenApi } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/client"
 import { forceLogout, decodeJwtExpMs } from "@/lib/auth-session"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { UserRole } from "@/lib/api/types"
+import type { User, UserRole } from "@/lib/api/types"
 
 interface AuthGateProps {
   children: React.ReactNode
@@ -27,7 +27,30 @@ export function AuthGate({ children, allowedRoles }: AuthGateProps) {
   const pathname = usePathname()
   const { user, accessToken, isAuthenticated, isHydrated, setAuth, setHydrated, setUser, logout } =
     useAuthStore()
-  const [status, setStatus] = React.useState<"checking" | "ready" | "redirecting">("checking")
+  const [status, setStatus] = React.useState<"checking" | "ready" | "redirecting">(() => {
+    if (typeof window === "undefined") return "checking"
+    const currentStore = useAuthStore.getState()
+    if (currentStore.isAuthenticated && currentStore.user && currentStore.accessToken) {
+      const expMs = decodeJwtExpMs(currentStore.accessToken)
+      const isExpired = expMs !== null && expMs <= Date.now()
+      if (!isExpired && allowedRoles.includes(currentStore.user.role)) {
+        return "ready"
+      }
+    }
+    try {
+      const token = sessionStorage.getItem("ielts_access_token")
+      const userStr = sessionStorage.getItem("ielts_user")
+      if (token && userStr) {
+        const parsedUser = JSON.parse(userStr) as User
+        const expMs = decodeJwtExpMs(token)
+        const isExpired = expMs !== null && expMs <= Date.now()
+        if (!isExpired && allowedRoles.includes(parsedUser.role)) {
+          return "ready"
+        }
+      }
+    } catch {}
+    return "checking"
+  })
 
   // ─── Proactive silent auto-refresh timer ───
   React.useEffect(() => {

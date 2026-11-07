@@ -32,7 +32,10 @@ export function SubmitReviewDialog({
   onConfirm,
   submitting,
 }: SubmitReviewDialogProps) {
-  const sections = computeSectionReviews(exam, answers, flagged)
+  const sections = React.useMemo(() => {
+    if (!open) return []
+    return computeSectionReviews(exam, answers, flagged)
+  }, [open, exam, answers, flagged])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

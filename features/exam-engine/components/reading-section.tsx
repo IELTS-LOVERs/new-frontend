@@ -34,37 +34,46 @@ export function ReadingSection({
   const setHighlights = useExamSessionStore((s) => s.setHighlights)
   const isMobile = useIsMobile()
 
-  const passageContent = (
-    <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
-      <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 flex items-center justify-between gap-2 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur-xs sm:-mx-6 sm:-mt-6 sm:mb-6 sm:px-6 sm:py-3 md:-mx-8 md:-mt-6 md:mb-6 md:px-8 md:py-3.5 lg:-mx-10 lg:px-10">
-        <Badge
-          variant="outline"
-          className="text-xs sm:text-sm font-semibold text-primary truncate max-w-[160px] sm:max-w-none"
-        >
-          {section.title}
-        </Badge>
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <span className="hidden text-xs text-muted-foreground lg:inline">
-            {selectionDisabled
-              ? "Vẫn có thể bôi đen để highlight / ghi chú · Không thể sao chép"
-              : "Bôi đen để highlight / ghi chú"}
-          </span>
-          <HighlightControls />
+  const passageContent = React.useMemo(
+    () => (
+      <div className="w-full space-y-4 p-4 sm:space-y-6 sm:p-6 md:px-8 md:py-6 lg:px-10 lg:py-8">
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 flex items-center justify-between gap-2 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur-xs sm:-mx-6 sm:-mt-6 sm:mb-6 sm:px-6 sm:py-3 md:-mx-8 md:-mt-6 md:mb-6 md:px-8 md:py-3.5 lg:-mx-10 lg:px-10">
+          <Badge
+            variant="outline"
+            className="text-xs sm:text-sm font-semibold text-primary truncate max-w-[160px] sm:max-w-none"
+          >
+            {section.title}
+          </Badge>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <span className="hidden text-xs text-muted-foreground lg:inline">
+              {selectionDisabled
+                ? "Vẫn có thể bôi đen để highlight / ghi chú · Không thể sao chép"
+                : "Bôi đen để highlight / ghi chú"}
+            </span>
+            <HighlightControls />
+          </div>
+        </div>
+        <MediaImages media={section.media} className="mb-4" />
+
+        <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
+          {section.passageDoc ? (
+            <SelectableRichDoc targetId="passage" doc={section.passageDoc} />
+          ) : (
+            <SelectableHighlightedText
+              targetId="passage"
+              text={section.passageText ?? ""}
+            />
+          )}
         </div>
       </div>
-      <MediaImages media={section.media} className="mb-4" />
-
-      <div className="space-y-6 font-serif text-[15px] sm:text-base md:text-[17px] lg:text-[18px] leading-[1.85] whitespace-pre-line text-foreground/95 select-text tracking-normal">
-        {section.passageDoc ? (
-          <SelectableRichDoc targetId="passage" doc={section.passageDoc} />
-        ) : (
-          <SelectableHighlightedText
-            targetId="passage"
-            text={section.passageText ?? ""}
-          />
-        )}
-      </div>
-    </div>
+    ),
+    [
+      section.title,
+      selectionDisabled,
+      section.media,
+      section.passageDoc,
+      section.passageText,
+    ]
   )
 
   const questionsContent = (
